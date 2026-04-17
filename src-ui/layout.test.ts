@@ -68,3 +68,49 @@ describe("style.css", () => {
     expect(css).toContain(".pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb");
   });
 });
+
+describe("tab bar styling (modern chrome-seamless)", () => {
+  const activeRule =
+    css.match(/\.tab\.active\s*\{([^}]*)\}/)?.[1] ?? "";
+  const tabRule =
+    css.match(/\.tab\s*\{([^}]*)\}/)?.[1] ?? "";
+  const tabBarRule =
+    css.match(/#tab-bar\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  it("active tab has NO border-bottom (no underline indicator)", () => {
+    expect(activeRule).not.toMatch(/border-bottom/);
+  });
+
+  it("tab bar has NO border-bottom (seamless into terminal area)", () => {
+    expect(tabBarRule).not.toMatch(/border-bottom/);
+  });
+
+  it("inactive tab has top-only rounded corners (8px 8px 0 0)", () => {
+    expect(tabRule).toMatch(/border-radius:\s*8px\s+8px\s+0\s+0/);
+  });
+
+  it("active tab background uses --bg (matches terminal area)", () => {
+    expect(activeRule).toMatch(/background:\s*var\(--bg\)/);
+  });
+
+  it("active tab is nudged 1px forward to overlap the seam", () => {
+    expect(activeRule).toMatch(/position:\s*relative/);
+    expect(activeRule).toMatch(/top:\s*1px/);
+  });
+
+  it("tab bar uses a 2px gap between tabs", () => {
+    expect(tabBarRule).toMatch(/gap:\s*2px/);
+  });
+
+  it("tab bar anchors tabs to the bottom edge (align-items: flex-end)", () => {
+    expect(tabBarRule).toMatch(/align-items:\s*flex-end/);
+  });
+
+  it("inactive tabs have a hover state distinct from the active rule", () => {
+    expect(css).toMatch(/\.tab:hover:not\(\.active\)/);
+  });
+
+  it("no border-right separator between tabs", () => {
+    expect(tabRule).not.toMatch(/border-right/);
+  });
+});
