@@ -36,6 +36,9 @@
       "resources/shell/kimbo-init.zsh",
       "resources/shell/kimbo-init.bash",
       "resources/shell/kimbo-init.fish"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    }
   }
 }

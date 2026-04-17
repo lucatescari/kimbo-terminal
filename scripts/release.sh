@@ -89,6 +89,71 @@ fi
 
 echo -e "  ${GREEN}Built:${NC} ${DMG_PATH}"
 
+# ---- Step 2b: Verify signing + entitlements ----
+echo ""
+echo -e "${CYAN}Verifying signed bundle...${NC}"
+
+# Signature verification.
+if codesign --verify --deep --strict "$APP_PATH" 2>/dev/null; then
+  echo -e "  ${GREEN}✓${NC} Code signature valid"
+else
+  echo -e "  ${RED}✗${NC} Code signature verification failed:"
+  codesign --verify --deep --strict --verbose=2 "$APP_PATH" || true
+  exit 1
+fi
+
+# Hardened runtime flag (required for notarization).
+if codesign -d --verbose=2 "$APP_PATH" 2>&1 | grep -qE 'flags=.*runtime'; then
+  echo -e "  ${GREEN}✓${NC} Hardened runtime enabled"
+else
+  echo -e "  ${RED}✗${NC} Hardened runtime NOT enabled (notarization will fail)"
+  exit 1
+fi
+
+# Gatekeeper assessment (notarization stapled).
+SPCTL_OUT=$(spctl --assess --type execute --verbose "$APP_PATH" 2>&1 || true)
+if echo "$SPCTL_OUT" | grep -q "accepted"; then
+  echo -e "  ${GREEN}✓${NC} Gatekeeper accepts bundle (notarized + stapled)"
+else
+  echo -e "  ${YELLOW}⚠${NC} Gatekeeper did not accept:"
+  echo "$SPCTL_OUT" | sed 's/^/      /'
+fi
+
+# Entitlements dump.
+echo ""
+echo -e "${CYAN}Entitlements:${NC}"
+ENT_PLIST=$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true)
+if [[ -z "$ENT_PLIST" ]]; then
+  echo -e "  ${YELLOW}(none embedded)${NC}"
+else
+  if command -v plutil >/dev/null 2>&1; then
+    echo "$ENT_PLIST" | plutil -p - 2>/dev/null | sed 's/^/  /' || echo "$ENT_PLIST" | sed 's/^/  /'
+  else
+    echo "$ENT_PLIST" | sed 's/^/  /'
+  fi
+fi
+
+# Assert required entitlements are present.
+REQUIRED_ENTS=("com.apple.security.network.client")
+MISSING_ENTS=()
+for ent in "${REQUIRED_ENTS[@]}"; do
+  if ! echo "$ENT_PLIST" | grep -q "$ent"; then
+    MISSING_ENTS+=("$ent")
+  fi
+done
+
+if [[ ${#MISSING_ENTS[@]} -gt 0 ]]; then
+  echo ""
+  echo -e "${RED}Missing required entitlements:${NC}"
+  for ent in "${MISSING_ENTS[@]}"; do
+    echo -e "  ${RED}✗${NC} ${ent}"
+  done
+  echo -e "${RED}Aborting — fix src-tauri/entitlements.plist and rebuild.${NC}"
+  exit 1
+fi
+
+echo -e "  ${GREEN}All required entitlements present${NC}"
+
 # ---- Step 3: Run tests ----
 echo ""
 echo -e "${CYAN}Running tests...${NC}"
