@@ -1,6 +1,6 @@
 {
   "name": "kimbo-terminal",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "description": "A fast, themeable terminal emulator built with Rust and Tauri",
   "author": "Luca Tescari",
   "license": "MIT",
