@@ -1,0 +1,41 @@
+# Build artifacts
+/target/
+dist/
+*.dmg
+*.app
+
+# Dependencies
+node_modules/
+
+# Tauri generated
+src-tauri/gen/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Development tools
+.superpowers/
+docs/superpowers/
+TEST_README.md
+
+# MCP config (local)
+.mcp.json
+
+# Git worktrees
+.worktrees/

@@ -1,0 +1,17 @@
+[package]
+name = "kimbo-config"
+version = "0.1.2"
+edition = "2021"
+
+[dependencies]
+toml.workspace = true
+serde.workspace = true
+dirs.workspace = true
+notify.workspace = true
+log.workspace = true
+anyhow.workspace = true
+ureq.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,106 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+const keysSource = readFileSync(resolve(__dirname, "keys.ts"), "utf-8");
+const mainSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
+const settingsSource = readFileSync(resolve(__dirname, "settings.ts"), "utf-8");
+
+describe("settings: shortcut registration", () => {
+  it("Cmd+, shortcut is registered in keys.ts", () => {
+    expect(keysSource).toMatch(/key:\s*",".*meta:\s*true/);
+  });
+
+  it("keys.ts imports toggleSettings from settings", () => {
+    expect(keysSource).toContain("toggleSettings");
+    expect(keysSource).toContain('from "./settings"');
+  });
+
+  it("Escape closes settings when visible", () => {
+    expect(keysSource).toContain("isSettingsVisible()");
+    expect(keysSource).toContain("hideSettings()");
+  });
+});
+
+describe("settings: module exports", () => {
+  it("exports initSettings", () => {
+    expect(settingsSource).toContain("export function initSettings");
+  });
+
+  it("exports toggleSettings", () => {
+    expect(settingsSource).toContain("export async function toggleSettings");
+  });
+
+  it("exports hideSettings", () => {
+    expect(settingsSource).toContain("export function hideSettings");
+  });
+
+  it("exports isSettingsVisible", () => {
+    expect(settingsSource).toContain("export function isSettingsVisible");
+  });
+});
+
+describe("settings: categories", () => {
+  it("has General category", () => {
+    expect(settingsSource).toContain('"general"');
+    expect(settingsSource).toContain('"General"');
+  });
+
+  it("has Appearance category with theme selector", () => {
+    expect(settingsSource).toContain('"appearance"');
+    expect(settingsSource).toContain("loadTheme");
+  });
+
+  it("has Font category", () => {
+    expect(settingsSource).toContain('"font"');
+    expect(settingsSource).toContain("Font Family");
+    expect(settingsSource).toContain("Font Size");
+  });
+
+  it("has Workspaces category with scan dirs", () => {
+    expect(settingsSource).toContain('"workspaces"');
+    expect(settingsSource).toContain("scan_dirs");
+    expect(settingsSource).toContain("Add directory");
+  });
+
+  it("has Advanced category with scrollback and cursor", () => {
+    expect(settingsSource).toContain('"advanced"');
+    expect(settingsSource).toContain("Scrollback Lines");
+    expect(settingsSource).toContain("Cursor Style");
+    expect(settingsSource).toContain("Cursor Blink");
+  });
+
+  it("has all 5 categories", () => {
+    const categories = ["general", "appearance", "font", "workspaces", "advanced"];
+    for (const cat of categories) {
+      expect(settingsSource).toContain(`"${cat}"`);
+    }
+  });
+});
+
+describe("settings: config persistence", () => {
+  it("calls invoke('save_config') to persist changes", () => {
+    expect(settingsSource).toContain('invoke("save_config"');
+  });
+
+  it("calls invoke('get_config') to load config", () => {
+    expect(settingsSource).toContain("get_config");
+    expect(settingsSource).toContain("invoke");
+  });
+
+  it("calls invoke('list_unified_themes') for theme list", () => {
+    expect(settingsSource).toContain("list_unified_themes");
+    expect(settingsSource).toContain("invoke");
+  });
+});
+
+describe("settings: main.ts integration", () => {
+  it("main.ts imports initSettings", () => {
+    expect(mainSource).toContain("initSettings");
+    expect(mainSource).toContain('from "./settings"');
+  });
+
+  it("main.ts calls initSettings with terminalArea", () => {
+    expect(mainSource).toContain("initSettings(terminalArea)");
+  });
+});

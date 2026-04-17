@@ -1,0 +1,39 @@
+{
+  "name": "Kimbo Light",
+  "type": "light",
+  "author": "lucatescari",
+  "version": "1.0.0",
+  "colors": {
+    "terminal.background": "#f5f2eb",
+    "terminal.foreground": "#2a2a2a",
+    "terminal.cursor": "#1a1a1a",
+    "terminal.selectionBackground": "#e0dcd3",
+
+    "terminal.ansiBlack": "#3b3b3b",
+    "terminal.ansiRed": "#c0392b",
+    "terminal.ansiGreen": "#4c7c37",
+    "terminal.ansiYellow": "#a67c2f",
+    "terminal.ansiBlue": "#2e6fa6",
+    "terminal.ansiMagenta": "#a45e9e",
+    "terminal.ansiCyan": "#2a8a7a",
+    "terminal.ansiWhite": "#8a8a8a",
+
+    "terminal.ansiBrightBlack": "#5a5a5a",
+    "terminal.ansiBrightRed": "#c0392b",
+    "terminal.ansiBrightGreen": "#4c7c37",
+    "terminal.ansiBrightYellow": "#a67c2f",
+    "terminal.ansiBrightBlue": "#2e6fa6",
+    "terminal.ansiBrightMagenta": "#a45e9e",
+    "terminal.ansiBrightCyan": "#2a8a7a",
+    "terminal.ansiBrightWhite": "#1a1a1a",
+
+    "tab.activeBackground": "#f5f2eb",
+    "tab.inactiveBackground": "#e4e2da",
+    "tab.activeForeground": "#2a2a2a",
+    "tab.inactiveForeground": "#7a7a7a",
+
+    "titleBar.background": "#ecebe4",
+    "panel.border": "#d9d6cd",
+    "panel.activeBorder": "#2e6fa6"
+  }
+}

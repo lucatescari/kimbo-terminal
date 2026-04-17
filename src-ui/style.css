@@ -1,0 +1,269 @@
+:root {
+  --bg: #1e1e2e;
+  --fg: #cdd6f4;
+  --cursor: #f5e0dc;
+  --titlebar-bg: #181825;
+  --tab-bar-bg: #1e1e2e;
+  --tab-active-bg: #313244;
+  --tab-inactive-bg: #1e1e2e;
+  --tab-active-fg: #cdd6f4;
+  --tab-inactive-fg: #6c7086;
+  --border: #313244;
+  --active-border: #89b4fa;
+  --surface: #313244;
+  --accent-red: #f38ba8;
+  --accent-yellow: #f9e2af;
+  --accent-blue: #89b4fa;
+  --accent-green: #a6e3a1;
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Give native form controls a sensible light/dark appearance based on the
+   active theme's background, and use the theme foreground for the text
+   caret so inputs feel native on light themes too. */
+input,
+select,
+textarea,
+button {
+  caret-color: var(--fg);
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----- Tab bar ----- */
+
+#tab-bar {
+  height: 36px;
+  background: var(--tab-bar-bg);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--tab-inactive-fg);
+  background: var(--tab-inactive-bg);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.tab.active {
+  color: var(--tab-active-fg);
+  background: var(--tab-active-bg);
+  border-bottom: 2px solid var(--active-border);
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tab:hover .tab-close { opacity: 0.7; }
+.tab-close:hover { opacity: 1 !important; background: var(--surface); }
+
+.tab-new {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 16px;
+  color: var(--tab-inactive-fg);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab-new:hover { color: var(--tab-active-fg); }
+
+/* ----- Terminal area ----- */
+
+#terminal-area {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-terminal-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* ----- Panes ----- */
+
+.pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.pane.active {
+  border: 2px solid var(--active-border);
+}
+
+/* ----- File drag-drop target ----- */
+
+.pane.drop-target {
+  outline: 2px dashed var(--active-border);
+  outline-offset: -2px;
+}
+
+.pane.drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--active-border);
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.pane-drop-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--active-border);
+  color: var(--bg, #000);
+  font: 13px/1.3 -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+.pane-container {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-container.vertical { flex-direction: row; }
+.pane-container.horizontal { flex-direction: column; }
+
+.split-handle {
+  flex-shrink: 0;
+  background: var(--border);
+  transition: background 0.15s;
+  z-index: 1;
+}
+
+.split-handle:hover { background: var(--active-border); }
+.split-handle.vertical { width: 2px; cursor: col-resize; }
+.split-handle.horizontal { height: 2px; cursor: row-resize; }
+
+/* ----- xterm.js container ----- */
+
+.terminal-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ----- xterm.js scrollbar override ----- */
+
+/* The xterm-viewport is the scrollable container inside xterm.js.
+   We make the scrollbar very thin and translucent, only visible on hover. */
+
+.xterm .xterm-viewport {
+  scrollbar-width: none; /* Firefox: hide completely */
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.0);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+/* Only show scrollbar thumb when hovering the terminal pane */
+.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ----- Skeleton loading animation ----- */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ----- Overlay ----- */
+
+#overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#overlay.hidden { display: none; }
