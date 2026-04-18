@@ -37,3 +37,18 @@ describe("terminal: Shift+Enter sends meta-Enter sequence", () => {
     expect(terminalSource).toContain("return false");
   });
 });
+
+describe("terminal: cmd-click URL opening", () => {
+  it("imports openUrl from the opener plugin", () => {
+    expect(terminalSource).toContain('from "@tauri-apps/plugin-opener"');
+    expect(terminalSource).toContain("openUrl");
+  });
+
+  it("passes a handler to WebLinksAddon", () => {
+    expect(terminalSource).toMatch(/new WebLinksAddon\s*\([\s\S]*?=>/);
+  });
+
+  it("gates the handler on event.metaKey", () => {
+    expect(terminalSource).toMatch(/event\.metaKey|ev\.metaKey|e\.metaKey/);
+  });
+});
