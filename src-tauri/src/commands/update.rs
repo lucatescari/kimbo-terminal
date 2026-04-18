@@ -95,6 +95,70 @@ pub struct UpdateState {
     pub cache: Mutex<Option<UpdateInfo>>,
 }
 
+const LATEST_URL: &str =
+    "https://api.github.com/repos/lucatescari/kimbo-terminal/releases/latest";
+const LIST_URL: &str =
+    "https://api.github.com/repos/lucatescari/kimbo-terminal/releases?per_page=10";
+const USER_AGENT: &str = "kimbo-terminal";
+
+/// Fetch a URL and return the response body as a String. Maps HTTP errors
+/// into our `Result<_, String>` shape so the command layer can surface them.
+fn fetch_text(url: &str) -> Result<String, String> {
+    let mut response = ureq::get(url)
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .map_err(|e| format!("network error: {}", e))?;
+    if response.status().as_u16() >= 300 {
+        return Err(format!("github returned {}", response.status()));
+    }
+    response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("read failed: {}", e))
+}
+
+/// Fetch the latest release. If the API returns a draft/prerelease for
+/// `/releases/latest` (rare but possible), fall back to the recent list and
+/// pick the first stable item.
+fn fetch_latest_release() -> Result<GhRelease, String> {
+    let body = fetch_text(LATEST_URL)?;
+    let release = parse_single_release(&body)?;
+    if !release.draft && !release.prerelease {
+        return Ok(release);
+    }
+    log::info!("latest release was draft/prerelease; falling back to /releases list");
+    let list_body = fetch_text(LIST_URL)?;
+    pick_first_stable(&list_body)
+}
+
+/// Tauri command: returns the cached `UpdateInfo` if `force` is false and a
+/// previous check succeeded; otherwise hits GitHub. On success, populates
+/// the cache. On failure, returns an error string and leaves the cache alone.
+#[tauri::command]
+pub fn check_for_updates(
+    state: tauri::State<'_, UpdateState>,
+    force: bool,
+) -> Result<UpdateInfo, String> {
+    if !force {
+        if let Ok(guard) = state.cache.lock() {
+            if let Some(cached) = guard.as_ref() {
+                return Ok(cached.clone());
+            }
+        }
+    }
+
+    let release = fetch_latest_release().map_err(|e| {
+        log::warn!("update check failed: {}", e);
+        e
+    })?;
+    let info = build_update_info(env!("CARGO_PKG_VERSION"), release);
+
+    if let Ok(mut guard) = state.cache.lock() {
+        *guard = Some(info.clone());
+    }
+    Ok(info)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
