@@ -131,7 +131,7 @@ mod tests {
         \"prerelease\": false,\
         \"html_url\": \"https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0\",\
         \"published_at\": \"2026-04-15T10:00:00Z\",\
-        \"body\": \"## Whats new - Faster splits - Bug fixes\"\
+        \"body\": \"## What's new\\n- Faster splits\\n- Bug fixes\"\
     }";
 
     const PRERELEASE_LIST_JSON: &str = "[\
