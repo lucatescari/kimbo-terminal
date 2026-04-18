@@ -523,10 +523,17 @@ async function renderAbout(el: HTMLElement) {
   // --- App identity block ---
   const ident = document.createElement("div");
   ident.style.cssText = "margin-bottom: 24px;";
-  ident.innerHTML = `
-    <div style="font-size: 16px; font-weight: 600;">Kimbo</div>
-    <div style="font-size: 12px; color: var(--tab-inactive-fg); margin-top: 2px;">Version ${currentVersion}</div>
-  `;
+
+  const identName = document.createElement("div");
+  identName.style.cssText = "font-size: 16px; font-weight: 600;";
+  identName.textContent = "Kimbo";
+  ident.appendChild(identName);
+
+  const identVersion = document.createElement("div");
+  identVersion.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-top: 2px;";
+  identVersion.textContent = `Version ${currentVersion}`;
+  ident.appendChild(identVersion);
+
   el.appendChild(ident);
 
   // --- Updates block ---
@@ -556,8 +563,14 @@ async function renderAbout(el: HTMLElement) {
       return;
     }
     if (state.is_newer) {
-      const date = state.published_at ? state.published_at.slice(0, 10) : "";
-      status.innerHTML = `<strong>v${state.latest}</strong> is available${date ? ` (released ${date})` : ""}.`;
+      const date = state.published_at && state.published_at.length >= 10
+        ? state.published_at.slice(0, 10)
+        : "";
+      status.textContent = "";
+      const versionStrong = document.createElement("strong");
+      versionStrong.textContent = `v${state.latest}`;
+      status.appendChild(versionStrong);
+      status.append(` is available${date ? ` (released ${date})` : ""}.`);
       status.style.color = "var(--fg)";
 
       const notes = (state.notes || "").split("\n").slice(0, 8).join("\n");
