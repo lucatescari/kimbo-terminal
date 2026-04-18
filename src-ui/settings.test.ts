@@ -115,3 +115,36 @@ describe("updates: wired into boot", () => {
     expect(mainSource).toMatch(/initUpdateCheck\(\s*cfg/);
   });
 });
+
+describe("settings: About category", () => {
+  it("has About in the Category type and CATEGORIES list", () => {
+    expect(settingsSource).toContain('"about"');
+    expect(settingsSource).toContain('"About"');
+  });
+
+  it("dispatches About in the render switch", () => {
+    expect(settingsSource).toMatch(/case "about":\s*renderAbout/);
+  });
+
+  it("renderAbout reads cached update info", () => {
+    expect(settingsSource).toContain("getCachedUpdate");
+    expect(settingsSource).toContain("forceCheckUpdate");
+  });
+
+  it("renders the auto_check toggle", () => {
+    expect(settingsSource).toContain("Check for updates automatically");
+    expect(settingsSource).toContain("config.updates.auto_check");
+  });
+
+  it("opens the release page via openUrl", () => {
+    expect(settingsSource).toMatch(/openUrl\(\s*[^)]*release_url/);
+  });
+
+  it("shows a sidebar dot when an update is pending", () => {
+    expect(settingsSource).toContain("hasPendingUpdate");
+  });
+
+  it("links to the GitHub repo", () => {
+    expect(settingsSource).toContain("github.com/lucatescari/kimbo-terminal");
+  });
+});
