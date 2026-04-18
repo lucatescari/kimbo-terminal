@@ -21,6 +21,7 @@ interface AppConfig {
   cursor: { style: string; blink: boolean };
   keybindings: { bindings: Record<string, string> };
   workspace: { auto_detect: boolean; scan_dirs: string[] };
+  updates: { auto_check: boolean };
 }
 
 type Category = "general" | "appearance" | "font" | "workspaces" | "kimbo" | "advanced";
