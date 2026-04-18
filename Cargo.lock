@@ -2126,6 +2126,7 @@ dependencies = [
  "libc",
  "log",
  "nix",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
