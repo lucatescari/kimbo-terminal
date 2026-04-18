@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub keybindings: KeybindingSet,
     pub workspace: WorkspaceConfig,
     pub kimbo: KimboConfig,
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +70,12 @@ pub struct KimboConfig {
     pub shell_integration: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    pub auto_check: bool,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -80,6 +87,7 @@ impl Default for AppConfig {
             keybindings: KeybindingSet::default(),
             workspace: WorkspaceConfig::default(),
             kimbo: KimboConfig::default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
@@ -145,6 +153,12 @@ impl Default for KimboConfig {
             corner: "bottom_right".to_string(),
             shell_integration: false,
         }
+    }
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self { auto_check: true }
     }
 }
 
@@ -343,5 +357,31 @@ size = 16.0
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert!(config.kimbo.enabled);
         assert_eq!(config.kimbo.corner, "bottom_right");
+    }
+
+    #[test]
+    fn test_default_updates_config() {
+        let config = AppConfig::default();
+        assert!(config.updates.auto_check);
+    }
+
+    #[test]
+    fn test_parse_updates_toml() {
+        let toml_str = r#"
+[updates]
+auto_check = false
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.updates.auto_check);
+    }
+
+    #[test]
+    fn test_updates_config_missing_uses_defaults() {
+        let toml_str = r#"
+[font]
+size = 16.0
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.updates.auto_check);
     }
 }
