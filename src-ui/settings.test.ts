@@ -104,3 +104,14 @@ describe("settings: main.ts integration", () => {
     expect(mainSource).toContain("initSettings(terminalArea)");
   });
 });
+
+describe("updates: wired into boot", () => {
+  it("main.ts imports initUpdateCheck", () => {
+    expect(mainSource).toContain("initUpdateCheck");
+    expect(mainSource).toContain('from "./updates"');
+  });
+
+  it("main.ts calls initUpdateCheck after config load", () => {
+    expect(mainSource).toMatch(/initUpdateCheck\(\s*cfg/);
+  });
+});
