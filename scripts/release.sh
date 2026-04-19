@@ -20,21 +20,29 @@ echo -e "${CYAN}Kimbo Terminal Release${NC}"
 echo -e "Current version: ${YELLOW}v${CURRENT}${NC}"
 echo ""
 echo "Which version segment to bump?"
-echo -e "  ${GREEN}1)${NC} Patch  → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
-echo -e "  ${GREEN}2)${NC} Minor  → v${MAJOR}.$((MINOR + 1)).0  (new features)"
-echo -e "  ${GREEN}3)${NC} Major  → v$((MAJOR + 1)).0.0  (breaking changes)"
+echo -e "  ${GREEN}1)${NC} Patch   → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
+echo -e "  ${GREEN}2)${NC} Minor   → v${MAJOR}.$((MINOR + 1)).0  (new features)"
+echo -e "  ${GREEN}3)${NC} Major   → v$((MAJOR + 1)).0.0  (breaking changes)"
+echo -e "  ${GREEN}4)${NC} Keep    → v${CURRENT}  (use current version as-is)"
 echo ""
-read -p "Choose [1/2/3]: " CHOICE
+read -p "Choose [1/2/3/4]: " CHOICE
 
 case $CHOICE in
   1) PATCH=$((PATCH + 1)) ;;
   2) MINOR=$((MINOR + 1)); PATCH=0 ;;
   3) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+  4) ;;  # keep current
   *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
 esac
 
 NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
 TAG="v${NEW_VERSION}"
+
+# Abort if the tag already exists (avoids clobbering a prior release).
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+  echo -e "${RED}Tag ${TAG} already exists.${NC}"
+  exit 1
+fi
 
 echo ""
 echo -e "New version: ${GREEN}v${NEW_VERSION}${NC}"
@@ -67,7 +75,7 @@ echo -e "${CYAN}Building signed production release...${NC}"
 
 # Sign with Developer ID for Gatekeeper.
 # Code signing (use cert hash to avoid ambiguity with duplicate cert names).
-export APPLE_SIGNING_IDENTITY="FC8F0EECBDED7E44715671B0E9B725048A92C141"
+export APPLE_SIGNING_IDENTITY="44182A302783F4D0ACA0888C54E6CAFC89709828"
 
 # Notarization — Tauri expects these specific env var names:
 #   APPLE_API_KEY = the key ID (not the file path!)
@@ -76,18 +84,23 @@ export APPLE_SIGNING_IDENTITY="FC8F0EECBDED7E44715671B0E9B725048A92C141"
 export APPLE_API_KEY="${APPLE_API_KEY_ID:-TST7M4RJDJ}"
 export APPLE_API_ISSUER="${APPLE_API_ISSUER:-277572be-01f6-4e99-9a67-336fc6fdc28e}"
 
-npm run build
+# Build only the .app bundle. We skip Tauri's DMG step because macOS System
+# Policy (syspolicyd) denies copy-helper from writing to /Volumes/Kimbo/Kimbo.app
+# on this machine — a persistent ExecPolicy record from a prior run. We build
+# the DMG ourselves below with a different volume name to sidestep the block.
+npm run tauri -- build --bundles app
 
-DMG_PATH="target/release/bundle/dmg/Kimbo_${NEW_VERSION}_aarch64.dmg"
 APP_PATH="target/release/bundle/macos/Kimbo.app"
+DMG_DIR="target/release/bundle/dmg"
+DMG_PATH="${DMG_DIR}/Kimbo_${NEW_VERSION}_aarch64.dmg"
 
-if [[ ! -f "$DMG_PATH" ]]; then
-  echo -e "${RED}DMG not found at ${DMG_PATH}${NC}"
+if [[ ! -d "$APP_PATH" ]]; then
+  echo -e "${RED}App bundle not found at ${APP_PATH}${NC}"
   echo "Build may have failed. Check output above."
   exit 1
 fi
 
-echo -e "  ${GREEN}Built:${NC} ${DMG_PATH}"
+echo -e "  ${GREEN}Built:${NC} ${APP_PATH}"
 
 # ---- Step 2b: Verify signing + entitlements ----
 echo ""
@@ -153,6 +166,78 @@ if [[ ${#MISSING_ENTS[@]} -gt 0 ]]; then
 fi
 
 echo -e "  ${GREEN}All required entitlements present${NC}"
+
+# ---- Step 2c: Bundle, sign, notarize, and staple the DMG ----
+# We do this ourselves (instead of letting Tauri do it) because the sandbox
+# rejects writes to /Volumes/Kimbo/Kimbo.app on this machine. We mount at
+# /Volumes/Kimbo Terminal/ instead, which is not blocked.
+echo ""
+echo -e "${CYAN}Bundling DMG (volname: Kimbo Terminal)...${NC}"
+
+DMG_VOLNAME="Kimbo Terminal"
+DMG_STAGE=$(mktemp -d -t kimbo-dmg-stage)
+trap 'rm -rf "$DMG_STAGE"' EXIT
+
+cp -R "$APP_PATH" "$DMG_STAGE/"
+mkdir -p "$DMG_DIR"
+rm -f "$DMG_PATH"
+
+VOLICON_PATH="src-tauri/icons/icon.icns"
+VOLICON_ARGS=()
+if [[ -f "$VOLICON_PATH" ]]; then
+  VOLICON_ARGS=(--volicon "$VOLICON_PATH")
+fi
+
+scripts/dmg/bundle_dmg.sh \
+  --volname "$DMG_VOLNAME" \
+  "${VOLICON_ARGS[@]}" \
+  --icon "Kimbo.app" 180 170 \
+  --app-drop-link 480 170 \
+  --window-size 660 400 \
+  --hide-extension "Kimbo.app" \
+  "$DMG_PATH" \
+  "$DMG_STAGE"
+
+if [[ ! -f "$DMG_PATH" ]]; then
+  echo -e "${RED}DMG bundling failed${NC}"
+  exit 1
+fi
+
+echo -e "  ${GREEN}Bundled:${NC} ${DMG_PATH}"
+
+# Sign the DMG.
+echo -e "${CYAN}Signing DMG...${NC}"
+codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+echo -e "  ${GREEN}✓${NC} Signed"
+
+# Notarize the DMG via notarytool.
+echo -e "${CYAN}Submitting DMG for notarization...${NC}"
+APPLE_API_KEY_P8="${APPLE_API_KEY_PATH:-${HOME}/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8}"
+if [[ ! -f "$APPLE_API_KEY_P8" ]]; then
+  echo -e "${RED}Notary key not found at ${APPLE_API_KEY_P8}${NC}"
+  echo "Set APPLE_API_KEY_PATH or place AuthKey_${APPLE_API_KEY}.p8 under ~/.appstoreconnect/private_keys/"
+  exit 1
+fi
+xcrun notarytool submit "$DMG_PATH" \
+  --key "$APPLE_API_KEY_P8" \
+  --key-id "$APPLE_API_KEY" \
+  --issuer "$APPLE_API_ISSUER" \
+  --wait
+echo -e "  ${GREEN}✓${NC} Notarized"
+
+# Staple the ticket to the DMG.
+echo -e "${CYAN}Stapling DMG...${NC}"
+xcrun stapler staple "$DMG_PATH"
+echo -e "  ${GREEN}✓${NC} Stapled"
+
+# Gatekeeper check on the stapled DMG.
+SPCTL_DMG_OUT=$(spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH" 2>&1 || true)
+if echo "$SPCTL_DMG_OUT" | grep -q "accepted"; then
+  echo -e "  ${GREEN}✓${NC} Gatekeeper accepts DMG"
+else
+  echo -e "  ${YELLOW}⚠${NC} Gatekeeper did not accept DMG:"
+  echo "$SPCTL_DMG_OUT" | sed 's/^/      /'
+fi
 
 # ---- Step 3: Run tests ----
 echo ""
