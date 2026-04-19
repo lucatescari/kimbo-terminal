@@ -59,3 +59,15 @@ describe("terminal: cmd-click URL opening", () => {
     expect(terminalSource).toMatch(/event\.metaKey|ev\.metaKey|e\.metaKey/);
   });
 });
+
+describe("terminal: WebGL renderer", () => {
+  it("imports WebglAddon", () => {
+    expect(terminalSource).toContain('from "@xterm/addon-webgl"');
+    expect(terminalSource).toContain("WebglAddon");
+  });
+
+  it("loads WebglAddon inside a try/catch with onContextLoss handler", () => {
+    expect(terminalSource).toMatch(/try\s*\{[\s\S]*?new WebglAddon/);
+    expect(terminalSource).toContain("onContextLoss");
+  });
+});

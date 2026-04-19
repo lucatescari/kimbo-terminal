@@ -1,6 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   createPty,
@@ -60,6 +61,18 @@ export async function createTerminalSession(
   parentEl.appendChild(container);
 
   term.open(container);
+
+  // GPU renderer for smoother fast output. Falls back to canvas/DOM
+  // automatically if WebGL isn't available (e.g., headless test env, GPU
+  // context lost on display sleep).
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch (e) {
+    console.warn("WebGL renderer unavailable, falling back to default:", e);
+  }
+
   registerTerminal(term);
   fit.fit();
 
