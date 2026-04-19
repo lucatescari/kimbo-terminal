@@ -84,13 +84,37 @@ export APPLE_SIGNING_IDENTITY="44182A302783F4D0ACA0888C54E6CAFC89709828"
 export APPLE_API_KEY="${APPLE_API_KEY_ID:-TST7M4RJDJ}"
 export APPLE_API_ISSUER="${APPLE_API_ISSUER:-277572be-01f6-4e99-9a67-336fc6fdc28e}"
 
+# tauri-plugin-updater: sign the updater tarball with a Tauri-managed keypair.
+# TAURI_SIGNING_PRIVATE_KEY can be either the raw key contents (string) or a
+# path to the .key file — tauri-bundler accepts both. TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# unlocks it. Both must be present or tauri-bundler errors out at the updater step.
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  KIMBO_KEY_PATH="${HOME}/.tauri/kimbo_updater.key"
+  if [[ -f "$KIMBO_KEY_PATH" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$KIMBO_KEY_PATH"
+  else
+    echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY not set and ${KIMBO_KEY_PATH} not found.${NC}"
+    echo "Run: npm run tauri -- signer generate -w ~/.tauri/kimbo_updater.key"
+    exit 1
+  fi
+fi
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+  echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY_PASSWORD not set.${NC}"
+  echo "Export it (or prefix the release command) with the password you set when generating the key."
+  exit 1
+fi
+
 # Build only the .app bundle. We skip Tauri's DMG step because macOS System
 # Policy (syspolicyd) denies copy-helper from writing to /Volumes/Kimbo/Kimbo.app
 # on this machine — a persistent ExecPolicy record from a prior run. We build
 # the DMG ourselves below with a different volume name to sidestep the block.
+# `createUpdaterArtifacts: true` in tauri.conf.json makes the bundler also emit
+# Kimbo.app.tar.gz + Kimbo.app.tar.gz.sig next to the .app.
 npm run tauri -- build --bundles app
 
 APP_PATH="target/release/bundle/macos/Kimbo.app"
+UPDATER_TARBALL="target/release/bundle/macos/Kimbo.app.tar.gz"
+UPDATER_SIG="${UPDATER_TARBALL}.sig"
 DMG_DIR="target/release/bundle/dmg"
 DMG_PATH="${DMG_DIR}/Kimbo_${NEW_VERSION}_aarch64.dmg"
 
@@ -274,10 +298,54 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 EOF
 )
 
+# ---- Step 5a: Build the updater manifest (latest.json) ----
+# tauri-plugin-updater fetches this file from the endpoint configured in
+# tauri.conf.json. It needs: version, pub_date, notes, platforms.<target>.url
+# and platforms.<target>.signature (contents of Kimbo.app.tar.gz.sig).
+echo -e "${CYAN}Building updater manifest...${NC}"
+
+if [[ ! -f "$UPDATER_TARBALL" ]]; then
+  echo -e "${RED}Updater tarball missing at ${UPDATER_TARBALL}.${NC}"
+  echo "tauri-bundler should produce it when createUpdaterArtifacts is true."
+  exit 1
+fi
+if [[ ! -f "$UPDATER_SIG" ]]; then
+  echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"
+  exit 1
+fi
+
+PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+SIG_CONTENT=$(cat "$UPDATER_SIG")
+TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/${TAG}/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+
+LATEST_JSON="target/release/bundle/macos/latest.json"
+# jq keeps the JSON syntactically valid regardless of what's in NOTES / SIG_CONTENT.
+jq -n \
+  --arg version "$NEW_VERSION" \
+  --arg notes "See https://github.com/lucatescari/kimbo-terminal/releases/tag/${TAG}" \
+  --arg pub_date "$PUB_DATE" \
+  --arg sig "$SIG_CONTENT" \
+  --arg url "$TARBALL_URL" \
+  '{
+    version: $version,
+    notes: $notes,
+    pub_date: $pub_date,
+    platforms: {
+      "darwin-aarch64": { signature: $sig, url: $url }
+    }
+  }' > "$LATEST_JSON"
+echo -e "  ${GREEN}Wrote:${NC} ${LATEST_JSON}"
+
+# The GitHub asset name must match the URL in latest.json, hence the rename.
+RENAMED_TARBALL="target/release/bundle/macos/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+cp "$UPDATER_TARBALL" "$RENAMED_TARBALL"
+
 gh release create "$TAG" \
   --title "Kimbo v${NEW_VERSION}" \
   --notes "$NOTES" \
-  "$DMG_PATH"
+  "$DMG_PATH" \
+  "$RENAMED_TARBALL" \
+  "$LATEST_JSON"
 
 echo ""
 echo -e "${GREEN}Release v${NEW_VERSION} published!${NC}"

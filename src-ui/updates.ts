@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UpdateInfo {
   current: string;
@@ -11,6 +13,13 @@ export interface UpdateInfo {
 
 interface ConfigShape {
   updates: { auto_check: boolean };
+}
+
+export interface DownloadProgress {
+  /** Bytes downloaded so far. */
+  downloaded: number;
+  /** Total bytes of the updater artifact, or null if the server did not send Content-Length. */
+  total: number | null;
 }
 
 let cached: UpdateInfo | null = null;
@@ -40,6 +49,42 @@ export async function forceCheckUpdate(): Promise<UpdateInfo> {
 /** Convenience: true iff a check has succeeded and the remote is newer. */
 export function hasPendingUpdate(): boolean {
   return cached?.is_newer === true;
+}
+
+/**
+ * Download the latest release via tauri-plugin-updater and install it.
+ *
+ * The plugin hits `plugins.updater.endpoints` in tauri.conf.json, fetches
+ * the signed tarball, verifies it against the embedded pubkey, writes it
+ * over the current .app bundle, and relaunches. The `onProgress` callback
+ * fires once with `downloaded: 0` when the transfer starts, periodically
+ * during the download, and once with `downloaded === total` when done.
+ *
+ * Throws if no update is available, signature verification fails, or the
+ * server is unreachable. Never returns on success — the process relaunches.
+ */
+export async function downloadAndInstallUpdate(
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
+  const update: Update | null = await check();
+  if (!update) throw new Error("No update available");
+
+  let downloaded = 0;
+  let total: number | null = null;
+
+  await update.downloadAndInstall((event) => {
+    if (event.event === "Started") {
+      total = typeof event.data.contentLength === "number" ? event.data.contentLength : null;
+      onProgress?.({ downloaded: 0, total });
+    } else if (event.event === "Progress") {
+      downloaded += event.data.chunkLength;
+      onProgress?.({ downloaded, total });
+    } else if (event.event === "Finished") {
+      onProgress?.({ downloaded: total ?? downloaded, total });
+    }
+  });
+
+  await relaunch();
 }
 
 /** Test helper — resets module state between cases. Not for app code. */
