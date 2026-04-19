@@ -287,3 +287,76 @@ body {
 }
 
 #overlay.hidden { display: none; }
+
+/* ----- find bar ----- */
+
+.find-bar {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--surface, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  z-index: 1000;
+  color: var(--fg, #e0e0e0);
+}
+
+.find-bar .find-input {
+  background: var(--bg, #111);
+  border: 1px solid var(--border, #333);
+  color: var(--fg, #e0e0e0);
+  padding: 4px 8px;
+  border-radius: 3px;
+  width: 220px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.find-bar .find-input:focus {
+  border-color: var(--accent-blue, #4da6ff);
+}
+
+.find-bar .find-count {
+  color: var(--tab-inactive-fg, #888);
+  min-width: 70px;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-bar .find-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.find-bar .find-toggle input {
+  margin: 0;
+}
+
+.find-bar button {
+  background: var(--surface, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  color: var(--fg, #e0e0e0);
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.find-bar button:hover {
+  background: var(--border, #333);
+}
+
+.find-bar button:focus-visible {
+  outline: 2px solid var(--accent-blue, #4da6ff);
+  outline-offset: 1px;
+}

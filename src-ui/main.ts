@@ -11,6 +11,7 @@ import { initDragDrop } from "./drag-drop";
 import { initUpdateCheck } from "./updates";
 import { setTabTitleHandler } from "./terminal";
 import { setTabTitle } from "./tabs";
+import { initFindBar } from "./find-bar";
 
 interface BootConfig {
   font: { family: string; size: number; line_height: number };
@@ -29,6 +30,7 @@ async function init() {
   initTabs(tabBar, terminalArea);
   initLauncher(overlay);
   initSettings(terminalArea);
+  initFindBar(document.body);
   setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
 
   // Seed terminal options from persisted config before creating any terminal.

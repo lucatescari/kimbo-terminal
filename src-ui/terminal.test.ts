@@ -205,6 +205,9 @@ describe("clipLinkRangeForLine", () => {
 });
 
 const osc8Source = readFileSync(resolve(__dirname, "osc8.ts"), "utf-8");
+const keysSource = readFileSync(resolve(__dirname, "keys.ts"), "utf-8");
+const mainSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
+const findBarSource = readFileSync(resolve(__dirname, "find-bar.ts"), "utf-8");
 
 describe("terminal: OSC 8 hyperlinks", () => {
   it("imports attachOsc8Links in terminal.ts", () => {
@@ -230,5 +233,35 @@ describe("terminal: OSC 8 hyperlinks", () => {
 
   it("osc8 callback honors event.metaKey for activation", () => {
     expect(terminalSource).toMatch(/attachOsc8Links\s*\(\s*term\s*,\s*\([^)]*event[^)]*\)\s*=>[\s\S]*?event\.metaKey/);
+  });
+});
+
+describe("terminal: Find in scrollback (Cmd+F)", () => {
+  it("imports SearchAddon in terminal.ts", () => {
+    expect(terminalSource).toContain('from "@xterm/addon-search"');
+    expect(terminalSource).toContain("SearchAddon");
+  });
+
+  it("exposes search on TerminalSession", () => {
+    expect(terminalSource).toMatch(/search\s*:\s*SearchAddon/);
+  });
+
+  it("find-bar exports initFindBar and toggleFindBar", () => {
+    expect(findBarSource).toContain("export function initFindBar");
+    expect(findBarSource).toContain("export function toggleFindBar");
+  });
+
+  it("main.ts calls initFindBar with the body element", () => {
+    expect(mainSource).toContain("initFindBar");
+  });
+
+  it("keys.ts binds Cmd+F to toggleFindBar", () => {
+    expect(keysSource).toContain("toggleFindBar");
+    expect(keysSource).toMatch(/key:\s*"f".*meta:\s*true/);
+  });
+
+  it("keys.ts handles Escape to close find-bar", () => {
+    expect(keysSource).toContain("isFindBarVisible");
+    expect(keysSource).toContain("hideFindBar");
   });
 });

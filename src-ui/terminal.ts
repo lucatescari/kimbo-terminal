@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -25,6 +26,7 @@ export interface TerminalSession {
   ptyId: number;
   term: Terminal;
   fit: FitAddon;
+  search: SearchAddon;
   container: HTMLElement;
   /** Last cwd reported via OSC 7. Null until the first OSC 7 arrives. */
   cwd: string | null;
@@ -64,6 +66,8 @@ export async function createTerminalSession(
 
   const fit = new FitAddon();
   term.loadAddon(fit);
+  const search = new SearchAddon();
+  term.loadAddon(search);
   term.loadAddon(
     new WebLinksAddon((event, uri) => {
       if (!event.metaKey) return;
@@ -194,6 +198,7 @@ export async function createTerminalSession(
     ptyId,
     term,
     fit,
+    search,
     container,
     cwd: null,
     dispose() {

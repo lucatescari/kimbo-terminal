@@ -11,6 +11,7 @@ import {
 } from "./tabs";
 import { toggleLauncher, isLauncherVisible, hideLauncher } from "./launcher";
 import { toggleSettings, isSettingsVisible, hideSettings } from "./settings";
+import { toggleFindBar, isFindBarVisible, hideFindBar } from "./find-bar";
 import { invoke } from "@tauri-apps/api/core";
 
 interface Shortcut {
@@ -56,6 +57,9 @@ const shortcuts: Shortcut[] = [
 
   // Settings
   { key: ",", meta: true, action: () => toggleSettings() },
+
+  // Find
+  { key: "f", meta: true, action: () => toggleFindBar() },
 ];
 
 function matchShortcut(e: KeyboardEvent): Shortcut | undefined {
@@ -75,6 +79,7 @@ export function initKeys() {
   document.addEventListener("keydown", (e) => {
     // Escape: close launcher or settings if visible, otherwise let xterm.js handle it.
     if (e.key === "Escape") {
+      if (isFindBarVisible()) { e.preventDefault(); hideFindBar(); return; }
       if (isLauncherVisible()) { e.preventDefault(); hideLauncher(); return; }
       if (isSettingsVisible()) { e.preventDefault(); hideSettings(); return; }
     }
