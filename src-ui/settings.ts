@@ -12,7 +12,9 @@ import {
   getCachedUpdate,
   forceCheckUpdate,
   hasPendingUpdate,
+  downloadAndInstallUpdate,
   type UpdateInfo,
+  type DownloadProgress,
 } from "./updates";
 
 // ---------------------------------------------------------------------------
@@ -573,27 +575,68 @@ async function renderAbout(el: HTMLElement) {
       status.append(` is available${date ? ` (released ${date})` : ""}.`);
       status.style.color = "var(--fg)";
 
-      const notes = (state.notes || "").split("\n").slice(0, 8).join("\n");
-      if (notes.trim()) {
-        const pre = document.createElement("pre");
-        pre.textContent = notes;
-        pre.style.cssText = "font-family: monospace; font-size: 12px; color: var(--tab-inactive-fg); white-space: pre-wrap; max-width: 560px; margin: 6px 0 10px; max-height: 160px; overflow: hidden;";
-        releaseBlock.appendChild(pre);
-      }
+      // Row: primary install action + secondary release-page link.
+      const row = document.createElement("div");
+      row.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 4px;";
 
-      const openBtn = document.createElement("button");
-      openBtn.textContent = "Open release page";
-      openBtn.style.cssText = "padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px;";
-      openBtn.addEventListener("click", async () => {
+      const installBtn = document.createElement("button");
+      installBtn.textContent = "Download & install";
+      installBtn.style.cssText = "padding: 6px 12px; background: var(--accent-blue); border: 1px solid var(--accent-blue); color: var(--bg); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;";
+
+      const progressLine = document.createElement("div");
+      progressLine.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-top: 6px; min-height: 16px;";
+
+      installBtn.addEventListener("click", async () => {
+        installBtn.disabled = true;
+        installBtn.textContent = "Starting…";
+        progressLine.textContent = "";
+        try {
+          await downloadAndInstallUpdate((p: DownloadProgress) => {
+            if (p.total && p.total > 0) {
+              const pct = Math.min(100, Math.floor((p.downloaded / p.total) * 100));
+              installBtn.textContent = `Downloading ${pct}%`;
+              progressLine.textContent = `${formatBytes(p.downloaded)} / ${formatBytes(p.total)}`;
+            } else {
+              installBtn.textContent = "Downloading…";
+              progressLine.textContent = formatBytes(p.downloaded);
+            }
+          });
+          // If we reach this line the relaunch didn't happen — show a hint.
+          installBtn.textContent = "Installed — relaunching";
+        } catch (e) {
+          console.error("downloadAndInstall failed:", e);
+          installBtn.disabled = false;
+          installBtn.textContent = "Download & install";
+          progressLine.textContent = `Update failed: ${String(e)}`;
+          progressLine.style.color = "var(--accent-red)";
+        }
+      });
+      row.appendChild(installBtn);
+
+      const pageLink = document.createElement("a");
+      pageLink.textContent = "Release page";
+      pageLink.href = "#";
+      pageLink.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); text-decoration: none; margin-left: 4px;";
+      pageLink.addEventListener("click", async (ev) => {
+        ev.preventDefault();
         try { await openUrl(state.release_url); }
         catch (e) { console.error("openUrl failed:", e); }
       });
-      releaseBlock.appendChild(openBtn);
+      row.appendChild(pageLink);
+
+      releaseBlock.appendChild(row);
+      releaseBlock.appendChild(progressLine);
     } else {
       status.textContent = "You're up to date.";
       status.style.color = "var(--fg)";
     }
   };
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   renderUpdateState(info, null);
 
