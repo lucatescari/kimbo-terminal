@@ -193,6 +193,21 @@ export async function createTerminalSession(
   // Initial resize to sync xterm dimensions with PTY.
   resizePty(ptyId, term.cols, term.rows);
 
+  // macOS-style auto-hiding scrollbar: add .scrolling to the container
+  // while the viewport is actively being scrolled, remove after a short
+  // idle window. CSS fades the thumb in and out.
+  const viewport = container.querySelector(".xterm-viewport") as HTMLElement | null;
+  let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  const onViewportScroll = () => {
+    container.classList.add("scrolling");
+    if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
+    scrollIdleTimer = setTimeout(() => {
+      container.classList.remove("scrolling");
+      scrollIdleTimer = null;
+    }, 800);
+  };
+  viewport?.addEventListener("scroll", onViewportScroll, { passive: true });
+
   session = {
     id,
     ptyId,
@@ -207,6 +222,8 @@ export async function createTerminalSession(
       unlistenOutput();
       unlistenExit();
       unregisterTerminal(term);
+      viewport?.removeEventListener("scroll", onViewportScroll);
+      if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
       term.dispose();
       closePty(ptyId);
       container.remove();

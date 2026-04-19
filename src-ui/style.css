@@ -59,7 +59,7 @@ body {
   flex-direction: row;
   align-items: flex-end;
   flex-shrink: 0;
-  overflow-x: auto;
+  overflow: hidden;
   padding: 0 10px;
   gap: 2px;
 }
@@ -234,10 +234,17 @@ body {
 /* ----- xterm.js scrollbar override ----- */
 
 /* The xterm-viewport is the scrollable container inside xterm.js.
-   We make the scrollbar very thin and translucent, only visible on hover. */
+   The thumb is transparent by default; JS toggles .scrolling on the
+   terminal-container while the user is actively scrolling, which fades
+   the thumb in for a macOS-style auto-hiding scrollbar. */
 
 .xterm .xterm-viewport {
-  scrollbar-width: none; /* Firefox: hide completely */
+  scrollbar-width: none;
+}
+
+.terminal-container.scrolling .xterm .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
 }
 
 .xterm .xterm-viewport::-webkit-scrollbar {
@@ -250,18 +257,18 @@ body {
 }
 
 .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.0);
+  background: rgba(255, 255, 255, 0);
   border-radius: 3px;
-  transition: background 0.2s;
+  transition: background 0.35s ease-out;
 }
 
-/* Only show scrollbar thumb when hovering the terminal pane */
-.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.25);
+  transition: background 0.1s ease-in;
+}
+
+.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 /* ----- Skeleton loading animation ----- */

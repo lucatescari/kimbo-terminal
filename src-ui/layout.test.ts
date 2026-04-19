@@ -58,14 +58,14 @@ describe("style.css", () => {
     // Should use rgba with low alpha, never solid white
     expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*#fff/);
     expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*white/);
-    expect(css).toContain("rgba(255, 255, 255, 0.12)");
+    expect(css).toContain("rgba(255, 255, 255, 0.25)");
   });
 
-  it("scrollbar is hidden by default (only shows on pane hover)", () => {
-    // The default thumb should be fully transparent
-    expect(css).toContain("rgba(255, 255, 255, 0.0)");
-    // Visible only on .pane:hover
-    expect(css).toContain(".pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb");
+  it("scrollbar is hidden by default and auto-shows while actively scrolling", () => {
+    // Default thumb is fully transparent
+    expect(css).toContain("rgba(255, 255, 255, 0)");
+    // A .scrolling class on the terminal-container fades the thumb in
+    expect(css).toContain(".terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb");
   });
 });
 
