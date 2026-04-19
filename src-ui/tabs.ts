@@ -165,6 +165,22 @@ export function splitActive(dir: "vertical" | "horizontal"): void {
 }
 export { closeActive, focusDirection, getActiveSession, fitAllPanes };
 
+/**
+ * Cmd+W behavior: close the active pane if we're inside a split, otherwise
+ * close the whole tab. `closeActive()` alone silently bails out on a single
+ * pane (so the terminal + its square stick around), which isn't what a
+ * macOS user expects from Cmd+W.
+ */
+export function closeActiveOrTab(): void {
+  const t = getTree();
+  if (t && t.type === "split") {
+    closeActive();
+    return;
+  }
+  const tab = getActiveTab();
+  if (tab) closeTab(tab.id);
+}
+
 // ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------

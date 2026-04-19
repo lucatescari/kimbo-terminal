@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
-import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActive } from "./tabs";
+import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActiveOrTab } from "./tabs";
 import { initKeys } from "./keys";
 import { applyTerminalOptions, loadTheme } from "./theme";
 import { initLauncher } from "./launcher";
@@ -87,7 +87,7 @@ async function init() {
     switch (event.payload) {
       case "settings": toggleSettings(); break;
       case "new_tab": createTab(); break;
-      case "close_pane": closeActive(); break;
+      case "close_pane": closeActiveOrTab(); break;
       case "close_tab": { const t = getActiveTab(); if (t) closeTab(t.id); } break;
       case "split_vertical": splitActive("vertical"); break;
       case "split_horizontal": splitActive("horizontal"); break;

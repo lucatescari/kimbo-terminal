@@ -227,3 +227,33 @@ describe("split tree: focus cycling", () => {
     expect(focusCycle(leaves, 1, false)).toBe(1);
   });
 });
+
+describe("Cmd+W dispatch: close pane vs close tab", () => {
+  // Mirrors closeActiveOrTab in src-ui/tabs.ts: on a single-pane tab (tree is
+  // a leaf), Cmd+W should close the tab; inside a split, it should close the
+  // active pane. The previous behavior silently returned on a leaf, stranding
+  // the terminal and its pane frame.
+  function closeActiveOrTab(tree: TestTree | null): "close-tab" | "close-pane" | "noop" {
+    if (!tree) return "noop";
+    if (tree.type === "split") return "close-pane";
+    return "close-tab";
+  }
+
+  it("split tree → closes pane", () => {
+    const tree = split("vertical", leaf(1), leaf(2));
+    expect(closeActiveOrTab(tree)).toBe("close-pane");
+  });
+
+  it("single leaf → closes tab", () => {
+    expect(closeActiveOrTab(leaf(1))).toBe("close-tab");
+  });
+
+  it("null tree → no-op", () => {
+    expect(closeActiveOrTab(null)).toBe("noop");
+  });
+
+  it("nested split → closes pane", () => {
+    const tree = split("vertical", leaf(1), split("horizontal", leaf(2), leaf(3)));
+    expect(closeActiveOrTab(tree)).toBe("close-pane");
+  });
+});
