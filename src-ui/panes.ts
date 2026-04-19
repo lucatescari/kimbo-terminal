@@ -56,12 +56,17 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
   const leaf = findLeaf(tree, activePaneId);
   if (!leaf) return;
 
-  // Inherit CWD from the active pane.
+  // Inherit CWD from the active pane. Prefer the OSC 7 value (faster, also
+  // works over ssh) and fall back to the PTY-process query.
   let cwd: string | undefined;
-  try {
-    const c = await getCwd(leaf.session.ptyId);
-    if (c) cwd = c;
-  } catch (_) { /* ignore */ }
+  if (leaf.session.cwd) {
+    cwd = leaf.session.cwd;
+  } else {
+    try {
+      const c = await getCwd(leaf.session.ptyId);
+      if (c) cwd = c;
+    } catch (_) { /* ignore */ }
+  }
 
   const newLeaf = await createLeaf(cwd);
 

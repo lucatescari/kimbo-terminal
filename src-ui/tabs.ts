@@ -43,6 +43,22 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
 }
 
 export async function createTab(cwd?: string): Promise<Tab> {
+  // If no explicit cwd, inherit from the currently active session
+  // (OSC 7 first, PTY query as fallback) so Cmd+T opens "where I am".
+  if (cwd === undefined) {
+    const active = getActiveSession();
+    if (active) {
+      if (active.cwd) {
+        cwd = active.cwd;
+      } else {
+        try {
+          const c = await getCwd(active.ptyId);
+          if (c) cwd = c;
+        } catch (_) { /* ignore */ }
+      }
+    }
+  }
+
   const id = nextTabId++;
 
   // Save current tab's pane tree before switching.
@@ -65,7 +81,7 @@ export async function createTab(cwd?: string): Promise<Tab> {
   initPanes(container);
   const rootPane = await createRootPane(cwd);
 
-  const name = cwd ? cwd.split("/").pop() || "~" : "~";
+  const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
   tabs.push(tab);
 

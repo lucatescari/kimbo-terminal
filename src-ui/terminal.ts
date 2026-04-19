@@ -16,6 +16,8 @@ import { registerTerminal, unregisterTerminal, getTerminalOptions, normalizeFont
 import { kimboBus } from "./kimbo-bus";
 import { parseOsc133 } from "./kimbo-osc";
 import { isKimboShellIntegrationEnabled } from "./kimbo";
+import { parseOsc7Cwd } from "./osc7";
+export { parseOsc7Cwd } from "./osc7";
 
 export interface TerminalSession {
   id: number;
@@ -23,6 +25,8 @@ export interface TerminalSession {
   term: Terminal;
   fit: FitAddon;
   container: HTMLElement;
+  /** Last cwd reported via OSC 7. Null until the first OSC 7 arrives. */
+  cwd: string | null;
   dispose(): void;
 }
 
@@ -38,6 +42,10 @@ export async function createTerminalSession(
   cwd?: string,
 ): Promise<TerminalSession> {
   const id = nextTermId++;
+
+  // Declare session here so the OSC 7 handler below can close over it and
+  // write session.cwd before the object is returned to the caller.
+  let session: TerminalSession;
 
   const opts = getTerminalOptions();
   const term = new Terminal({
@@ -111,6 +119,14 @@ export async function createTerminalSession(
   term.parser.registerOscHandler(0, onTitle);
   term.parser.registerOscHandler(2, onTitle);
 
+  // OSC 7: shells emit file://hostname/path on each prompt so terminals
+  // can know the current working directory without polling /proc.
+  term.parser.registerOscHandler(7, (data) => {
+    const cwd = parseOsc7Cwd(data);
+    if (cwd) session.cwd = cwd;
+    return true;
+  });
+
   // Create backend PTY.
   const ptyId = await createPty(cwd);
 
@@ -165,12 +181,13 @@ export async function createTerminalSession(
   // Initial resize to sync xterm dimensions with PTY.
   resizePty(ptyId, term.cols, term.rows);
 
-  const session: TerminalSession = {
+  session = {
     id,
     ptyId,
     term,
     fit,
     container,
+    cwd: null,
     dispose() {
       onDataDisposable.dispose();
       onResizeDisposable.dispose();

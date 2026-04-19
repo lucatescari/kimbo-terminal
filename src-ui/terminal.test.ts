@@ -103,3 +103,51 @@ describe("terminal: OSC 0/2 tab titles", () => {
     expect(terminalSource).toContain("setTabTitleHandler");
   });
 });
+
+import { parseOsc7Cwd } from "./osc7";
+
+const osc7Source = readFileSync(resolve(__dirname, "osc7.ts"), "utf-8");
+
+describe("terminal: OSC 7 cwd inheritance", () => {
+  it("registers OSC 7 handler", () => {
+    expect(terminalSource).toMatch(/registerOscHandler\s*\(\s*7\s*,/);
+  });
+
+  it("exports parseOsc7Cwd", () => {
+    expect(osc7Source).toContain("export function parseOsc7Cwd");
+  });
+
+  it("session exposes cwd field", () => {
+    expect(terminalSource).toMatch(/cwd\??\s*:\s*string/);
+  });
+});
+
+describe("parseOsc7Cwd", () => {
+  it("parses file://hostname/path", () => {
+    expect(parseOsc7Cwd("file://machine/Users/luca/Projects")).toBe("/Users/luca/Projects");
+  });
+
+  it("parses file:///path (no hostname)", () => {
+    expect(parseOsc7Cwd("file:///Users/luca")).toBe("/Users/luca");
+  });
+
+  it("URL-decodes the path", () => {
+    expect(parseOsc7Cwd("file://m/Users/luca/My%20Project")).toBe("/Users/luca/My Project");
+  });
+
+  it("returns null for non-file URIs", () => {
+    expect(parseOsc7Cwd("http://example.com/path")).toBeNull();
+  });
+
+  it("returns null for empty input", () => {
+    expect(parseOsc7Cwd("")).toBeNull();
+  });
+
+  it("returns null for malformed URI", () => {
+    expect(parseOsc7Cwd("not-a-uri")).toBeNull();
+  });
+
+  it("returns null when decodeURIComponent throws", () => {
+    expect(parseOsc7Cwd("file:///bad%path")).toBeNull();
+  });
+});
