@@ -7,6 +7,8 @@
     "shell:allow-open",
     "core:event:default",
     "opener:default",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
