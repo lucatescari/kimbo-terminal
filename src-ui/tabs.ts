@@ -22,6 +22,8 @@ export interface Tab {
   container: HTMLElement;
   /** Opaque reference — panes.ts owns the tree state per-tab. */
   treeSnapshot: any;
+  /** Title set by the shell or running program via OSC 0/2; trumps `name` when present. */
+  titleOverride?: string;
 }
 
 let tabs: Tab[] = [];
@@ -170,7 +172,12 @@ function renderTabBar() {
   for (const tab of tabs) {
     const el = document.createElement("div");
     el.className = "tab" + (tab.id === activeTabId ? " active" : "");
-    el.textContent = tab.name;
+    const displayName = tab.titleOverride ?? tab.name;
+    const label = document.createElement("span");
+    label.className = "tab-label";
+    label.textContent = displayName;
+    label.title = displayName;
+    el.appendChild(label);
 
     if (tabs.length > 1) {
       const close = document.createElement("span");
@@ -199,6 +206,7 @@ setInterval(async () => {
   const session = getActiveSession();
   const tab = getActiveTab();
   if (!session || !tab) return;
+  if (tab.titleOverride != null) return;
   try {
     const cwd = await getCwd(session.ptyId);
     if (cwd) {
@@ -211,3 +219,30 @@ setInterval(async () => {
     }
   } catch (_) { /* ignore */ }
 }, 2000);
+
+/** Override or clear the title for a given session's tab. Pass null to revert
+    to the default tab name. The argument is the *terminal session* id (not
+    the tab id) since OSC 0/2 fires from a terminal. */
+export function setTabTitle(sessionId: number, title: string | null): void {
+  const tab = findTabBySessionId(sessionId);
+  if (!tab) return;
+  tab.titleOverride = title ?? undefined;
+  renderTabBar();
+}
+
+function findTabBySessionId(sessionId: number): Tab | undefined {
+  for (const tab of tabs) {
+    const tree = tab.id === activeTabId ? getTree() : tab.treeSnapshot;
+    if (treeContainsSession(tree, sessionId)) return tab;
+  }
+  return undefined;
+}
+
+function treeContainsSession(node: any, sessionId: number): boolean {
+  if (!node) return false;
+  if (node.type === "leaf") return node.session?.id === sessionId;
+  if (node.type === "split") {
+    return treeContainsSession(node.first, sessionId) || treeContainsSession(node.second, sessionId);
+  }
+  return false;
+}

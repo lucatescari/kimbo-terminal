@@ -9,6 +9,8 @@ import { listen } from "@tauri-apps/api/event";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
 import { initUpdateCheck } from "./updates";
+import { setTabTitleHandler } from "./terminal";
+import { setTabTitle } from "./tabs";
 
 interface BootConfig {
   font: { family: string; size: number; line_height: number };
@@ -27,6 +29,7 @@ async function init() {
   initTabs(tabBar, terminalArea);
   initLauncher(overlay);
   initSettings(terminalArea);
+  setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
 
   // Seed terminal options from persisted config before creating any terminal.
   let themeName = "kimbo-dark";

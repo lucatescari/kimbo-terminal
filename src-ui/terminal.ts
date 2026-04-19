@@ -28,6 +28,11 @@ export interface TerminalSession {
 
 let nextTermId = 1;
 
+let tabTitleHandler: ((sessionId: number, title: string | null) => void) | null = null;
+export function setTabTitleHandler(fn: (sessionId: number, title: string | null) => void): void {
+  tabTitleHandler = fn;
+}
+
 export async function createTerminalSession(
   parentEl: HTMLElement,
   cwd?: string,
@@ -95,6 +100,16 @@ export async function createTerminalSession(
       return true;
     });
   }
+
+  // OSC 0 and OSC 2: shell or running program sets the tab title.
+  // Empty payload reverts to the default. Truncate to 64 chars to bound
+  // memory if a TUI accidentally sends a megabyte.
+  const onTitle = (data: string): boolean => {
+    if (tabTitleHandler) tabTitleHandler(id, data ? data.slice(0, 64) : null);
+    return true;
+  };
+  term.parser.registerOscHandler(0, onTitle);
+  term.parser.registerOscHandler(2, onTitle);
 
   // Create backend PTY.
   const ptyId = await createPty(cwd);

@@ -106,6 +106,13 @@ body {
 .tab:hover .tab-close { opacity: 0.7; }
 .tab-close:hover { opacity: 1 !important; background: var(--surface); }
 
+.tab-label {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tab-new {
   display: flex;
   align-items: center;

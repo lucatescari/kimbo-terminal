@@ -82,3 +82,24 @@ describe("terminal: Unicode 11 widths", () => {
     expect(terminalSource).toMatch(/term\.unicode\.activeVersion\s*=\s*["']11["']/);
   });
 });
+
+const tabsSource = readFileSync(resolve(__dirname, "tabs.ts"), "utf-8");
+
+describe("terminal: OSC 0/2 tab titles", () => {
+  it("registers OSC 0 and OSC 2 handlers in terminal.ts", () => {
+    expect(terminalSource).toMatch(/registerOscHandler\s*\(\s*0\s*,/);
+    expect(terminalSource).toMatch(/registerOscHandler\s*\(\s*2\s*,/);
+  });
+
+  it("exports setTabTitle from tabs.ts", () => {
+    expect(tabsSource).toContain("export function setTabTitle");
+  });
+
+  it("setTabTitle accepts string | null", () => {
+    expect(tabsSource).toMatch(/setTabTitle\s*\([^)]*string\s*\|\s*null/);
+  });
+
+  it("terminal.ts exposes setTabTitleHandler for main.ts to wire", () => {
+    expect(terminalSource).toContain("setTabTitleHandler");
+  });
+});
