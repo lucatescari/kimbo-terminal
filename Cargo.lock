@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-app"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
@@ -2126,6 +2126,7 @@ dependencies = [
  "libc",
  "log",
  "nix",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
@@ -2137,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-config"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2152,7 +2153,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-terminal"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2163,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-workspace"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",

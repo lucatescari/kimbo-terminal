@@ -5,7 +5,7 @@
   width: 56px;
   height: 56px;
   z-index: 50;
-  background-image: url("/project_icon.png");
+  background-image: url("/kimbo_normal.png");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
@@ -16,6 +16,13 @@
   will-change: transform;
   transition: filter 0.2s;
 }
+
+/* Expression per mood. `kimbo_normal.png` is the default (idle/sleepy/focused/sad). */
+.kimbo.mood-happy,
+.kimbo.mood-love,
+.kimbo.mood-excited  { background-image: url("/kimbo_happy.png"); }
+.kimbo.mood-wave,
+.kimbo.mood-curious  { background-image: url("/kimbo_surprised.png"); }
 
 .kimbo.dragging { cursor: grabbing; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.6)); }
 .kimbo.hidden { display: none; }

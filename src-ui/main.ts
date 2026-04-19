@@ -8,6 +8,10 @@ import { initSettings, toggleSettings } from "./settings";
 import { listen } from "@tauri-apps/api/event";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
+import { initUpdateCheck } from "./updates";
+import { setTabTitleHandler } from "./terminal";
+import { setTabTitle } from "./tabs";
+import { initFindBar } from "./find-bar";
 
 interface BootConfig {
   font: { family: string; size: number; line_height: number };
@@ -15,6 +19,7 @@ interface BootConfig {
   scrollback: { lines: number };
   cursor: { style: string; blink: boolean };
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
+  updates: { auto_check: boolean };
 }
 
 async function init() {
@@ -25,6 +30,8 @@ async function init() {
   initTabs(tabBar, terminalArea);
   initLauncher(overlay);
   initSettings(terminalArea);
+  initFindBar(document.body);
+  setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
 
   // Seed terminal options from persisted config before creating any terminal.
   let themeName = "kimbo-dark";
@@ -58,6 +65,11 @@ async function init() {
     setKimboSettingsHandler(() => toggleSettings());
   } catch (e) {
     console.warn("Failed to init Kimbo:", e);
+  }
+
+  // Background update check (silent — never blocks startup, never throws).
+  if (cfg) {
+    initUpdateCheck(cfg).catch((e) => console.warn("initUpdateCheck:", e));
   }
 
   initKeys();

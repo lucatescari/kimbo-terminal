@@ -2,7 +2,7 @@
 
 A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layouts, tabbed windows, and a project launcher for developer workflows.
 
-![Kimbo Terminal](project_icon.png)
+![Kimbo Terminal](src-ui/public/kimbo_normal.png)
 
 > **Beta** — Kimbo is in active development. Expect rough edges. Feedback and contributions welcome.
 

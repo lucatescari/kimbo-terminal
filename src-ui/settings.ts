@@ -8,6 +8,12 @@ import { setKimboInConsoleView } from "./kimbo";
 import type { UnifiedTheme } from "./settings-types";
 import { renderUnifiedThemeCard } from "./theme-card";
 import { showThemeContextMenu } from "./theme-context-menu";
+import {
+  getCachedUpdate,
+  forceCheckUpdate,
+  hasPendingUpdate,
+  type UpdateInfo,
+} from "./updates";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,9 +27,10 @@ interface AppConfig {
   cursor: { style: string; blink: boolean };
   keybindings: { bindings: Record<string, string> };
   workspace: { auto_detect: boolean; scan_dirs: string[] };
+  updates: { auto_check: boolean };
 }
 
-type Category = "general" | "appearance" | "font" | "workspaces" | "kimbo" | "advanced";
+type Category = "general" | "appearance" | "font" | "workspaces" | "kimbo" | "advanced" | "about";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "general", label: "General" },
@@ -32,6 +39,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "workspaces", label: "Workspaces" },
   { id: "kimbo", label: "Kimbo" },
   { id: "advanced", label: "Advanced" },
+  { id: "about", label: "About" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -137,8 +145,19 @@ function render() {
 
   for (const cat of CATEGORIES) {
     const btn = document.createElement("div");
-    btn.textContent = cat.label;
-    btn.style.cssText = `padding: 8px 20px; cursor: pointer; border-radius: 0; font-size: 13px; color: ${cat.id === activeCategory ? "var(--tab-active-fg)" : "var(--tab-inactive-fg)"}; background: ${cat.id === activeCategory ? "var(--surface)" : "transparent"};`;
+    btn.style.cssText = `padding: 8px 20px; cursor: pointer; border-radius: 0; font-size: 13px; color: ${cat.id === activeCategory ? "var(--tab-active-fg)" : "var(--tab-inactive-fg)"}; background: ${cat.id === activeCategory ? "var(--surface)" : "transparent"}; display: flex; align-items: center; justify-content: space-between;`;
+
+    const label = document.createElement("span");
+    label.textContent = cat.label;
+    btn.appendChild(label);
+
+    if (cat.id === "about" && hasPendingUpdate()) {
+      const dot = document.createElement("span");
+      dot.style.cssText = "width: 8px; height: 8px; border-radius: 50%; background: var(--accent-red, #e06c75); display: inline-block;";
+      dot.title = "Update available";
+      btn.appendChild(dot);
+    }
+
     btn.addEventListener("click", () => {
       activeCategory = cat.id;
       render();
@@ -164,6 +183,7 @@ function render() {
     case "workspaces": renderWorkspaces(content); break;
     case "kimbo": renderKimbo(content); break;
     case "advanced": renderAdvanced(content); break;
+    case "about": renderAbout(content); break;
   }
 
   containerEl.appendChild(sidebar);
@@ -491,6 +511,146 @@ function renderAdvanced(el: HTMLElement) {
     config!.cursor.blink = v;
     saveConfig();
   }));
+}
+
+async function renderAbout(el: HTMLElement) {
+  if (!config) return;
+  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">About</h2>`;
+
+  const info = getCachedUpdate();
+  const currentVersion = info?.current ?? "unknown";
+
+  // --- App identity block ---
+  const ident = document.createElement("div");
+  ident.style.cssText = "margin-bottom: 24px;";
+
+  const identName = document.createElement("div");
+  identName.style.cssText = "font-size: 16px; font-weight: 600;";
+  identName.textContent = "Kimbo";
+  ident.appendChild(identName);
+
+  const identVersion = document.createElement("div");
+  identVersion.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-top: 2px;";
+  identVersion.textContent = `Version ${currentVersion}`;
+  ident.appendChild(identVersion);
+
+  el.appendChild(ident);
+
+  // --- Updates block ---
+  el.appendChild(makeSubheader("Updates"));
+  const updatesBox = document.createElement("div");
+  updatesBox.style.cssText = "margin-bottom: 16px;";
+  el.appendChild(updatesBox);
+
+  const status = document.createElement("div");
+  status.style.cssText = "font-size: 13px; margin-bottom: 8px;";
+  updatesBox.appendChild(status);
+
+  const releaseBlock = document.createElement("div");
+  releaseBlock.style.cssText = "margin-bottom: 8px;";
+  updatesBox.appendChild(releaseBlock);
+
+  const renderUpdateState = (state: UpdateInfo | null, error: string | null) => {
+    releaseBlock.innerHTML = "";
+    if (error) {
+      status.textContent = "Couldn't check (offline?)";
+      status.style.color = "var(--tab-inactive-fg)";
+      return;
+    }
+    if (!state) {
+      status.textContent = "Click 'Check for updates' to check.";
+      status.style.color = "var(--tab-inactive-fg)";
+      return;
+    }
+    if (state.is_newer) {
+      const date = state.published_at && state.published_at.length >= 10
+        ? state.published_at.slice(0, 10)
+        : "";
+      status.textContent = "";
+      const versionStrong = document.createElement("strong");
+      versionStrong.textContent = `v${state.latest}`;
+      status.appendChild(versionStrong);
+      status.append(` is available${date ? ` (released ${date})` : ""}.`);
+      status.style.color = "var(--fg)";
+
+      const notes = (state.notes || "").split("\n").slice(0, 8).join("\n");
+      if (notes.trim()) {
+        const pre = document.createElement("pre");
+        pre.textContent = notes;
+        pre.style.cssText = "font-family: monospace; font-size: 12px; color: var(--tab-inactive-fg); white-space: pre-wrap; max-width: 560px; margin: 6px 0 10px; max-height: 160px; overflow: hidden;";
+        releaseBlock.appendChild(pre);
+      }
+
+      const openBtn = document.createElement("button");
+      openBtn.textContent = "Open release page";
+      openBtn.style.cssText = "padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px;";
+      openBtn.addEventListener("click", async () => {
+        try { await openUrl(state.release_url); }
+        catch (e) { console.error("openUrl failed:", e); }
+      });
+      releaseBlock.appendChild(openBtn);
+    } else {
+      status.textContent = "You're up to date.";
+      status.style.color = "var(--fg)";
+    }
+  };
+
+  renderUpdateState(info, null);
+
+  const checkBtn = document.createElement("button");
+  checkBtn.textContent = "Check for updates";
+  checkBtn.style.cssText = "padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 16px;";
+  checkBtn.addEventListener("click", async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = "Checking…";
+    try {
+      const fresh = await forceCheckUpdate();
+      renderUpdateState(fresh, null);
+      // Re-render the sidebar so the dot appears/disappears.
+      render();
+    } catch (e) {
+      console.warn("forceCheckUpdate failed:", e);
+      renderUpdateState(null, String(e));
+    } finally {
+      checkBtn.disabled = false;
+      checkBtn.textContent = "Check for updates";
+    }
+  });
+  el.appendChild(checkBtn);
+
+  el.appendChild(makeToggle("Check for updates automatically", config.updates.auto_check, (v) => {
+    config!.updates.auto_check = v;
+    saveConfig();
+  }));
+
+  // --- Links block ---
+  el.appendChild(makeSubheader("Links"));
+  const links = document.createElement("div");
+  links.style.cssText = "display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;";
+
+  const repoLink = document.createElement("a");
+  repoLink.textContent = "GitHub repository";
+  repoLink.href = "#";
+  repoLink.style.cssText = "color: var(--accent-blue, var(--fg)); text-decoration: underline; cursor: pointer; font-size: 13px;";
+  repoLink.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    try { await openUrl("https://github.com/lucatescari/kimbo-terminal"); }
+    catch (e) { console.error("openUrl failed:", e); }
+  });
+  links.appendChild(repoLink);
+
+  const licenseLink = document.createElement("a");
+  licenseLink.textContent = "License (MIT)";
+  licenseLink.href = "#";
+  licenseLink.style.cssText = "color: var(--accent-blue, var(--fg)); text-decoration: underline; cursor: pointer; font-size: 13px;";
+  licenseLink.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    try { await openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/LICENSE"); }
+    catch (e) { console.error("openUrl failed:", e); }
+  });
+  links.appendChild(licenseLink);
+
+  el.appendChild(links);
 }
 
 // ---------------------------------------------------------------------------

@@ -53,36 +53,42 @@ body {
 /* ----- Tab bar ----- */
 
 #tab-bar {
-  height: 36px;
+  height: 40px;
   background: var(--tab-bar-bg);
   display: flex;
   flex-direction: row;
-  align-items: center;
-  border-bottom: 1px solid var(--border);
+  align-items: flex-end;
   flex-shrink: 0;
-  overflow-x: auto;
+  overflow: hidden;
+  padding: 0 10px;
+  gap: 2px;
 }
 
 .tab {
-  height: 100%;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 8px 16px 10px;
   font-size: 12px;
   color: var(--tab-inactive-fg);
-  background: var(--tab-inactive-bg);
   cursor: pointer;
-  border-right: 1px solid var(--border);
   user-select: none;
   -webkit-user-select: none;
   gap: 8px;
   white-space: nowrap;
+  border-radius: 8px 8px 0 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover:not(.active) {
+  background: rgba(205, 214, 244, 0.04);
+  color: var(--tab-active-fg);
 }
 
 .tab.active {
   color: var(--tab-active-fg);
-  background: var(--tab-active-bg);
-  border-bottom: 2px solid var(--active-border);
+  background: var(--bg);
+  position: relative;
+  top: 1px;
 }
 
 .tab-close {
@@ -100,20 +106,34 @@ body {
 .tab:hover .tab-close { opacity: 0.7; }
 .tab-close:hover { opacity: 1 !important; background: var(--surface); }
 
+.tab-label {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tab-new {
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 4px;
+  margin-left: 4px;
+  border-radius: 8px;
   font-size: 16px;
   color: var(--tab-inactive-fg);
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  transition: background 0.15s, color 0.15s;
 }
 
-.tab-new:hover { color: var(--tab-active-fg); }
+.tab-new:hover {
+  background: rgba(205, 214, 244, 0.04);
+  color: var(--tab-active-fg);
+}
 
 /* ----- Terminal area ----- */
 
@@ -214,10 +234,17 @@ body {
 /* ----- xterm.js scrollbar override ----- */
 
 /* The xterm-viewport is the scrollable container inside xterm.js.
-   We make the scrollbar very thin and translucent, only visible on hover. */
+   The thumb is transparent by default; JS toggles .scrolling on the
+   terminal-container while the user is actively scrolling, which fades
+   the thumb in for a macOS-style auto-hiding scrollbar. */
 
 .xterm .xterm-viewport {
-  scrollbar-width: none; /* Firefox: hide completely */
+  scrollbar-width: none;
+}
+
+.terminal-container.scrolling .xterm .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
 }
 
 .xterm .xterm-viewport::-webkit-scrollbar {
@@ -230,18 +257,18 @@ body {
 }
 
 .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.0);
+  background: rgba(255, 255, 255, 0);
   border-radius: 3px;
-  transition: background 0.2s;
+  transition: background 0.35s ease-out;
 }
 
-/* Only show scrollbar thumb when hovering the terminal pane */
-.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.pane:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.25);
+  transition: background 0.1s ease-in;
+}
+
+.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 /* ----- Skeleton loading animation ----- */
@@ -267,3 +294,76 @@ body {
 }
 
 #overlay.hidden { display: none; }
+
+/* ----- find bar ----- */
+
+.find-bar {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--surface, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  z-index: 1000;
+  color: var(--fg, #e0e0e0);
+}
+
+.find-bar .find-input {
+  background: var(--bg, #111);
+  border: 1px solid var(--border, #333);
+  color: var(--fg, #e0e0e0);
+  padding: 4px 8px;
+  border-radius: 3px;
+  width: 220px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.find-bar .find-input:focus {
+  border-color: var(--accent-blue, #4da6ff);
+}
+
+.find-bar .find-count {
+  color: var(--tab-inactive-fg, #888);
+  min-width: 70px;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-bar .find-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.find-bar .find-toggle input {
+  margin: 0;
+}
+
+.find-bar button {
+  background: var(--surface, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  color: var(--fg, #e0e0e0);
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.find-bar button:hover {
+  background: var(--border, #333);
+}
+
+.find-bar button:focus-visible {
+  outline: 2px solid var(--accent-blue, #4da6ff);
+  outline-offset: 1px;
+}

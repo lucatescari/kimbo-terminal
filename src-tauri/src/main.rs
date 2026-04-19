@@ -7,6 +7,7 @@ use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
 use commands::theme::ThemeState;
+use commands::update::UpdateState;
 
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -21,6 +22,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::new())
         .manage(ThemeState::default())
+        .manage(UpdateState::default())
         .setup(|app| {
             // Build native macOS menu bar.
             let handle = app.handle();
@@ -109,6 +111,7 @@ fn main() {
             commands::config::save_config,
             commands::kimbo::write_kimbo_shell_scripts,
             commands::workspace::list_projects,
+            commands::update::check_for_updates,
             quit_app,
         ])
         .run(tauri::generate_context!())
