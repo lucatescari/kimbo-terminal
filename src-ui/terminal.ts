@@ -18,6 +18,7 @@ import { parseOsc133 } from "./kimbo-osc";
 import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
+import { attachOsc8Links } from "./osc8";
 
 export interface TerminalSession {
   id: number;
@@ -125,6 +126,13 @@ export async function createTerminalSession(
     const cwd = parseOsc7Cwd(data);
     if (cwd) session.cwd = cwd;
     return true;
+  });
+
+  // OSC 8: tools like ls --hyperlink, eza, bat, git, Claude Code emit
+  // semantic hyperlinks. Same Cmd-gated activation as the URL auto-detector.
+  attachOsc8Links(term, (event, uri) => {
+    if (!event.metaKey) return;
+    openUrl(uri).catch((e) => console.error("openUrl failed:", e));
   });
 
   // Create backend PTY.

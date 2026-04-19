@@ -151,3 +151,84 @@ describe("parseOsc7Cwd", () => {
     expect(parseOsc7Cwd("file:///bad%path")).toBeNull();
   });
 });
+
+import { clipLinkRangeForLine } from "./osc8";
+
+describe("clipLinkRangeForLine", () => {
+  // A single-line link: starts and ends on absolute buffer line 5 (0-based),
+  // so bufferLineNumber 6 (1-based).
+  const singleLine = { startY: 5, startX: 3, endY: 5, endX: 10 };
+
+  it("returns null when the range is entirely above the requested line", () => {
+    expect(clipLinkRangeForLine(singleLine, 5, 80)).toBeNull();
+  });
+
+  it("returns null when the range is entirely below the requested line", () => {
+    expect(clipLinkRangeForLine(singleLine, 7, 80)).toBeNull();
+  });
+
+  it("returns exact start/end x for a single-line range", () => {
+    const result = clipLinkRangeForLine(singleLine, 6, 80);
+    expect(result).toEqual({
+      start: { x: 4, y: 6 },  // startX 3 → 1-based = 4
+      end:   { x: 10, y: 6 }, // endX 10 used directly as 1-based-inclusive
+    });
+  });
+
+  // A multi-line link spanning absolute lines 5–7 (0-based).
+  const multiLine = { startY: 5, startX: 3, endY: 7, endX: 6 };
+
+  it("clips start x to 1 for a middle line of a multi-line range", () => {
+    // bufferLineNumber 7 = absolute 6, which is the middle line
+    const result = clipLinkRangeForLine(multiLine, 7, 80);
+    expect(result).toEqual({
+      start: { x: 1, y: 7 },
+      end:   { x: 80, y: 7 }, // not on endY, so full width
+    });
+  });
+
+  it("uses startX on the opening line of a multi-line range", () => {
+    const result = clipLinkRangeForLine(multiLine, 6, 80);
+    expect(result).toEqual({
+      start: { x: 4, y: 6 },  // startX+1
+      end:   { x: 80, y: 6 }, // not on endY, so full width
+    });
+  });
+
+  it("uses endX on the closing line of a multi-line range", () => {
+    const result = clipLinkRangeForLine(multiLine, 8, 80);
+    expect(result).toEqual({
+      start: { x: 1, y: 8 },  // not on startY, so x=1
+      end:   { x: 6, y: 8 },  // endX used directly
+    });
+  });
+});
+
+const osc8Source = readFileSync(resolve(__dirname, "osc8.ts"), "utf-8");
+
+describe("terminal: OSC 8 hyperlinks", () => {
+  it("imports attachOsc8Links in terminal.ts", () => {
+    expect(terminalSource).toContain('from "./osc8"');
+    expect(terminalSource).toContain("attachOsc8Links");
+  });
+
+  it("calls attachOsc8Links with term and a callback", () => {
+    expect(terminalSource).toMatch(/attachOsc8Links\s*\(\s*term\s*,/);
+  });
+
+  it("osc8.ts exports attachOsc8Links", () => {
+    expect(osc8Source).toContain("export function attachOsc8Links");
+  });
+
+  it("osc8.ts registers OSC 8 handler", () => {
+    expect(osc8Source).toMatch(/registerOscHandler\s*\(\s*8\s*,/);
+  });
+
+  it("osc8.ts registers a link provider", () => {
+    expect(osc8Source).toContain("registerLinkProvider");
+  });
+
+  it("osc8 callback honors event.metaKey for activation", () => {
+    expect(terminalSource).toMatch(/attachOsc8Links\s*\(\s*term\s*,\s*\([^)]*event[^)]*\)\s*=>[\s\S]*?event\.metaKey/);
+  });
+});
