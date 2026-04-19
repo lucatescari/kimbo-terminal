@@ -71,3 +71,14 @@ describe("terminal: WebGL renderer", () => {
     expect(terminalSource).toContain("onContextLoss");
   });
 });
+
+describe("terminal: Unicode 11 widths", () => {
+  it("imports Unicode11Addon", () => {
+    expect(terminalSource).toContain('from "@xterm/addon-unicode11"');
+    expect(terminalSource).toContain("Unicode11Addon");
+  });
+
+  it("activates Unicode 11 after loading the addon", () => {
+    expect(terminalSource).toMatch(/term\.unicode\.activeVersion\s*=\s*["']11["']/);
+  });
+});

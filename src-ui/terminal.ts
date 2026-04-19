@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   createPty,
@@ -42,6 +43,9 @@ export async function createTerminalSession(
     lineHeight: opts.lineHeight,
     scrollback: opts.scrollback,
     theme: {},
+    // Unicode11Addon and registerLinkProvider (OSC 8) both touch proposed
+    // xterm.js APIs, which refuse to activate without this opt-in flag.
+    allowProposedApi: true,
   });
 
   const fit = new FitAddon();
@@ -59,6 +63,11 @@ export async function createTerminalSession(
   container.style.width = "100%";
   container.style.height = "100%";
   parentEl.appendChild(container);
+
+  // Modern emoji (🏳️‍🌈, ZWJ sequences, skin tones) need Unicode 11 widths
+  // to align correctly. Without this, xterm uses Unicode 6 widths from 1991.
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = "11";
 
   term.open(container);
 
