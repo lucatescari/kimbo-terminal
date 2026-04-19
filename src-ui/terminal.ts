@@ -88,6 +88,11 @@ export async function createTerminalSession(
       !ev.metaKey &&
       !ev.altKey
     ) {
+      // preventDefault() stops the browser from inserting a newline into
+      // xterm's hidden helper-textarea — without it, xterm's input handler
+      // fires later and emits a rogue \r through term.onData, which the
+      // shell/TUI sees as "submit" appended to our \x1b\r.
+      ev.preventDefault();
       writePty(ptyId, "\x1b\r");
       return false;
     }
