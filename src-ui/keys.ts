@@ -6,7 +6,7 @@ import {
   switchToTab,
   getActiveTab,
   splitActive,
-  closeActive,
+  closeActiveOrTab,
   focusDirection,
 } from "./tabs";
 import { toggleLauncher, isLauncherVisible, hideLauncher } from "./launcher";
@@ -44,7 +44,7 @@ const shortcuts: Shortcut[] = [
   // Pane splitting
   { key: "d", meta: true, action: () => splitActive("vertical") },
   { key: "d", meta: true, shift: true, action: () => splitActive("horizontal") },
-  { key: "w", meta: true, action: () => closeActive() },
+  { key: "w", meta: true, action: () => closeActiveOrTab() },
 
   // Pane focus navigation
   { key: "ArrowUp", meta: true, action: () => focusDirection("horizontal", false) },
