@@ -1,6 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   createPty,
   writePty,
@@ -44,7 +45,12 @@ export async function createTerminalSession(
 
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.loadAddon(new WebLinksAddon());
+  term.loadAddon(
+    new WebLinksAddon((event, uri) => {
+      if (!event.metaKey) return;
+      openUrl(uri).catch((e) => console.error("openUrl failed:", e));
+    }),
+  );
 
   // Create container.
   const container = document.createElement("div");
@@ -82,6 +88,11 @@ export async function createTerminalSession(
       !ev.metaKey &&
       !ev.altKey
     ) {
+      // preventDefault() stops the browser from inserting a newline into
+      // xterm's hidden helper-textarea — without it, xterm's input handler
+      // fires later and emits a rogue \r through term.onData, which the
+      // shell/TUI sees as "submit" appended to our \x1b\r.
+      ev.preventDefault();
       writePty(ptyId, "\x1b\r");
       return false;
     }

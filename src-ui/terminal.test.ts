@@ -36,4 +36,26 @@ describe("terminal: Shift+Enter sends meta-Enter sequence", () => {
     // We check that `return false` appears in the same file as the handler.
     expect(terminalSource).toContain("return false");
   });
+
+  it("calls ev.preventDefault to stop the textarea from emitting a rogue \\r", () => {
+    // Without preventDefault, the browser inserts a newline into xterm's
+    // hidden helper-textarea and xterm's input handler then fires onData
+    // with \r, which the shell sees as "submit" appended to our \x1b\r.
+    expect(terminalSource).toMatch(/ev\.preventDefault\s*\(\s*\)/);
+  });
+});
+
+describe("terminal: cmd-click URL opening", () => {
+  it("imports openUrl from the opener plugin", () => {
+    expect(terminalSource).toContain('from "@tauri-apps/plugin-opener"');
+    expect(terminalSource).toContain("openUrl");
+  });
+
+  it("passes a handler to WebLinksAddon", () => {
+    expect(terminalSource).toMatch(/new WebLinksAddon\s*\([\s\S]*?=>/);
+  });
+
+  it("gates the handler on event.metaKey", () => {
+    expect(terminalSource).toMatch(/event\.metaKey|ev\.metaKey|e\.metaKey/);
+  });
 });
