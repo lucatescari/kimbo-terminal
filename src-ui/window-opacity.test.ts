@@ -33,6 +33,11 @@ const CSS = readFileSync(
   "utf-8",
 );
 
+const XTERM_CSS = readFileSync(
+  resolve(__dirname, "..", "node_modules", "@xterm", "xterm", "css", "xterm.css"),
+  "utf-8",
+);
+
 /** Remove /* ... *\/ block comments so regex scans don't match example text. */
 function stripComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -104,6 +109,64 @@ describe("window opacity: no opaque chrome surfaces", () => {
         `'color-mix(in srgb, <color> calc(var(--app-alpha, 1) * 100%), transparent)'. ` +
         `If this is an intentional overlay, add the selector to ` +
         `OPAQUE_OVERLAY_SELECTORS in window-opacity.test.ts.`,
+    ).toEqual([]);
+  });
+
+  it("every opaque background in the vendored xterm.css is overridden", () => {
+    // xterm.js ships css/xterm.css which targets descendants of .xterm —
+    // which live inside our translucent #app-frame. Any opaque fill it
+    // applies masks --app-alpha. For each xterm rule that sets a
+    // non-transparent background, we must override it to transparent in
+    // our style.css. The test catches the exact regression that survived
+    // the last "fix": .xterm-viewport kept painting #000 because only our
+    // own CSS was being audited.
+    const xtermRules = extractRules(XTERM_CSS);
+    const offenders: Array<{ selector: string; value: string }> = [];
+
+    for (const { selector, body } of xtermRules) {
+      if (!selector.startsWith(".xterm")) continue;
+      // Match `background: <v>;` or `background-color: <v>;` where <v> is
+      // any color-ish token (hex, rgb, rgba, named color).
+      const bgRe = /background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-zA-Z][a-zA-Z-]*)\s*[;!]/g;
+      let m: RegExpExecArray | null;
+      while ((m = bgRe.exec(body))) {
+        const value = m[1].toLowerCase();
+        if (value === "transparent" || value === "inherit" || value === "none" || value === "unset") continue;
+        offenders.push({ selector, value: m[1] });
+      }
+    }
+
+    expect(
+      offenders.length,
+      "xterm.css audit setup is broken — expected at least one opaque bg rule to exist",
+    ).toBeGreaterThan(0);
+
+    // For each offender, search our style.css for a rule whose selector
+    // ends with the same xterm selector (optionally prefixed to bump
+    // specificity, e.g. `#app-frame .xterm .xterm-viewport`) and sets
+    // `background` or `background-color` to transparent.
+    const missing: Array<{ selector: string; value: string }> = [];
+    const ourRules = extractRules(CSS);
+
+    for (const { selector, value } of offenders) {
+      const xtermSel = selector.trim();
+      const hasOverride = ourRules.some(({ selector: ourSel, body }) => {
+        const ourSelTrim = ourSel.trim();
+        const matchesSelector =
+          ourSelTrim === xtermSel || ourSelTrim.endsWith(" " + xtermSel);
+        if (!matchesSelector) return false;
+        return /background(?:-color)?\s*:\s*transparent\b/.test(body);
+      });
+      if (!hasOverride) missing.push({ selector, value });
+    }
+
+    expect(
+      missing,
+      `xterm.css applies opaque backgrounds that will mask --app-alpha. ` +
+        `Add overrides in style.css (prefix the selector with '#app-frame ' ` +
+        `to bump specificity above xterm's (0,2,0) rules, then set ` +
+        `'background: transparent;' or 'background-color: transparent;'):\n` +
+        missing.map((m) => `  ${m.selector} → ${m.value}`).join("\n"),
     ).toEqual([]);
   });
 

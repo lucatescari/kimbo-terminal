@@ -579,6 +579,18 @@ body {
 .pane-head .branch { color: var(--accent); }
 .pane-head .actions { margin-left: auto; display: flex; gap: 2px; }
 
+/* Override xterm.js defaults that paint opaque #000 over the terminal
+   viewport and composition view, masking #app-frame's --app-alpha fill.
+   See node_modules/@xterm/xterm/css/xterm.css lines 81 and 95.
+   We bump specificity with #app-frame> to beat xterm's (0,2,0) rules
+   without needing !important. */
+#app-frame .xterm .xterm-viewport {
+  background-color: transparent;
+}
+#app-frame .xterm .composition-view {
+  background: transparent;
+}
+
 /* xterm scrollbar */
 .xterm .xterm-viewport { scrollbar-width: none; }
 .terminal-container.scrolling .xterm .xterm-viewport {
