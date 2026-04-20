@@ -294,6 +294,7 @@ describe("settings modal: community-ready listener race", () => {
 
 describe("settings modal: Background opacity row", () => {
   beforeEach(() => { platformState.isMacOS = true; });
+  afterEach(() => { platformState.isMacOS = true; });
 
   it("is enabled (no Coming-soon tag) on macOS", async () => {
     await openSettingsToCategory("general");
@@ -303,7 +304,7 @@ describe("settings modal: Background opacity row", () => {
     expect(slider).not.toBeNull();
     expect(slider!.style.pointerEvents).not.toBe("none");
     // Sibling "Coming soon" tag should not be attached to this slider's row.
-    const row = slider!.closest(".row") ?? slider!.parentElement!.parentElement!;
+    const row = slider!.closest(".row")!;
     expect(row.querySelector(".cs-tag")).toBeNull();
   });
 
