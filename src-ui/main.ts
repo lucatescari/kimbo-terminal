@@ -21,6 +21,7 @@ interface BootConfig {
   cursor: { style: string; blink: boolean };
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
   updates: { auto_check: boolean };
+  welcome: { show_on_startup: boolean };
 }
 
 async function init() {
