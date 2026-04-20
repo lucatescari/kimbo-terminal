@@ -297,7 +297,10 @@ body {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  background: var(--bg-tabs);
+  /* Chrome surface — transparent so #app-frame's --app-alpha fill shows
+     through. --bg-tabs == --bg at this layer, so at opacity=100 this is
+     visually identical to the pre-feature opaque fill. */
+  background: transparent;
   border-bottom: 1px solid var(--divider);
   height: 38px;
   flex-shrink: 0;
@@ -472,7 +475,12 @@ body {
   position: relative;
   border: 1px solid transparent;
   overflow: hidden;
-  background: var(--bg-pane);
+  /* Chrome surface — transparent so #app-frame's --app-alpha fill shows
+     through. --bg-pane == --bg at this layer; at opacity=100 visually
+     identical to the pre-feature opaque fill. The xterm canvas is also
+     transparent (allowTransparency + rgba(0,0,0,0) theme background) so
+     vibrancy reaches the terminal viewport. */
+  background: transparent;
 }
 
 .pane.active {
@@ -551,7 +559,17 @@ body {
   font-size: 10.5px;
   color: var(--fg-muted);
   border-bottom: 1px solid var(--divider);
-  background: color-mix(in oklab, var(--bg-pane) 70%, var(--bg-titlebar));
+  /* Chrome surface — alpha-aware. The inner color-mix preserves the
+     pane-head's slight tint toward --bg-titlebar; the outer color-mix
+     scales it by --app-alpha so the whole pane head participates in the
+     window-level translucency. At opacity=100 this is identical to the
+     original blend. */
+  background: color-mix(
+    in srgb,
+    color-mix(in oklab, var(--bg-pane) 70%, var(--bg-titlebar))
+      calc(var(--app-alpha, 1) * 100%),
+    transparent
+  );
   user-select: none;
   -webkit-user-select: none;
 }
@@ -589,7 +607,10 @@ body {
 #status-bar {
   height: 22px;
   flex-shrink: 0;
-  background: var(--bg-titlebar);
+  /* Chrome surface — alpha-aware. Preserves the darker "titlebar" tint
+     at opacity=100, scales by --app-alpha below that so the strip
+     participates in the window-level translucency. */
+  background: color-mix(in srgb, var(--bg-titlebar) calc(var(--app-alpha, 1) * 100%), transparent);
   border-top: 1px solid var(--divider);
   display: flex;
   align-items: center;
