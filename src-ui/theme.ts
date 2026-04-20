@@ -63,14 +63,45 @@ export function getTerminalOptions(): TerminalOptions {
  * monospace fallback. Bare config values like "JetBrains Mono" would render
  * with a random fallback font if that face isn't installed; this wraps the
  * name and appends `monospace` so xterm always has a safe chain.
+ *
+ * "JetBrainsMono Nerd Font Mono" (bundled in public/fonts and wired up by an
+ * @font-face in style.css) sits between the user font and `monospace` to
+ * catch Private Use Area glyphs (shell-prompt icons from starship, spaceship,
+ * p10k, etc.) that JetBrains Mono / Menlo / SF Mono don't carry. Without it,
+ * the browser falls back to an arbitrary system font and xterm's WebGL
+ * renderer jams the glyph into one cell with wrong advance metrics — the
+ * "squished lock icon" effect. The patched-JBM variant preserves exact
+ * single-cell advance width for every nerd glyph, so xterm can keep its
+ * grid geometry without having to stretch or compress anything.
  */
+const NERD_FALLBACK = "'JetBrainsMono Nerd Font Mono'";
+
 export function normalizeFontFamily(name: string): string {
   const s = (name ?? "").trim();
-  if (!s) return "'Menlo', monospace";
-  if (s.includes(",")) return s;
+  if (!s) return `'Menlo', ${NERD_FALLBACK}, monospace`;
+  if (s.includes(",")) {
+    return s.includes("Nerd Font") ? s : injectNerdFallback(s);
+  }
   const quoted = s.startsWith("'") || s.startsWith('"') ? s : `'${s}'`;
-  return `${quoted}, monospace`;
+  return `${quoted}, ${NERD_FALLBACK}, monospace`;
 }
+
+/** Insert the Nerd Font fallback before the final generic keyword (monospace,
+ *  sans-serif, serif) if present — otherwise append it. Keeps user's custom
+ *  fallback chain intact while still guaranteeing PUA coverage. */
+function injectNerdFallback(chain: string): string {
+  const parts = chain.split(",").map((p) => p.trim());
+  const genericIdx = parts.findIndex((p) =>
+    /^(monospace|sans-serif|serif|cursive|fantasy|system-ui|ui-monospace)$/.test(p),
+  );
+  if (genericIdx === -1) return `${chain}, ${NERD_FALLBACK}, monospace`;
+  parts.splice(genericIdx, 0, NERD_FALLBACK);
+  return parts.join(", ");
+}
+
+/** Exposed so callers (e.g. main.ts preload) can reference the exact family
+ *  name that the @font-face in style.css registers under. */
+export const NERD_FONT_FAMILY = "JetBrainsMono Nerd Font Mono";
 
 /** Apply a new set of terminal options to all registered terminals. */
 export function applyTerminalOptions(opts: Partial<TerminalOptions>) {
@@ -132,6 +163,15 @@ function applyTheme(theme: ResolvedTheme) {
   // (shadow weights, fg-strong lift). theme_type comes from the resolved
   // theme file ("light" | "dark" | "high-contrast" | …).
   root.dataset.themeType = theme.theme_type || "dark";
+
+  // Hint the UA about color scheme so native form controls (most importantly
+  // number-input ±spinners and scrollbars inside webkit) pick matching
+  // colors instead of defaulting to black-on-light-gray against our dark bg.
+  // `light dark` (both keywords) lets the UA pick the right variant based
+  // on our chosen theme_type; "high-contrast" is treated as dark since that's
+  // what Kimbo's HC palette currently is.
+  const t = theme.theme_type || "dark";
+  root.style.colorScheme = t === "light" ? "light" : "dark";
 
   // Pin the NSWindow appearance so the NSVisualEffectView (macOS vibrancy
   // behind the webview) picks a matching light/dark material. Without

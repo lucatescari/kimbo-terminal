@@ -9,7 +9,6 @@ import {
   closeActiveOrTab,
   focusDirection,
 } from "./tabs";
-import { toggleLauncher, isLauncherVisible, hideLauncher } from "./launcher";
 import { toggleSettings, isSettingsVisible, hideSettings } from "./settings";
 import { toggleFindBar, isFindBarVisible, hideFindBar } from "./find-bar";
 import { toggleCommandPalette, isCommandPaletteVisible, hideCommandPalette } from "./command-palette";
@@ -53,9 +52,6 @@ const shortcuts: Shortcut[] = [
   { key: "ArrowLeft", meta: true, action: () => focusDirection("vertical", false) },
   { key: "ArrowRight", meta: true, action: () => focusDirection("vertical", true) },
 
-  // Launcher
-  { key: "o", meta: true, action: () => toggleLauncher() },
-
   // Settings
   { key: ",", meta: true, action: () => toggleSettings() },
 
@@ -85,7 +81,6 @@ export function initKeys() {
     if (e.key === "Escape") {
       if (isFindBarVisible()) { e.preventDefault(); hideFindBar(); return; }
       if (isCommandPaletteVisible()) { e.preventDefault(); hideCommandPalette(); return; }
-      if (isLauncherVisible()) { e.preventDefault(); hideLauncher(); return; }
       if (isSettingsVisible()) { e.preventDefault(); hideSettings(); return; }
     }
 

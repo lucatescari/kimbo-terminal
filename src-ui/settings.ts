@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { applyTerminalOptions, loadTheme } from "./theme";
 import { fitAllPanes } from "./tabs";
 import { kimboBus } from "./kimbo-bus";
@@ -417,9 +418,26 @@ function renderAppearance(el: HTMLElement): void {
   create.classList.add("ghost");
   btnRow.appendChild(create);
   const importBtn = button("Import from file", async () => {
-    alert("Drop a .toml theme file into ~/.config/kimbo/themes/ and click 'Browse gallery' to refresh.\n\nIn-app file picker coming soon.");
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Kimbo theme", extensions: ["json"] }],
+        title: "Import Kimbo theme",
+      });
+      if (typeof selected !== "string") return; // user cancelled
+      const slug = await invoke<string>("install_theme_from_file", {
+        filePath: selected,
+        activeSlug: config?.theme.name ?? null,
+      });
+      // The rust command spawns an emit of `themes://community-ready` which
+      // the gallery listener already picks up; nothing else to do here.
+      console.log(`[kimbo.theme] imported '${slug}' from ${selected}`);
+    } catch (e) {
+      alert(`Could not import theme:\n\n${e instanceof Error ? e.message : String(e)}`);
+    }
   });
-  importBtn.classList.add("ghost", "coming-soon");
+  importBtn.classList.add("ghost");
   btnRow.appendChild(importBtn);
   themeSec.appendChild(btnRow);
   el.appendChild(themeSec);
@@ -617,23 +635,34 @@ function renderFont(el: HTMLElement): void {
   const family = config.font.family;
   const options = COMMON_MONOSPACE_FONTS.includes(family) ? COMMON_MONOSPACE_FONTS : [family, ...COMMON_MONOSPACE_FONTS];
 
+  // Keep the preview element in sync without re-rendering the whole pane —
+  // the user expects immediate visual feedback when they tweak font / size /
+  // line-height, otherwise the preview looks broken. The updaters are set
+  // below once the preview element exists; these wrappers capture them by
+  // reference so the callbacks above can fire them whether the preview has
+  // been built yet or not.
+  let updatePreview: () => void = () => {};
+
   const familySec = section("Family");
   familySec.appendChild(row("Terminal font", "",
     select(family, options.map((f) => [f, f]), (v) => {
       config!.font.family = v;
       void saveConfig();
+      updatePreview();
     }),
   ));
   familySec.appendChild(row("Size", "12–20px works well on retina displays.",
     numInput(config.font.size, 8, 40, 0.5, (v) => {
       config!.font.size = v;
       void saveConfig();
+      updatePreview();
     }),
   ));
   familySec.appendChild(row("Line height", "",
     numInput(config.font.line_height, 1.0, 2.5, 0.05, (v) => {
       config!.font.line_height = v;
       void saveConfig();
+      updatePreview();
     }),
   ));
   el.appendChild(familySec);
@@ -668,9 +697,13 @@ function renderFont(el: HTMLElement): void {
     <div class="fp-err">  ✗ 0 failed · 0 skipped</div>
     <div class="fp-dim">  abc ABC 0123456789 === !== &amp;&amp; || -&gt; =&gt;</div>
   `;
-  preview.style.fontFamily = `"${config.font.family}", ui-monospace, Menlo, monospace`;
-  preview.style.fontSize = `${config.font.size}px`;
-  preview.style.lineHeight = String(config.font.line_height);
+  updatePreview = () => {
+    if (!config) return;
+    preview.style.fontFamily = `"${config.font.family}", ui-monospace, Menlo, monospace`;
+    preview.style.fontSize = `${config.font.size}px`;
+    preview.style.lineHeight = String(config.font.line_height);
+  };
+  updatePreview();
   previewSec.appendChild(preview);
   el.appendChild(previewSec);
 }
@@ -686,7 +719,7 @@ function renderWorkspaces(el: HTMLElement): void {
   const sec = section("Auto-detection");
   sec.appendChild(row(
     "Auto-detect projects",
-    "Kimbo scans listed folders for Git repos and shows them in the launcher (⌘O).",
+    "Kimbo scans listed folders for Git repos and shows them under ⌘K → Open project…",
     toggle(config.workspace.auto_detect, (v) => {
       config!.workspace.auto_detect = v;
       void saveConfig();
@@ -698,69 +731,111 @@ function renderWorkspaces(el: HTMLElement): void {
   const list = document.createElement("div");
   list.className = "ws-list";
 
-  config.workspace.scan_dirs.forEach((dir, i) => {
+  const dirs = config.workspace.scan_dirs;
+  dirs.forEach((dir, i) => {
     const r = document.createElement("div");
     r.className = "ws-row";
+
     const ic = document.createElement("div");
     ic.className = "icon";
-    ic.textContent = dir.replace(/^~/, "").split("/").filter(Boolean)[0]?.[0]?.toUpperCase() || "·";
+    ic.textContent =
+      dir.replace(/^~/, "").split("/").filter(Boolean)[0]?.[0]?.toUpperCase() || "·";
     r.appendChild(ic);
 
     const info = document.createElement("div");
     info.style.display = "flex";
     info.style.flexDirection = "column";
     info.style.minWidth = "0";
-    const inp = document.createElement("input");
-    inp.className = "input";
-    inp.style.background = "transparent";
-    inp.style.border = "0";
-    inp.style.padding = "0";
-    inp.style.fontFamily = "var(--font-mono)";
-    inp.style.fontSize = "11.5px";
-    inp.style.color = "var(--fg-muted)";
-    inp.style.height = "auto";
-    inp.value = dir;
-    inp.addEventListener("change", () => {
-      config!.workspace.scan_dirs[i] = inp.value;
-      void saveConfig();
-    });
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = dir.split("/").filter(Boolean).pop() || "~";
+    const path = document.createElement("div");
+    path.className = "path";
+    path.textContent = dir;
+    // Show the full path as a tooltip too — the muted row text truncates
+    // visually and long project paths become unreadable otherwise.
+    path.title = dir;
     info.appendChild(title);
-    info.appendChild(inp);
+    info.appendChild(path);
     r.appendChild(info);
 
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    meta.textContent = "auto-scan";
-    r.appendChild(meta);
+    // Action cluster: up, down, change, remove. Up/down are plain icon
+    // buttons (no text) to keep the row short; `.ws-move` below gives them
+    // a hover treatment. Disable endpoint moves so clicking ↑ on the top
+    // row isn't a no-op that looks broken.
+    const actions = document.createElement("div");
+    actions.className = "ws-actions";
+
+    const up = iconBtn("chevron-u", "Move up", () => {
+      if (i === 0) return;
+      [dirs[i - 1], dirs[i]] = [dirs[i], dirs[i - 1]];
+      void saveConfig();
+      render();
+    });
+    if (i === 0) up.setAttribute("disabled", "");
+    actions.appendChild(up);
+
+    const down = iconBtn("chevron-d", "Move down", () => {
+      if (i === dirs.length - 1) return;
+      [dirs[i + 1], dirs[i]] = [dirs[i], dirs[i + 1]];
+      void saveConfig();
+      render();
+    });
+    if (i === dirs.length - 1) down.setAttribute("disabled", "");
+    actions.appendChild(down);
+
+    const change = button("Change…", async () => {
+      try {
+        const picked = await openFileDialog({
+          multiple: false,
+          directory: true,
+          title: "Pick a workspace directory",
+        });
+        if (typeof picked !== "string") return;
+        dirs[i] = picked;
+        void saveConfig();
+        render();
+      } catch (e) {
+        console.warn("[kimbo.workspace] change-directory picker failed:", e);
+      }
+    });
+    change.classList.add("ghost", "small");
+    actions.appendChild(change);
 
     const rm = button("Remove", () => {
-      config!.workspace.scan_dirs.splice(i, 1);
+      dirs.splice(i, 1);
       void saveConfig();
       render();
     });
     rm.classList.add("ghost", "small");
-    r.appendChild(rm);
+    actions.appendChild(rm);
 
+    r.appendChild(actions);
     list.appendChild(r);
   });
   listSec.appendChild(list);
 
   const btnRow = document.createElement("div");
   btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 12px;";
-  const add = button("Add directory", () => {
-    config!.workspace.scan_dirs.push("~/");
-    void saveConfig();
-    render();
+  const add = button("Add directory", async () => {
+    try {
+      const picked = await openFileDialog({
+        multiple: false,
+        directory: true,
+        title: "Add a workspace directory",
+      });
+      if (typeof picked !== "string") return;
+      // De-dupe — adding the same path twice just wastes a scan.
+      if (!dirs.includes(picked)) dirs.push(picked);
+      void saveConfig();
+      render();
+    } catch (e) {
+      console.warn("[kimbo.workspace] add-directory picker failed:", e);
+    }
   });
   add.classList.add("primary");
   add.prepend(icon("plus", 12));
   btnRow.appendChild(add);
-  const imp = button("Import…", () => alert("Coming soon."));
-  imp.classList.add("ghost", "coming-soon");
-  btnRow.appendChild(imp);
   listSec.appendChild(btnRow);
 
   el.appendChild(listSec);
@@ -783,7 +858,6 @@ const BINDS_DEFAULT: { cat: string; label: string; keys: string[] }[] = [
   { cat: "panes", label: "Focus pane left",      keys: ["⌘", "←"] },
   { cat: "panes", label: "Focus pane right",     keys: ["⌘", "→"] },
   { cat: "nav",   label: "Command palette",      keys: ["⌘", "K"] },
-  { cat: "nav",   label: "Project launcher",     keys: ["⌘", "O"] },
   { cat: "nav",   label: "Settings",             keys: ["⌘", ","] },
   { cat: "edit",  label: "Find in terminal",     keys: ["⌘", "F"] },
   { cat: "app",   label: "Quit",                 keys: ["⌘", "Q"] },
@@ -1237,6 +1311,20 @@ function button(label: string, onClick: () => void): HTMLButtonElement {
   b.type = "button";
   b.className = "btn";
   b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** Icon-only button used for compact controls (workspace reorder, etc.).
+ *  Looks like a .btn.ghost but has no text, just an icon — the `title`
+ *  attribute carries the accessible label. */
+function iconBtn(name: IconName, label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn ghost small icon-only";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.appendChild(icon(name, 14, 2));
   b.addEventListener("click", onClick);
   return b;
 }

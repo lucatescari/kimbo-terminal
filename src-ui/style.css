@@ -9,6 +9,28 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
+/* Nerd Font glyph fallback. Shell prompts (starship, spaceship, p10k) emit
+   Nerd Font icons in the Private Use Area (U+E000–F8FF, U+F0000–FFFFF).
+   Plain monospace fonts like JetBrains Mono have no glyphs there, so xterm
+   falls back to a random system font that renders with wrong cell metrics
+   — icons appear squished.
+
+   We bundle "JetBrainsMono Nerd Font Mono" (the patched JetBrains Mono with
+   all Nerd Font glyphs forced to single-cell width) rather than the skinnier
+   SymbolsNerdFontMono: the "Symbols" variant's advance widths don't match a
+   generic reference mono font, so its glyphs arrive wider than the terminal
+   cell and get visually squished anyway. Using the patched JBM guarantees
+   every PUA glyph has the exact same advance width as the Latin cells it
+   sits between. No unicode-range so the browser can fall through the whole
+   font for any missing codepoint the primary family doesn't cover. */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   /* Legacy theme tokens (written by theme.ts). Defaults shown for FOUC. */
   --bg: #1e1e2e;
@@ -1006,7 +1028,11 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 160px;
+  /* Fixed (not min-) width so every select in the settings column lines up
+     vertically regardless of label length. Long labels truncate with the
+     ellipsis rule on .dd-label; the dropdown menu itself still grows to
+     fit its options (see menuMinWidth fallback in dropdown.ts). */
+  width: 200px;
   justify-content: space-between;
   transition: background 0.12s, border-color 0.12s;
 }
@@ -1415,13 +1441,38 @@ body {
 .ws-list { display: grid; gap: 8px; }
 .ws-row {
   display: grid;
-  grid-template-columns: 28px 1fr auto auto;
+  grid-template-columns: 28px 1fr auto;
   align-items: center;
   gap: 12px;
   padding: var(--density-pad) 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+.ws-row .ws-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Path row can overflow a narrow settings pane; keep it one line and
+   ellipsize, the full path lives in the tooltip. */
+.ws-row .path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.btn.icon-only {
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn.icon-only[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .ws-row .icon {
   width: 24px;
@@ -1471,7 +1522,6 @@ body {
   background-size: cover;
   background-position: center;
   background-image: url("/app-icon.png");
-  box-shadow: 0 8px 24px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 .about-identity .meta {
   display: flex;
@@ -1538,16 +1588,45 @@ body {
   display: flex;
   flex-direction: column;
 }
+.palette .p-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--divider);
+  min-height: 48px;
+}
+.palette .p-mode-badge {
+  border: 1px solid var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.palette .p-mode-badge::before {
+  content: "←";
+  font-size: 11px;
+  color: var(--accent);
+}
+.palette .p-mode-badge.hidden { display: none; }
 .palette .p-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 48px;
   border: 0;
   background: transparent;
   color: var(--fg);
   font-family: var(--font-ui);
   font-size: 14px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--divider);
+  padding: 0;
 }
 .palette .p-input:focus { outline: none; }
 .palette .p-list {

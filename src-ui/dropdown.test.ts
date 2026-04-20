@@ -92,6 +92,37 @@ describe("dropdown: menu opens and closes", () => {
     outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(document.querySelector(".dd-menu")).toBeNull();
   });
+
+  it("scrolling INSIDE the menu does NOT close it", () => {
+    // Regression for: terminal font dropdown closed mid-scroll because the
+    // global scroll-capture listener fired on its own internal wheel events
+    // and scrollbar drags. We now filter by target.
+    const trigger = mountTrigger("a", Array.from({ length: 50 }, (_, i) => [
+      `f${i}`,
+      `Font ${i}`,
+    ]) as Array<[string, string]>);
+    trigger.click();
+    const menu = document.querySelector(".dd-menu") as HTMLElement;
+    expect(menu).not.toBeNull();
+    const row = menu.querySelector<HTMLElement>(".dd-row")!;
+    // Capture-phase scroll with target inside the menu → handler must NOT close.
+    const ev = new Event("scroll", { bubbles: false });
+    Object.defineProperty(ev, "target", { value: row });
+    window.dispatchEvent(ev);
+    expect(document.querySelector(".dd-menu")).not.toBeNull();
+  });
+
+  it("scrolling OUTSIDE the menu still closes it", () => {
+    const trigger = mountTrigger("a", [["a", "A"], ["b", "B"]]);
+    trigger.click();
+    expect(document.querySelector(".dd-menu")).not.toBeNull();
+    const outside = document.createElement("div");
+    document.body.appendChild(outside);
+    const ev = new Event("scroll", { bubbles: false });
+    Object.defineProperty(ev, "target", { value: outside });
+    window.dispatchEvent(ev);
+    expect(document.querySelector(".dd-menu")).toBeNull();
+  });
 });
 
 describe("dropdown: selecting an option", () => {

@@ -54,7 +54,6 @@ describe("shortcut matching", () => {
     { key: "ArrowUp", meta: true, action },
     { key: "ArrowDown", meta: true, action },
     { key: "1", meta: true, action },
-    { key: "o", meta: true, action },
   ];
 
   it("matches Cmd+T", () => {
@@ -123,11 +122,6 @@ describe("shortcut matching", () => {
 
   it("matches Cmd+1 (switch tab)", () => {
     const result = matchShortcut(shortcuts, makeEvent({ key: "1", metaKey: true }));
-    expect(result).toBeDefined();
-  });
-
-  it("matches Cmd+O (launcher)", () => {
-    const result = matchShortcut(shortcuts, makeEvent({ key: "o", metaKey: true }));
     expect(result).toBeDefined();
   });
 

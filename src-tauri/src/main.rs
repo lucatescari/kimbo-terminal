@@ -42,6 +42,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(PtyManager::new())
         .manage(ThemeState::default())
         .manage(UpdateState::default())
@@ -159,6 +160,7 @@ fn main() {
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,
+            commands::theme::install_theme_from_file,
             commands::theme::delete_theme,
             commands::config::get_config,
             commands::config::save_config,

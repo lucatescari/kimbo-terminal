@@ -10,6 +10,7 @@
     "opener:allow-open-url",
     "updater:default",
     "process:allow-restart",
+    "dialog:allow-open",
     "core:window:allow-start-dragging",
     "core:window:allow-close",
     "core:window:allow-minimize",

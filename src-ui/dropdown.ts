@@ -78,7 +78,20 @@ function closeMenu(): void {
   window.removeEventListener("click", handleOutsideClick, true);
   window.removeEventListener("keydown", handleKey, true);
   window.removeEventListener("resize", closeMenu);
-  window.removeEventListener("scroll", closeMenu, true);
+  window.removeEventListener("scroll", handleOutsideScroll, true);
+}
+
+/** Close only when the scroll happens *outside* the panel. Without this
+ *  check, scrolling inside the dropdown — either with the wheel or by
+ *  dragging its scrollbar — closes the dropdown mid-interaction, which is
+ *  obviously wrong when the menu is the thing being scrolled. We still
+ *  want to close on scroll of the settings pane underneath so a fixed
+ *  menu doesn't hover over content that moved. */
+function handleOutsideScroll(e: Event): void {
+  if (!openPanel) return;
+  const target = e.target as Node | null;
+  if (target && openPanel.contains(target)) return;
+  closeMenu();
 }
 
 function handleOutsideClick(e: MouseEvent): void {
@@ -180,7 +193,7 @@ function openMenu(
   window.addEventListener("click", handleOutsideClick, true);
   window.addEventListener("keydown", handleKey, true);
   window.addEventListener("resize", closeMenu);
-  window.addEventListener("scroll", closeMenu, true);
+  window.addEventListener("scroll", handleOutsideScroll, true);
 }
 
 function positionPanel(panel: HTMLElement, trigger: HTMLElement): void {

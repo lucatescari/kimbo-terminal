@@ -30,7 +30,6 @@ describe("welcome-popup: keybind content", () => {
     "Split pane right",
     "Split pane down",
     "Close pane",
-    "Project launcher",
     "Settings",
     "Quit",
   ];
@@ -41,8 +40,9 @@ describe("welcome-popup: keybind content", () => {
     });
   }
 
-  it("footer points to Settings → Keybinds", () => {
-    expect(welcomeSource).toContain("Settings → Keybinds");
+  it("does NOT render the old footer pointing at Settings → Keybinds", () => {
+    // Removed on request; the shortcut list itself is enough signal.
+    expect(welcomeSource).not.toContain("Settings → Keybinds");
   });
 });
 

@@ -111,7 +111,30 @@ export async function createTerminalSession(
   }
 
   registerTerminal(term);
+  // NOTE: the element passed to us by createLeaf is still detached from the
+  // document at this point, and only gets appended once createLeaf returns
+  // (see panes.ts:createRootPane and splitActive). A sync fit.fit() here
+  // runs on a 0×0 container and wedges xterm at the 80×24 default, which
+  // then goes straight to the PTY and locks TUIs like Claude Code at that
+  // size until the next window resize. The ResizeObserver below fires as
+  // soon as the container is attached AND laid out — that's the first
+  // moment fit.fit() has real dimensions to work with. We still call fit
+  // sync so xterm has SOME size before the PTY is created; the RO will
+  // correct it on first real layout.
   fit.fit();
+  const fitObserver = new ResizeObserver((entries) => {
+    // Ignore spurious 0×0 ticks (detached → attached transitions emit one
+    // before layout lands in some browsers). Only fit when we have real
+    // dimensions to work with.
+    for (const e of entries) {
+      const r = e.contentRect;
+      if (r.width > 0 && r.height > 0) {
+        fit.fit();
+        break;
+      }
+    }
+  });
+  fitObserver.observe(container);
 
   // Kimbo shell integration — OSC 133 command-start/end (only when enabled).
   if (isKimboShellIntegrationEnabled()) {
@@ -232,6 +255,7 @@ export async function createTerminalSession(
       unlistenOutput();
       unlistenExit();
       unregisterTerminal(term);
+      fitObserver.disconnect();
       viewport?.removeEventListener("scroll", onViewportScroll);
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
       term.dispose();

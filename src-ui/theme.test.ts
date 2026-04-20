@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { normalizeFontFamily } from "./theme";
 
 // Test theme application logic in isolation (no Tauri invoke).
 
@@ -240,6 +241,37 @@ describe("theme: xterm.js theme object", () => {
       expect(value, `${key} should not be empty`).toBeTruthy();
       expect(value, `${key} should be a color string`).toMatch(/^(#[0-9a-fA-F]{6}|rgba\([\d,\s]+\))$/);
     }
+  });
+});
+
+describe("theme: normalizeFontFamily — Nerd Font fallback", () => {
+  it("single-name input gets quoted with Nerd Font fallback before monospace", () => {
+    expect(normalizeFontFamily("JetBrains Mono")).toBe(
+      "'JetBrains Mono', 'JetBrainsMono Nerd Font Mono', monospace",
+    );
+  });
+
+  it("empty input falls back to Menlo + Nerd Font + monospace", () => {
+    expect(normalizeFontFamily("")).toBe(
+      "'Menlo', 'JetBrainsMono Nerd Font Mono', monospace",
+    );
+  });
+
+  it("injects Nerd Font before trailing generic keyword in a chain", () => {
+    expect(normalizeFontFamily("'JetBrains Mono', 'Menlo', monospace")).toBe(
+      "'JetBrains Mono', 'Menlo', 'JetBrainsMono Nerd Font Mono', monospace",
+    );
+  });
+
+  it("appends Nerd Font + monospace if no generic keyword is present", () => {
+    expect(normalizeFontFamily("'Cascadia Code', 'Menlo'")).toBe(
+      "'Cascadia Code', 'Menlo', 'JetBrainsMono Nerd Font Mono', monospace",
+    );
+  });
+
+  it("does not inject twice if Nerd Font is already in the chain", () => {
+    const input = "'JetBrains Mono', 'JetBrainsMono Nerd Font Mono', monospace";
+    expect(normalizeFontFamily(input)).toBe(input);
   });
 });
 

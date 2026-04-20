@@ -167,6 +167,35 @@ export function getActiveTab(): Tab | undefined {
   return tabs.find((t) => t.id === activeTabId);
 }
 
+/** Snapshot of every open tab for session persistence. Returns the active
+ *  tab's index and each tab's first-leaf cwd (what we'll restore to on
+ *  next launch). Panes/splits collapse to a single cwd — restoring the
+ *  full split geometry would need a much bigger serialization + replay
+ *  effort and isn't in scope for the MVP of `startup === "last"`. */
+export function snapshotOpenTabs(): {
+  tabs: Array<{ cwd: string | null; name: string }>;
+  activeIndex: number;
+} {
+  return {
+    tabs: tabs.map((t) => ({
+      cwd: firstLeafCwd(t.id === activeTabId ? getTree() : t.treeSnapshot),
+      name: t.titleOverride ?? t.name,
+    })),
+    activeIndex: Math.max(0, tabs.findIndex((t) => t.id === activeTabId)),
+  };
+}
+
+/** Walk a pane tree and return the first leaf's last-known cwd. OSC 7
+ *  writes `session.cwd` on every shell prompt, so this is the same value
+ *  the pane-head strip displays. Returns null for trees that have no leaf
+ *  (shouldn't happen in practice) or whose first leaf hasn't emitted OSC 7
+ *  yet (fresh shell — caller should fall back to the default). */
+function firstLeafCwd(node: any): string | null {
+  if (!node) return null;
+  if (node.type === "leaf") return node.session?.cwd ?? null;
+  return firstLeafCwd(node.first) ?? firstLeafCwd(node.second);
+}
+
 // Pane operations forwarded from keys.ts.
 export function splitActive(dir: "vertical" | "horizontal"): void {
   _splitActive(dir);

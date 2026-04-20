@@ -143,8 +143,12 @@ describe("keys.ts: every shortcut binds to a real dispatch target", () => {
     expectShortcut({ key: ",", handler: "toggleSettings" });
   });
 
-  it("Cmd+O → toggleLauncher", () => {
-    expectShortcut({ key: "o", handler: "toggleLauncher" });
+  it("Cmd+O is NOT a shortcut any more (merged into ⌘K → Open project…)", () => {
+    // Guards against anyone re-adding the launcher keybinding. Project
+    // picking now lives as a mode inside the command palette.
+    // A regex like /key:\s*"o"/ would be tricked by comments; match the
+    // full property-pair shape so only a real registration fails this.
+    expect(keysSource).not.toMatch(/\{\s*key:\s*"o"[^}]*meta:\s*true/);
   });
 
   it("Cmd+F → toggleFindBar", () => {
