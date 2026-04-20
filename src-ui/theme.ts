@@ -134,7 +134,10 @@ function applyTheme(theme: ResolvedTheme) {
   root.dataset.themeType = theme.theme_type || "dark";
 
   const xtermTheme: Record<string, string> = {
-    background: theme.background,
+    // Transparent so #app-frame (which carries --app-alpha chrome fill) shows
+    // through under the terminal viewport. The theme's background hex is still
+    // used for the CSS --bg token upstream of this function.
+    background: "rgba(0,0,0,0)",
     foreground: theme.foreground,
     cursor: theme.cursor,
     selectionBackground: theme.selection_background,

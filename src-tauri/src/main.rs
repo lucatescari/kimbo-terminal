@@ -46,7 +46,7 @@ fn main() {
                         &win,
                         NSVisualEffectMaterial::UnderWindowBackground,
                         None,
-                        None,
+                        Some(14.0),
                     ) {
                         log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
                     }

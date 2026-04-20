@@ -58,7 +58,7 @@ function applyThemeToCssVars(
 
 function buildXtermTheme(theme: ResolvedTheme): Record<string, string> {
   return {
-    background: theme.background,
+    background: "rgba(0,0,0,0)",
     foreground: theme.foreground,
     cursor: theme.cursor,
     selectionBackground: theme.selection_background,
@@ -197,7 +197,7 @@ describe("theme: xterm.js theme object", () => {
   it("maps all 16 ANSI colors for Kimbo Dark", () => {
     const xt = buildXtermTheme(kimboDark);
 
-    expect(xt.background).toBe("#1a1a1a");
+    expect(xt.background).toBe("rgba(0,0,0,0)");
     expect(xt.foreground).toBe("#d4d4d4");
     expect(xt.cursor).toBe("#e0e0e0");
     expect(xt.selectionBackground).toBe("#404040");
@@ -222,7 +222,7 @@ describe("theme: xterm.js theme object", () => {
   it("maps all 16 ANSI colors for Catppuccin Latte", () => {
     const xt = buildXtermTheme(catppuccinLatte);
 
-    expect(xt.background).toBe("#eff1f5");
+    expect(xt.background).toBe("rgba(0,0,0,0)");
     expect(xt.foreground).toBe("#4c4f69");
     expect(xt.black).toBe("#5c5f77");
     expect(xt.red).toBe("#d20f39");
@@ -238,7 +238,7 @@ describe("theme: xterm.js theme object", () => {
     const xt = buildXtermTheme(kimboDark);
     for (const [key, value] of Object.entries(xt)) {
       expect(value, `${key} should not be empty`).toBeTruthy();
-      expect(value, `${key} should be a hex color`).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect(value, `${key} should be a color string`).toMatch(/^(#[0-9a-fA-F]{6}|rgba\([\d,\s]+\))$/);
     }
   });
 });
@@ -268,7 +268,7 @@ describe("theme: terminal registration", () => {
     registerTerminal(mockTerm);
 
     expect(mockTerm.theme).not.toBeNull();
-    expect(mockTerm.theme!.background).toBe("#1a1a1a");
+    expect(mockTerm.theme!.background).toBe("rgba(0,0,0,0)");
   });
 
   it("theme switch updates all registered terminals", () => {
@@ -291,11 +291,11 @@ describe("theme: terminal registration", () => {
     registerTerminal(t2);
 
     applyTheme(buildXtermTheme(kimboDark));
-    expect(t1.theme!.background).toBe("#1a1a1a");
-    expect(t2.theme!.background).toBe("#1a1a1a");
+    expect(t1.theme!.background).toBe("rgba(0,0,0,0)");
+    expect(t2.theme!.background).toBe("rgba(0,0,0,0)");
 
     applyTheme(buildXtermTheme(catppuccinLatte));
-    expect(t1.theme!.background).toBe("#eff1f5");
-    expect(t2.theme!.background).toBe("#eff1f5");
+    expect(t1.theme!.background).toBe("rgba(0,0,0,0)");
+    expect(t2.theme!.background).toBe("rgba(0,0,0,0)");
   });
 });

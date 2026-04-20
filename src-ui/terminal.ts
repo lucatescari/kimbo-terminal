@@ -59,6 +59,12 @@ export async function createTerminalSession(
     lineHeight: opts.lineHeight,
     scrollback: opts.scrollback,
     theme: {},
+    // Let the terminal background show through so the alpha on #app-frame
+    // (driven by --app-alpha) and the macOS NSVisualEffectView behind the
+    // webview are visible inside the terminal viewport. Without this, xterm's
+    // WebGL renderer paints an opaque fill using theme.background and masks
+    // the window-level translucency.
+    allowTransparency: true,
     // Unicode11Addon and registerLinkProvider (OSC 8) both touch proposed
     // xterm.js APIs, which refuse to activate without this opt-in flag.
     allowProposedApi: true,
