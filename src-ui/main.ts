@@ -13,6 +13,10 @@ import { initWelcome } from "./welcome-popup";
 import { setTabTitleHandler } from "./terminal";
 import { setTabTitle } from "./tabs";
 import { initFindBar } from "./find-bar";
+import { initTitleBar } from "./title-bar";
+import { initStatusBar } from "./status-bar";
+import { initCommandPalette } from "./command-palette";
+import { applyRoot, onChange as onPrefsChange } from "./ui-prefs";
 
 interface BootConfig {
   font: { family: string; size: number; line_height: number };
@@ -25,15 +29,27 @@ interface BootConfig {
 }
 
 async function init() {
+  const titleBar = document.getElementById("title-bar")!;
   const tabBar = document.getElementById("tab-bar")!;
   const terminalArea = document.getElementById("terminal-area")!;
+  const statusBar = document.getElementById("status-bar")!;
   const overlay = document.getElementById("overlay")!;
 
+  // UI prefs apply once (density, accent, tab-style) before the chrome mounts,
+  // so the first paint already has the right data-attributes.
+  applyRoot();
+
   initTabs(tabBar, terminalArea);
+  initTitleBar(titleBar);
+  initStatusBar(statusBar);
   initLauncher(overlay);
   initSettings(terminalArea);
+  initCommandPalette();
   initFindBar(document.body);
   setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
+
+  // Re-apply root on pref change so accent/density/tab-style changes land live.
+  onPrefsChange(() => applyRoot());
 
   // Seed terminal options from persisted config before creating any terminal.
   let themeName = "kimbo-dark";
@@ -59,6 +75,7 @@ async function init() {
   } catch (e) {
     console.warn("Failed to load theme, using defaults:", e);
   }
+  applyRoot();
 
   // Init Kimbo from persisted config.
   try {

@@ -25,11 +25,11 @@ describe("welcome-popup: module exports", () => {
 
 describe("welcome-popup: keybind content", () => {
   const expectedLabels = [
+    "Command palette",
     "New tab",
-    "Split vertical",
-    "Split horizontal",
+    "Split pane right",
+    "Split pane down",
     "Close pane",
-    "Navigate panes",
     "Project launcher",
     "Settings",
     "Quit",
@@ -41,8 +41,8 @@ describe("welcome-popup: keybind content", () => {
     });
   }
 
-  it("footer points to Settings > Keybindings", () => {
-    expect(welcomeSource).toContain("Settings > Keybindings");
+  it("footer points to Settings → Keybinds", () => {
+    expect(welcomeSource).toContain("Settings → Keybinds");
   });
 });
 
@@ -75,20 +75,20 @@ describe("welcome-popup: showWelcome / hideWelcome", () => {
     expect(isWelcomeVisible()).toBe(false);
     showWelcome();
     expect(isWelcomeVisible()).toBe(true);
-    expect(document.querySelectorAll(".welcome-popup-root").length).toBe(1);
+    expect(document.querySelectorAll(".modal-overlay[data-role=\"welcome\"]").length).toBe(1);
   });
 
   it("showWelcome twice does not duplicate the popup", () => {
     showWelcome();
     showWelcome();
-    expect(document.querySelectorAll(".welcome-popup-root").length).toBe(1);
+    expect(document.querySelectorAll(".modal-overlay[data-role=\"welcome\"]").length).toBe(1);
   });
 
   it("hideWelcome removes the popup from the DOM", () => {
     showWelcome();
     hideWelcome();
     expect(isWelcomeVisible()).toBe(false);
-    expect(document.querySelectorAll(".welcome-popup-root").length).toBe(0);
+    expect(document.querySelectorAll(".modal-overlay[data-role=\"welcome\"]").length).toBe(0);
   });
 });
 
@@ -149,7 +149,7 @@ describe("welcome-popup: dismiss actions", () => {
 
   it("clicking the backdrop dismisses like OK (no save)", () => {
     showWelcome();
-    const backdrop = document.querySelector<HTMLElement>(".welcome-popup-root");
+    const backdrop = document.querySelector<HTMLElement>(".modal-overlay[data-role=\"welcome\"]");
     expect(backdrop).not.toBeNull();
     backdrop!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(isWelcomeVisible()).toBe(false);
@@ -158,7 +158,7 @@ describe("welcome-popup: dismiss actions", () => {
 
   it("clicking inside the card does NOT dismiss", () => {
     showWelcome();
-    const card = document.querySelector<HTMLElement>(".welcome-popup-card");
+    const card = document.querySelector<HTMLElement>(".welcome");
     expect(card).not.toBeNull();
     card!.click();
     expect(isWelcomeVisible()).toBe(true);

@@ -12,6 +12,8 @@ import {
   disposeTree,
 } from "./panes";
 import { kimboBus } from "./kimbo-bus";
+import { icon } from "./icons";
+import { renderTitle } from "./title-bar";
 
 // ---------------------------------------------------------------------------
 // Tab types
@@ -223,20 +225,28 @@ function hideAllContainers() {
 function renderTabBar() {
   tabBarEl.innerHTML = "";
 
-  for (const tab of tabs) {
-    const el = document.createElement("div");
+  tabs.forEach((tab, i) => {
+    const el = document.createElement("button");
     el.className = "tab" + (tab.id === activeTabId ? " active" : "");
+    el.type = "button";
     const displayName = tab.titleOverride ?? tab.name;
+    el.title = displayName;
+
+    const idx = document.createElement("span");
+    idx.className = "tab-index";
+    idx.textContent = String(i + 1);
+    el.appendChild(idx);
+
     const label = document.createElement("span");
     label.className = "tab-label";
     label.textContent = displayName;
-    label.title = displayName;
     el.appendChild(label);
 
     if (tabs.length > 1) {
       const close = document.createElement("span");
       close.className = "tab-close";
-      close.textContent = "\u00d7";
+      close.title = "Close (⌘⇧W)";
+      close.appendChild(icon("close", 10, 2));
       close.addEventListener("click", (e) => {
         e.stopPropagation();
         closeTab(tab.id);
@@ -246,13 +256,17 @@ function renderTabBar() {
 
     el.addEventListener("click", () => switchTab(tab.id));
     tabBarEl.appendChild(el);
-  }
+  });
 
-  const newBtn = document.createElement("div");
+  const newBtn = document.createElement("button");
+  newBtn.type = "button";
   newBtn.className = "tab-new";
-  newBtn.textContent = "+";
+  newBtn.title = "New tab (⌘T)";
+  newBtn.appendChild(icon("plus", 14));
   newBtn.addEventListener("click", () => createTab());
   tabBarEl.appendChild(newBtn);
+
+  try { renderTitle(); } catch (_) { /* title-bar may not be mounted yet */ }
 }
 
 // Periodically update active tab name from shell CWD.

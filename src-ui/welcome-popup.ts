@@ -1,16 +1,22 @@
+// Welcome popup — first-run keyboard-shortcut intro.
+//
+// Restyled to match the Kimbo Redesign handoff: modal overlay with app-icon
+// header, kbd-chip rows, same palette and form controls used across the new
+// design system.
+
 import { invoke } from "@tauri-apps/api/core";
 
 // Keybind list shown in the welcome popup. Kept in sync with README.md.
 // Hardcoded by design: first-run users haven't customized keybindings yet.
-const KEYBINDS: ReadonlyArray<readonly [string, string]> = [
-  ["⌘T", "New tab"],
-  ["⌘D", "Split vertical"],
-  ["⌘⇧D", "Split horizontal"],
-  ["⌘W", "Close pane"],
-  ["⌘↑ ↓ ← →", "Navigate panes"],
-  ["⌘O", "Project launcher"],
-  ["⌘,", "Settings"],
-  ["⌘Q", "Quit"],
+const KEYBINDS: ReadonlyArray<{ keys: string[]; label: string }> = [
+  { keys: ["⌘", "K"],       label: "Command palette" },
+  { keys: ["⌘", "T"],       label: "New tab" },
+  { keys: ["⌘", "D"],       label: "Split pane right" },
+  { keys: ["⌘", "⇧", "D"],  label: "Split pane down" },
+  { keys: ["⌘", "W"],       label: "Close pane" },
+  { keys: ["⌘", "O"],       label: "Project launcher" },
+  { keys: ["⌘", ","],       label: "Settings" },
+  { keys: ["⌘", "Q"],       label: "Quit" },
 ];
 
 let rootEl: HTMLElement | null = null;
@@ -84,123 +90,80 @@ async function dismissAndOptOut(): Promise<void> {
 }
 
 function buildPopup(): HTMLElement {
-  const root = document.createElement("div");
-  root.className = "welcome-popup-root";
-  Object.assign(root.style, {
-    position: "fixed",
-    inset: "0",
-    background: "rgba(0,0,0,0.6)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: "200",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-  });
-
-  root.addEventListener("click", (e) => {
-    if (e.target === root) hideWelcome();
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.dataset.role = "welcome";
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) hideWelcome();
   });
 
   const card = document.createElement("div");
-  card.className = "welcome-popup-card";
-  Object.assign(card.style, {
-    width: "480px",
-    maxWidth: "90vw",
-    background: "var(--bg)",
-    color: "var(--fg)",
-    border: "1px solid var(--border)",
-    borderRadius: "8px",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-    padding: "24px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-  });
+  card.className = "welcome";
+  card.addEventListener("click", (e) => e.stopPropagation());
 
-  const title = document.createElement("div");
-  title.textContent = "Welcome to Kimbo";
-  Object.assign(title.style, { fontSize: "18px", fontWeight: "600" });
-  card.appendChild(title);
+  const head = document.createElement("div");
+  head.className = "w-head";
+  const ic = document.createElement("div");
+  ic.className = "w-icon";
+  head.appendChild(ic);
+  const h2 = document.createElement("h2");
+  h2.textContent = "Welcome to Kimbo";
+  head.appendChild(h2);
+  card.appendChild(head);
 
-  const intro = document.createElement("div");
-  intro.textContent = "A few shortcuts to get you started:";
-  Object.assign(intro.style, { fontSize: "13px", color: "var(--tab-inactive-fg)" });
-  card.appendChild(intro);
+  const sub = document.createElement("p");
+  sub.className = "w-subtitle";
+  sub.innerHTML = `Press <b style="color: var(--fg); font-family: var(--font-mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--bg-elevated);">⌘K</b> any time to open the command runner. A few shortcuts to get you started:`;
+  card.appendChild(sub);
 
-  const grid = document.createElement("div");
-  Object.assign(grid.style, {
-    display: "grid",
-    gridTemplateColumns: "auto 1fr",
-    columnGap: "16px",
-    rowGap: "6px",
-    fontSize: "13px",
-  });
-  for (const [chord, label] of KEYBINDS) {
+  const keys = document.createElement("div");
+  keys.className = "w-keys";
+  for (const { keys: chord, label } of KEYBINDS) {
     const k = document.createElement("div");
-    k.textContent = chord;
-    Object.assign(k.style, {
-      fontFamily: "var(--font-family, monospace)",
-      color: "var(--fg)",
-      whiteSpace: "nowrap",
-    });
+    k.className = "k";
+    const chip = document.createElement("div");
+    chip.className = "kbd-chip";
+    for (const part of chord) {
+      const s = document.createElement("span");
+      s.textContent = part;
+      chip.appendChild(s);
+    }
+    k.appendChild(chip);
+    keys.appendChild(k);
+
     const v = document.createElement("div");
+    v.className = "v";
     v.textContent = label;
-    Object.assign(v.style, { color: "var(--fg)" });
-    grid.appendChild(k);
-    grid.appendChild(v);
+    keys.appendChild(v);
   }
-  card.appendChild(grid);
+  card.appendChild(keys);
 
-  const footer = document.createElement("div");
-  footer.textContent = "You can customize these in Settings > Keybindings.";
-  Object.assign(footer.style, { fontSize: "12px", color: "var(--tab-inactive-fg)" });
-  card.appendChild(footer);
+  const foot = document.createElement("div");
+  foot.className = "w-foot";
+  foot.textContent = "You can customize these in Settings → Keybinds.";
+  card.appendChild(foot);
 
-  const btnRow = document.createElement("div");
-  Object.assign(btnRow.style, {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "8px",
-    marginTop: "8px",
-  });
+  const actions = document.createElement("div");
+  actions.className = "w-actions";
 
-  const neverBtn = document.createElement("button");
-  neverBtn.textContent = "OK, don't show again";
-  neverBtn.dataset.welcomeAction = "never";
-  Object.assign(neverBtn.style, {
-    padding: "6px 12px",
-    background: "none",
-    border: "1px solid var(--border)",
-    color: "var(--fg)",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontSize: "12px",
-  });
-  neverBtn.addEventListener("click", () => {
-    void dismissAndOptOut();
-  });
+  const never = document.createElement("button");
+  never.type = "button";
+  never.className = "btn ghost";
+  never.textContent = "Don't show again";
+  never.dataset.welcomeAction = "never";
+  never.addEventListener("click", () => void dismissAndOptOut());
+  actions.appendChild(never);
 
-  const okBtn = document.createElement("button");
-  okBtn.textContent = "OK";
-  okBtn.dataset.welcomeAction = "ok";
-  Object.assign(okBtn.style, {
-    padding: "6px 16px",
-    background: "var(--accent-blue)",
-    border: "1px solid var(--accent-blue)",
-    color: "var(--bg)",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "500",
-  });
-  okBtn.addEventListener("click", () => {
-    hideWelcome();
-  });
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.className = "btn primary";
+  ok.textContent = "Got it";
+  ok.dataset.welcomeAction = "ok";
+  ok.addEventListener("click", () => hideWelcome());
+  actions.appendChild(ok);
 
-  btnRow.appendChild(neverBtn);
-  btnRow.appendChild(okBtn);
-  card.appendChild(btnRow);
+  card.appendChild(actions);
 
-  root.appendChild(card);
-  return root;
+  overlay.appendChild(card);
+  return overlay;
 }

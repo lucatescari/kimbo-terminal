@@ -1,14 +1,19 @@
+// Settings — modal overlay (Kimbo Redesign handoff).
+//
+// Renders centered over the terminal, 200px sidebar + main content. 8 panels:
+// General, Appearance, Font, Workspaces, Keybinds, Kimbo, Advanced, About.
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { applyTerminalOptions, loadTheme } from "./theme";
 import { fitAllPanes } from "./tabs";
 import { kimboBus } from "./kimbo-bus";
-import { setKimboInConsoleView } from "./kimbo";
+import { setKimboInConsoleView, setKimboEnabled, setKimboCorner, setKimboShellIntegration } from "./kimbo";
 import type { UnifiedTheme } from "./settings-types";
-import { renderUnifiedThemeCard } from "./theme-card";
-import { showThemeContextMenu } from "./theme-context-menu";
 import { showWelcome } from "./welcome-popup";
+import { icon, type IconName } from "./icons";
+import { getPrefs, setPref, applyRoot, type Density, type TabStyle } from "./ui-prefs";
 import {
   getCachedUpdate,
   forceCheckUpdate,
@@ -19,7 +24,7 @@ import {
 } from "./updates";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (mirrors Rust AppConfig)
 // ---------------------------------------------------------------------------
 
 interface AppConfig {
@@ -30,20 +35,30 @@ interface AppConfig {
   cursor: { style: string; blink: boolean };
   keybindings: { bindings: Record<string, string> };
   workspace: { auto_detect: boolean; scan_dirs: string[] };
+  kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
   updates: { auto_check: boolean };
   welcome: { show_on_startup: boolean };
 }
 
-type Category = "general" | "appearance" | "font" | "workspaces" | "kimbo" | "advanced" | "about";
+export type SettingsCategory =
+  | "general"
+  | "appearance"
+  | "font"
+  | "workspaces"
+  | "keybinds"
+  | "kimbo"
+  | "advanced"
+  | "about";
 
-const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "appearance", label: "Appearance" },
-  { id: "font", label: "Font" },
-  { id: "workspaces", label: "Workspaces" },
-  { id: "kimbo", label: "Kimbo" },
-  { id: "advanced", label: "Advanced" },
-  { id: "about", label: "About" },
+const NAV: { id: SettingsCategory; label: string; icon: IconName }[] = [
+  { id: "general",    label: "General",    icon: "sliders" },
+  { id: "appearance", label: "Appearance", icon: "palette" },
+  { id: "font",       label: "Font",       icon: "type" },
+  { id: "workspaces", label: "Workspaces", icon: "layers" },
+  { id: "keybinds",   label: "Keybinds",   icon: "keyboard" },
+  { id: "kimbo",      label: "Kimbo",      icon: "smile" },
+  { id: "advanced",   label: "Advanced",   icon: "wrench" },
+  { id: "about",      label: "About",      icon: "info" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -54,45 +69,40 @@ let visible = false;
 let config: AppConfig | null = null;
 let unifiedThemes: UnifiedTheme[] = [];
 let communityResolved = false;
-let activeCategory: Category = "general";
-let containerEl: HTMLElement;
-let terminalAreaEl: HTMLElement;
+let activeCategory: SettingsCategory = "appearance";
+let overlayEl: HTMLElement | null = null;
 let themesEventUnlisten: UnlistenFn | null = null;
+let escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export function initSettings(terminalArea: HTMLElement) {
-  terminalAreaEl = terminalArea;
-
-  // Create the settings container (hidden by default).
-  containerEl = document.createElement("div");
-  containerEl.id = "settings-view";
-  containerEl.style.display = "none";
-  containerEl.style.flex = "1";
-  containerEl.style.minHeight = "0";
-  containerEl.style.overflow = "hidden";
-  terminalAreaEl.parentElement!.insertBefore(containerEl, terminalAreaEl.nextSibling);
+export function initSettings(_terminalArea: HTMLElement): void {
+  // Kept for API compat — the old settings mounted into the terminal area.
+  // Modal settings attach to document.body, so no setup needed here.
 }
 
-export async function toggleSettings() {
-  if (visible) {
-    hideSettings();
-  } else {
-    await showSettings();
-  }
+export async function toggleSettings(): Promise<void> {
+  if (visible) hideSettings();
+  else await showSettings();
 }
 
-export function hideSettings() {
+export async function openSettingsToCategory(cat: SettingsCategory): Promise<void> {
+  activeCategory = cat;
+  if (!visible) await showSettings();
+  else render();
+}
+
+export function hideSettings(): void {
   visible = false;
-  containerEl.style.display = "none";
-  terminalAreaEl.style.display = "flex";
-  setKimboInConsoleView(true);
-  if (themesEventUnlisten) {
-    themesEventUnlisten();
-    themesEventUnlisten = null;
+  if (overlayEl) {
+    overlayEl.remove();
+    overlayEl = null;
   }
+  setKimboInConsoleView(true);
+  if (themesEventUnlisten) { themesEventUnlisten(); themesEventUnlisten = null; }
+  if (escapeHandler) { document.removeEventListener("keydown", escapeHandler, true); escapeHandler = null; }
   communityResolved = false;
 }
 
@@ -101,235 +111,449 @@ export function isSettingsVisible(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Show / Render
+// Mount
 // ---------------------------------------------------------------------------
 
-async function showSettings() {
+async function showSettings(): Promise<void> {
+  if (visible) return;
   visible = true;
   kimboBus.emit({ type: "settings-open" });
   setKimboInConsoleView(false);
-  terminalAreaEl.style.display = "none";
-  containerEl.style.display = "flex";
 
-  config = await invoke<AppConfig>("get_config");
+  try { config = await invoke<AppConfig>("get_config"); }
+  catch (e) { console.error("get_config failed:", e); return; }
+
+  overlayEl = document.createElement("div");
+  overlayEl.className = "modal-overlay";
+  overlayEl.addEventListener("click", (e) => {
+    if (e.target === overlayEl) hideSettings();
+  });
+  document.body.appendChild(overlayEl);
+
+  escapeHandler = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      hideSettings();
+    }
+  };
+  document.addEventListener("keydown", escapeHandler, true);
+
   render();
 
-  // Fetch unified themes: returns Builtin+Installed synchronously, then
-  // emits 'themes://community-ready' when the Available group resolves.
+  // Async themes load; community resolves via event.
   const active = config?.theme.name ?? "";
-  unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
-  if (activeCategory === "appearance") render();
+  try {
+    unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
+    if (activeCategory === "appearance") render();
+  } catch (e) { console.warn("list_unified_themes:", e); }
 
-  // Subscribe to the follow-up event. Unsubscribe on hide.
-  if (themesEventUnlisten) {
-    themesEventUnlisten();
-    themesEventUnlisten = null;
-  }
-  themesEventUnlisten = await listen<UnifiedTheme[]>("themes://community-ready", (e) => {
-    unifiedThemes = e.payload;
-    communityResolved = true;
-    if (visible && activeCategory === "appearance") render();
-  });
+  if (themesEventUnlisten) { themesEventUnlisten(); themesEventUnlisten = null; }
+  try {
+    themesEventUnlisten = await listen<UnifiedTheme[]>("themes://community-ready", (e) => {
+      unifiedThemes = e.payload;
+      communityResolved = true;
+      if (visible && activeCategory === "appearance") render();
+    });
+  } catch (_) { /* ignore */ }
 }
 
-function render() {
-  if (!config) return;
+function render(): void {
+  if (!overlayEl || !config) return;
+  overlayEl.innerHTML = "";
 
-  containerEl.innerHTML = "";
-  containerEl.style.display = "flex";
-  containerEl.style.flexDirection = "row";
-  containerEl.style.background = "var(--bg)";
-  containerEl.style.color = "var(--fg)";
-  containerEl.style.fontFamily = "system-ui, -apple-system, sans-serif";
-  containerEl.style.fontSize = "13px";
+  const panel = document.createElement("div");
+  panel.className = "settings";
+  panel.addEventListener("click", (e) => e.stopPropagation());
 
-  // Sidebar.
-  const sidebar = document.createElement("div");
-  sidebar.style.cssText = "width: 180px; flex-shrink: 0; background: var(--tab-inactive-bg); border-right: 1px solid var(--border); padding: 16px 0; display: flex; flex-direction: column; gap: 2px;";
+  // Sidebar
+  const side = document.createElement("div");
+  side.className = "side";
 
-  for (const cat of CATEGORIES) {
-    const btn = document.createElement("div");
-    btn.style.cssText = `padding: 8px 20px; cursor: pointer; border-radius: 0; font-size: 13px; color: ${cat.id === activeCategory ? "var(--tab-active-fg)" : "var(--tab-inactive-fg)"}; background: ${cat.id === activeCategory ? "var(--surface)" : "transparent"}; display: flex; align-items: center; justify-content: space-between;`;
+  const head = document.createElement("div");
+  head.className = "side-head";
+  head.textContent = "Settings";
+  side.appendChild(head);
 
-    const label = document.createElement("span");
-    label.textContent = cat.label;
-    btn.appendChild(label);
-
-    if (cat.id === "about" && hasPendingUpdate()) {
+  for (const n of NAV) {
+    const btn = document.createElement("button");
+    btn.className = "nav" + (activeCategory === n.id ? " active" : "");
+    btn.type = "button";
+    const ic = document.createElement("span");
+    ic.className = "ic";
+    ic.appendChild(icon(n.icon, 13));
+    btn.appendChild(ic);
+    const lbl = document.createElement("span");
+    lbl.textContent = n.label;
+    btn.appendChild(lbl);
+    if (n.id === "about" && hasPendingUpdate()) {
       const dot = document.createElement("span");
-      dot.style.cssText = "width: 8px; height: 8px; border-radius: 50%; background: var(--accent-red, #e06c75); display: inline-block;";
+      dot.className = "badge";
       dot.title = "Update available";
       btn.appendChild(dot);
     }
-
     btn.addEventListener("click", () => {
-      activeCategory = cat.id;
+      activeCategory = n.id;
       render();
     });
-    sidebar.appendChild(btn);
+    side.appendChild(btn);
   }
 
-  // Close button at top of sidebar.
-  const closeBtn = document.createElement("div");
-  closeBtn.textContent = "\u00d7 Close";
-  closeBtn.style.cssText = "padding: 8px 20px; cursor: pointer; font-size: 12px; color: var(--tab-inactive-fg); margin-top: auto;";
-  closeBtn.addEventListener("click", hideSettings);
-  sidebar.appendChild(closeBtn);
+  const foot = document.createElement("div");
+  foot.className = "side-foot";
+  const close = document.createElement("button");
+  close.className = "close-btn";
+  close.type = "button";
+  close.textContent = "Close · esc";
+  close.addEventListener("click", hideSettings);
+  foot.appendChild(close);
+  side.appendChild(foot);
 
-  // Content area.
-  const content = document.createElement("div");
-  content.style.cssText = "flex: 1; padding: 24px 32px; overflow-y: auto;";
+  // Main
+  const main = document.createElement("div");
+  main.className = "main";
 
   switch (activeCategory) {
-    case "general": renderGeneral(content); break;
-    case "appearance": renderAppearance(content); break;
-    case "font": renderFont(content); break;
-    case "workspaces": renderWorkspaces(content); break;
-    case "kimbo": renderKimbo(content); break;
-    case "advanced": renderAdvanced(content); break;
-    case "about": renderAbout(content); break;
+    case "general":    renderGeneral(main); break;
+    case "appearance": renderAppearance(main); break;
+    case "font":       renderFont(main); break;
+    case "workspaces": renderWorkspaces(main); break;
+    case "keybinds":   renderKeybinds(main); break;
+    case "kimbo":      void renderKimbo(main); break;
+    case "advanced":   renderAdvanced(main); break;
+    case "about":      void renderAbout(main); break;
   }
 
-  containerEl.appendChild(sidebar);
-  containerEl.appendChild(content);
+  panel.appendChild(side);
+  panel.appendChild(main);
+  overlayEl.appendChild(panel);
 }
 
-// ---------------------------------------------------------------------------
-// Category renderers
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// General
+// ===========================================================================
 
-function renderGeneral(el: HTMLElement) {
+function renderGeneral(el: HTMLElement): void {
   if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">General</h2>`;
+  el.appendChild(header("General", "Window behavior and startup preferences."));
 
-  el.appendChild(makeField("Default Shell", "text", config.general.default_shell, (v) => {
-    config!.general.default_shell = v;
-    saveConfig();
-  }));
+  const prefs = getPrefs();
 
-  // Welcome popup
-  const welcome = config.welcome ?? { show_on_startup: true };
-  config.welcome = welcome;
+  const startup = section("Startup");
+  startup.appendChild(row(
+    "Open on launch",
+    "What Kimbo does when you open it.",
+    select(prefs.startup, [
+      ["last", "Restore last session"],
+      ["home", "Home directory"],
+      ["workspace", "Last workspace"],
+    ], (v) => setPref("startup", v as typeof prefs.startup)),
+  ));
+  startup.appendChild(row(
+    "Default shell",
+    `Detected at ${config.general.default_shell || "/bin/zsh"}`,
+    select(detectShell(config.general.default_shell), [
+      ["zsh", "zsh"],
+      ["bash", "bash"],
+      ["fish", "fish"],
+      ["nushell", "nushell"],
+    ], (v) => { config!.general.default_shell = expandShell(v); void saveConfig(); }),
+  ));
+  startup.appendChild(row(
+    "Confirm before quit with active panes",
+    "Asks before closing a window with running processes.",
+    toggle(prefs.confirmQuit, (v) => setPref("confirmQuit", v)),
+  ));
 
-  el.appendChild(makeToggle("Show welcome on startup", welcome.show_on_startup, (v) => {
-    welcome.show_on_startup = v;
-    saveConfig();
-  }));
+  const welcomeRowEl = row(
+    "Show welcome on startup",
+    "Show the keyboard-shortcut intro when Kimbo launches.",
+    toggle(config.welcome.show_on_startup, async (v) => {
+      config!.welcome.show_on_startup = v;
+      await saveConfig();
+    }),
+  );
+  startup.appendChild(welcomeRowEl);
+  const showNow = button("Show welcome now", () => showWelcome());
+  showNow.className = "btn ghost";
+  const showRow = row("Preview welcome popup", "Opens the first-run popup right now.", showNow);
+  startup.appendChild(showRow);
 
-  const showNowBtn = document.createElement("button");
-  showNowBtn.textContent = "Show welcome now";
-  showNowBtn.style.cssText = "margin-top: 8px; padding: 6px 12px; background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px;";
-  showNowBtn.addEventListener("click", () => {
-    showWelcome();
-  });
-  el.appendChild(showNowBtn);
+  el.appendChild(startup);
+
+  const windowSec = section("Window");
+  windowSec.appendChild(row(
+    "Window chrome",
+    "How the window frame is drawn.",
+    withComingSoon(segCtl(prefs.windowChrome, [
+      ["native", "Native"],
+      ["flat", "Flat"],
+      ["hidden", "Hidden"],
+    ], (v) => setPref("windowChrome", v as typeof prefs.windowChrome)), true),
+  ));
+  windowSec.appendChild(row(
+    "Open new windows at",
+    "Position on screen for new windows.",
+    withComingSoon(select(prefs.newWindowPosition, [
+      ["cursor", "Under cursor"],
+      ["center", "Screen center"],
+      ["last", "Last position"],
+    ], (v) => setPref("newWindowPosition", v as typeof prefs.newWindowPosition)), true),
+  ));
+  windowSec.appendChild(row(
+    "Background opacity",
+    "Lower values make the window translucent.",
+    withComingSoon(range(prefs.backgroundOpacity, 60, 100, 1,
+      (v) => setPref("backgroundOpacity", v)), true),
+  ));
+  el.appendChild(windowSec);
 }
 
-function renderAppearance(el: HTMLElement) {
+function detectShell(path: string): string {
+  if (path.endsWith("fish")) return "fish";
+  if (path.endsWith("bash")) return "bash";
+  if (path.endsWith("nushell") || path.endsWith("nu")) return "nushell";
+  return "zsh";
+}
+function expandShell(name: string): string {
+  switch (name) {
+    case "fish": return "/usr/local/bin/fish";
+    case "bash": return "/bin/bash";
+    case "nushell": return "/usr/local/bin/nu";
+    default: return "/bin/zsh";
+  }
+}
+
+// ===========================================================================
+// Appearance
+// ===========================================================================
+
+function renderAppearance(el: HTMLElement): void {
   if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">Themes</h2>`;
+  el.appendChild(header(
+    "Appearance",
+    "Themes ship as self-contained packages. Community themes install from the gallery.",
+  ));
 
   const active = config.theme.name;
 
-  // Partition the unified list into Yours vs Available.
+  // Theme section
+  const themeSec = section("Theme");
   const yours = unifiedThemes.filter((t) => t.source !== "Available");
   const available = unifiedThemes.filter((t) => t.source === "Available");
 
-  // --- Yours ---
-  el.appendChild(makeSubheader("Yours"));
-  const yoursGrid = document.createElement("div");
-  yoursGrid.style.cssText = "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-bottom: 24px;";
-  for (const t of yours) {
-    yoursGrid.appendChild(
-      renderUnifiedThemeCard({ ...t, active: t.slug === active }, themeCardCallbacks()),
-    );
+  if (yours.length > 0) {
+    const grid = document.createElement("div");
+    grid.className = "theme-grid";
+    for (const t of yours) grid.appendChild(themeCard(t, t.slug === active));
+    themeSec.appendChild(grid);
+  } else {
+    const empty = document.createElement("div");
+    empty.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
+    empty.textContent = "Loading themes…";
+    themeSec.appendChild(empty);
   }
-  el.appendChild(yoursGrid);
 
-  // --- Available ---
-  el.appendChild(makeSubheader("Available"));
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 16px;";
+  btnRow.appendChild(button("Browse gallery", () => {
+    const gallery = document.querySelector(".settings .main .gallery");
+    if (gallery) gallery.scrollIntoView({ behavior: "smooth" });
+  }));
+  const create = button("Create theme…", () => {
+    void openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/docs/themes.md");
+  });
+  create.classList.add("ghost");
+  btnRow.appendChild(create);
+  const importBtn = button("Import from file", async () => {
+    alert("Drop a .toml theme file into ~/.config/kimbo/themes/ and click 'Browse gallery' to refresh.\n\nIn-app file picker coming soon.");
+  });
+  importBtn.classList.add("ghost", "coming-soon");
+  btnRow.appendChild(importBtn);
+  themeSec.appendChild(btnRow);
+  el.appendChild(themeSec);
+
+  // Accent / density / tab style
+  const accentSec = section("Accent");
+  const prefs = getPrefs();
+  const accentPicker = document.createElement("div");
+  accentPicker.className = "swatches";
+  const ACCENTS = ["", "#8aa9ff", "#f38ba8", "#a6e3a1", "#f9e2af", "#cba6f7", "#7dcfff"];
+  for (const c of ACCENTS) {
+    const sw = document.createElement("button");
+    sw.type = "button";
+    sw.className = "swatch" + (prefs.accent === c ? " selected" : "");
+    sw.style.background = c === "" ? "var(--accent)" : c;
+    if (c === "") sw.textContent = "A";
+    sw.title = c === "" ? "Theme default" : c;
+    sw.addEventListener("click", () => {
+      setPref("accent", c);
+      render();
+    });
+    accentPicker.appendChild(sw);
+  }
+  accentSec.appendChild(row(
+    "Accent color",
+    "Overrides the theme's accent. Used for selection, active tab, and highlights.",
+    accentPicker,
+  ));
+  accentSec.appendChild(row(
+    "Density",
+    "Affects padding and row heights across the UI.",
+    segCtl(prefs.density, [
+      ["compact", "Compact"],
+      ["comfortable", "Comfortable"],
+      ["roomy", "Roomy"],
+    ], (v) => setPref("density", v as Density)),
+  ));
+  accentSec.appendChild(row(
+    "Tab style",
+    "",
+    segCtl(prefs.tabStyle, [
+      ["underline", "Underline"],
+      ["pill", "Pill"],
+      ["chevron", "Chevron"],
+    ], (v) => setPref("tabStyle", v as TabStyle)),
+  ));
+  el.appendChild(accentSec);
+
+  // Community gallery
+  const gallery = section("Community gallery");
+  gallery.classList.add("gallery");
   if (!communityResolved) {
     const loading = document.createElement("div");
     loading.textContent = "Loading community themes…";
-    loading.style.cssText = "color: var(--tab-inactive-fg); font-size: 12px; padding: 8px 0;";
-    el.appendChild(loading);
-    return;
-  }
-  if (available.length === 0) {
+    loading.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
+    gallery.appendChild(loading);
+  } else if (available.length === 0) {
     const empty = document.createElement("div");
     empty.textContent = "Community themes unavailable (offline?)";
-    empty.style.cssText = "color: var(--tab-inactive-fg); font-size: 12px; padding: 8px 0;";
-    el.appendChild(empty);
-    return;
+    empty.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
+    gallery.appendChild(empty);
+  } else {
+    const grid = document.createElement("div");
+    grid.className = "theme-grid";
+    for (const t of available) grid.appendChild(themeCard(t, false));
+    gallery.appendChild(grid);
   }
-  const availGrid = document.createElement("div");
-  availGrid.style.cssText = "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;";
-  for (const t of available) {
-    availGrid.appendChild(renderUnifiedThemeCard(t, themeCardCallbacks()));
-  }
-  el.appendChild(availGrid);
+  el.appendChild(gallery);
 }
 
-function makeSubheader(text: string): HTMLElement {
-  const lbl = document.createElement("div");
-  lbl.textContent = text;
-  lbl.style.cssText = "font-size: 11px; text-transform: uppercase; color: var(--tab-inactive-fg); margin-bottom: 6px;";
-  return lbl;
-}
+function themeCard(t: UnifiedTheme, active: boolean): HTMLElement {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "theme-card" + (active ? " selected" : "");
+  card.dataset.slug = t.slug;
 
-function themeCardCallbacks() {
-  return {
-    onActivate: async (slug: string) => {
+  const preview = document.createElement("div");
+  preview.className = "preview";
+  preview.style.background = t.swatches.background;
+  const tl = document.createElement("div");
+  tl.className = "tl";
+  for (const color of ["#ff5f57", "#febc2e", "#28c840"]) {
+    const d = document.createElement("span");
+    d.style.background = color;
+    tl.appendChild(d);
+  }
+  preview.appendChild(tl);
+
+  const strip = document.createElement("div");
+  strip.className = "strip";
+  const heights = ["70%", "100%", "55%", "85%"];
+  const colors = [t.swatches.foreground, t.swatches.accent, t.swatches.cursor, t.swatches.foreground];
+  for (let i = 0; i < 4; i++) {
+    const s = document.createElement("span");
+    s.style.background = colors[i];
+    s.style.height = heights[i];
+    strip.appendChild(s);
+  }
+  preview.appendChild(strip);
+  card.appendChild(preview);
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const name = document.createElement("div");
+  name.className = "name";
+  const nameText = document.createElement("span");
+  nameText.textContent = t.name;
+  name.appendChild(nameText);
+  if (active) {
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    name.appendChild(dot);
+  }
+  meta.appendChild(name);
+
+  const author = document.createElement("div");
+  author.className = "author";
+  if (t.author) {
+    const a = document.createElement("a");
+    a.textContent = `@${t.author}`;
+    a.href = `https://github.com/${t.author}`;
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { await openUrl(`https://github.com/${t.author}`); } catch (_) {}
+    });
+    author.appendChild(a);
+  }
+  if (t.version) {
+    const v = document.createElement("span");
+    v.textContent = ` · v${t.version}`;
+    author.appendChild(v);
+  }
+  meta.appendChild(author);
+  card.appendChild(meta);
+
+  if (t.source === "Available") {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "Install";
+    card.appendChild(badge);
+  }
+
+  card.addEventListener("click", async () => {
+    try {
+      if (t.source === "Available") {
+        await invoke("install_theme", { slug: t.slug, activeSlug: config?.theme.name ?? "" });
+      }
       if (!config) return;
-      config.theme.name = slug;
+      config.theme.name = t.slug;
       await saveConfig();
-      await loadTheme(slug);
-      // Refresh the list so the `active` flag flips on the selected card.
-      unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: slug });
+      await loadTheme(t.slug);
+      unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: t.slug });
       if (activeCategory === "appearance") render();
-    },
-    onInstall: async (slug: string) => {
-      try {
-        await invoke("install_theme", { slug, activeSlug: config?.theme.name ?? "" });
-        // Activate immediately so the click-to-install-and-use flow feels snappy.
-        await themeCardCallbacks().onActivate(slug);
-      } catch (err) {
-        console.error("Install failed:", err);
+    } catch (e) {
+      console.error("theme action failed:", e);
+    }
+  });
+
+  card.addEventListener("contextmenu", async (e) => {
+    e.preventDefault();
+    if (t.source === "Installed") {
+      if (confirm(`Delete theme "${t.name}"?`)) {
+        try {
+          await invoke("delete_theme", { slug: t.slug, activeSlug: config?.theme.name ?? "" });
+          unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: config?.theme.name ?? "" });
+          render();
+        } catch (err) { console.error("delete_theme:", err); }
       }
-    },
-    onOpenAuthor: async (username: string) => {
-      try {
-        await openUrl(`https://github.com/${username}`);
-      } catch (e) {
-        console.error("openUrl failed:", e);
-      }
-    },
-    onContextMenu: (slug: string, x: number, y: number) => {
-      const t = unifiedThemes.find((u) => u.slug === slug);
-      if (!t) return;
-      showThemeContextMenu(t, x, y, {
-        onActivate: () => themeCardCallbacks().onActivate(slug),
-        onInstall: () => themeCardCallbacks().onInstall(slug),
-        onDelete: async () => {
-          try {
-            await invoke("delete_theme", { slug, activeSlug: config?.theme.name ?? "" });
-          } catch (err) {
-            console.error("Delete failed:", err);
-          }
-        },
-        onOpenAuthor: () => themeCardCallbacks().onOpenAuthor(t.author),
-      });
-    },
-  };
+    }
+  });
+
+  return card;
 }
 
-// Common cross-platform monospace fonts, ordered by popularity with developers.
+// ===========================================================================
+// Font
+// ===========================================================================
+
 const COMMON_MONOSPACE_FONTS = [
   "JetBrains Mono",
   "Fira Code",
   "Cascadia Code",
   "Source Code Pro",
   "Hack",
+  "IBM Plex Mono",
   "Ubuntu Mono",
   "SF Mono",
   "Menlo",
@@ -338,450 +562,743 @@ const COMMON_MONOSPACE_FONTS = [
   "Courier New",
 ];
 
-function renderFont(el: HTMLElement) {
+function renderFont(el: HTMLElement): void {
   if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">Font</h2>`;
+  el.appendChild(header("Font", "Controls terminal font only. UI font is set by the active theme."));
 
-  // Inject the current value if it's not in the common list — preserves any
-  // custom font the user might have configured via config.toml.
-  const current = config.font.family;
-  const options = COMMON_MONOSPACE_FONTS.includes(current)
-    ? COMMON_MONOSPACE_FONTS
-    : [current, ...COMMON_MONOSPACE_FONTS];
+  const family = config.font.family;
+  const options = COMMON_MONOSPACE_FONTS.includes(family) ? COMMON_MONOSPACE_FONTS : [family, ...COMMON_MONOSPACE_FONTS];
 
-  el.appendChild(makeSelect("Font Family", options, current, (v) => {
-    config!.font.family = v;
-    saveConfig();
-  }));
+  const familySec = section("Family");
+  familySec.appendChild(row("Terminal font", "",
+    select(family, options.map((f) => [f, f]), (v) => {
+      config!.font.family = v;
+      void saveConfig();
+    }),
+  ));
+  familySec.appendChild(row("Size", "12–20px works well on retina displays.",
+    numInput(config.font.size, 8, 40, 0.5, (v) => {
+      config!.font.size = v;
+      void saveConfig();
+    }),
+  ));
+  familySec.appendChild(row("Line height", "",
+    numInput(config.font.line_height, 1.0, 2.5, 0.05, (v) => {
+      config!.font.line_height = v;
+      void saveConfig();
+    }),
+  ));
+  el.appendChild(familySec);
 
-  el.appendChild(makeField("Font Size", "number", String(config.font.size), (v) => {
-    config!.font.size = parseFloat(v) || 14;
-    saveConfig();
-  }));
+  const rendering = section("Rendering");
+  rendering.appendChild(row("Enable ligatures", "Renders →, =>, ≠, etc. as glyphs.",
+    toggle(config.font.ligatures, (v) => {
+      config!.font.ligatures = v;
+      void saveConfig();
+      const fp = el.querySelector(".font-preview");
+      if (fp) fp.classList.toggle("lig", v);
+    }),
+  ));
+  const prefs = getPrefs();
+  rendering.appendChild(row("Font smoothing", "",
+    withComingSoon(segCtl(prefs.fontSmoothing, [
+      ["none", "None"],
+      ["grayscale", "Grayscale"],
+      ["subpixel", "Subpixel"],
+    ], (v) => setPref("fontSmoothing", v as typeof prefs.fontSmoothing)), true),
+  ));
+  el.appendChild(rendering);
 
-  el.appendChild(makeField("Line Height", "number", String(config.font.line_height), (v) => {
-    config!.font.line_height = parseFloat(v) || 1.2;
-    saveConfig();
-  }));
+  // Preview
+  const previewSec = section("Preview");
+  const preview = document.createElement("div");
+  preview.className = "font-preview" + (config.font.ligatures ? " lig" : "");
+  preview.innerHTML = `
+    <div><span class="fp-prompt">luca</span> <span class="fp-branch">(fix/cmd-w)</span> <span class="fp-dim">~/kimbo</span> <span class="fp-prompt">$</span> npm test</div>
+    <div><span class="fp-dim">const</span> greet = (name) =&gt; <span class="fp-ok">\`hello, \${name}\`</span>;</div>
+    <div class="fp-ok">  ✓ 321 tests passed</div>
+    <div class="fp-err">  ✗ 0 failed · 0 skipped</div>
+    <div class="fp-dim">  abc ABC 0123456789 === !== &amp;&amp; || -&gt; =&gt;</div>
+  `;
+  preview.style.fontFamily = `"${config.font.family}", ui-monospace, Menlo, monospace`;
+  preview.style.fontSize = `${config.font.size}px`;
+  preview.style.lineHeight = String(config.font.line_height);
+  previewSec.appendChild(preview);
+  el.appendChild(previewSec);
 }
 
-function renderWorkspaces(el: HTMLElement) {
+// ===========================================================================
+// Workspaces
+// ===========================================================================
+
+function renderWorkspaces(el: HTMLElement): void {
   if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">Workspaces</h2>`;
+  el.appendChild(header("Workspaces", "Group tabs by project. Auto-detection scans the directories below."));
 
-  el.appendChild(makeToggle("Auto-detect projects", config.workspace.auto_detect, (v) => {
-    config!.workspace.auto_detect = v;
-    saveConfig();
-  }));
+  const sec = section("Auto-detection");
+  sec.appendChild(row(
+    "Auto-detect projects",
+    "Kimbo scans listed folders for Git repos and shows them in the launcher (⌘O).",
+    toggle(config.workspace.auto_detect, (v) => {
+      config!.workspace.auto_detect = v;
+      void saveConfig();
+    }),
+  ));
+  el.appendChild(sec);
 
-  const label = document.createElement("div");
-  label.textContent = "Scan Directories";
-  label.style.cssText = "font-size: 11px; text-transform: uppercase; color: var(--tab-inactive-fg); margin-bottom: 6px; margin-top: 16px;";
-  el.appendChild(label);
+  const listSec = section("Scan directories");
+  const list = document.createElement("div");
+  list.className = "ws-list";
 
-  for (let i = 0; i < config.workspace.scan_dirs.length; i++) {
-    const row = document.createElement("div");
-    row.style.cssText = "display: flex; gap: 8px; margin-bottom: 4px;";
+  config.workspace.scan_dirs.forEach((dir, i) => {
+    const r = document.createElement("div");
+    r.className = "ws-row";
+    const ic = document.createElement("div");
+    ic.className = "icon";
+    ic.textContent = dir.replace(/^~/, "").split("/").filter(Boolean)[0]?.[0]?.toUpperCase() || "·";
+    r.appendChild(ic);
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = config.workspace.scan_dirs[i];
-    input.style.cssText = "flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; border-radius: 4px; font-size: 13px;";
-    const idx = i;
-    input.addEventListener("change", () => {
-      config!.workspace.scan_dirs[idx] = input.value;
-      saveConfig();
+    const info = document.createElement("div");
+    info.style.display = "flex";
+    info.style.flexDirection = "column";
+    info.style.minWidth = "0";
+    const inp = document.createElement("input");
+    inp.className = "input";
+    inp.style.background = "transparent";
+    inp.style.border = "0";
+    inp.style.padding = "0";
+    inp.style.fontFamily = "var(--font-mono)";
+    inp.style.fontSize = "11.5px";
+    inp.style.color = "var(--fg-muted)";
+    inp.style.height = "auto";
+    inp.value = dir;
+    inp.addEventListener("change", () => {
+      config!.workspace.scan_dirs[i] = inp.value;
+      void saveConfig();
     });
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = dir.split("/").filter(Boolean).pop() || "~";
+    info.appendChild(title);
+    info.appendChild(inp);
+    r.appendChild(info);
 
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "\u00d7";
-    removeBtn.style.cssText = "background: none; border: 1px solid var(--border); color: var(--tab-inactive-fg); padding: 4px 8px; border-radius: 4px; cursor: pointer;";
-    removeBtn.addEventListener("click", () => {
-      config!.workspace.scan_dirs.splice(idx, 1);
-      saveConfig();
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = "auto-scan";
+    r.appendChild(meta);
+
+    const rm = button("Remove", () => {
+      config!.workspace.scan_dirs.splice(i, 1);
+      void saveConfig();
       render();
     });
+    rm.classList.add("ghost", "small");
+    r.appendChild(rm);
 
-    row.appendChild(input);
-    row.appendChild(removeBtn);
-    el.appendChild(row);
-  }
+    list.appendChild(r);
+  });
+  listSec.appendChild(list);
 
-  const addBtn = document.createElement("button");
-  addBtn.textContent = "+ Add directory";
-  addBtn.style.cssText = "background: none; border: 1px solid var(--border); color: var(--tab-inactive-fg); padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-top: 8px; font-size: 12px;";
-  addBtn.addEventListener("click", () => {
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 12px;";
+  const add = button("Add directory", () => {
     config!.workspace.scan_dirs.push("~/");
-    saveConfig();
+    void saveConfig();
     render();
   });
-  el.appendChild(addBtn);
+  add.classList.add("primary");
+  add.prepend(icon("plus", 12));
+  btnRow.appendChild(add);
+  const imp = button("Import…", () => alert("Coming soon."));
+  imp.classList.add("ghost", "coming-soon");
+  btnRow.appendChild(imp);
+  listSec.appendChild(btnRow);
+
+  el.appendChild(listSec);
 }
 
-async function renderKimbo(el: HTMLElement) {
+// ===========================================================================
+// Keybinds
+// ===========================================================================
+
+const BINDS_DEFAULT: { cat: string; label: string; keys: string[] }[] = [
+  { cat: "tabs",  label: "New tab",              keys: ["⌘", "T"] },
+  { cat: "tabs",  label: "Close tab",            keys: ["⌘", "⇧", "W"] },
+  { cat: "tabs",  label: "Next tab",             keys: ["⌘", "]"] },
+  { cat: "tabs",  label: "Previous tab",         keys: ["⌘", "["] },
+  { cat: "panes", label: "Split right",          keys: ["⌘", "D"] },
+  { cat: "panes", label: "Split down",           keys: ["⌘", "⇧", "D"] },
+  { cat: "panes", label: "Close pane",           keys: ["⌘", "W"] },
+  { cat: "panes", label: "Focus pane up",        keys: ["⌘", "↑"] },
+  { cat: "panes", label: "Focus pane down",      keys: ["⌘", "↓"] },
+  { cat: "panes", label: "Focus pane left",      keys: ["⌘", "←"] },
+  { cat: "panes", label: "Focus pane right",     keys: ["⌘", "→"] },
+  { cat: "nav",   label: "Command palette",      keys: ["⌘", "K"] },
+  { cat: "nav",   label: "Project launcher",     keys: ["⌘", "O"] },
+  { cat: "nav",   label: "Settings",             keys: ["⌘", ","] },
+  { cat: "edit",  label: "Find in terminal",     keys: ["⌘", "F"] },
+  { cat: "app",   label: "Quit",                 keys: ["⌘", "Q"] },
+];
+
+function renderKeybinds(el: HTMLElement): void {
+  el.appendChild(header("Keybinds", "Keyboard shortcuts for Kimbo. Rebinding is coming soon."));
+
+  const sec = section("All shortcuts");
+  const table = document.createElement("div");
+  table.className = "keytable";
+  for (const b of BINDS_DEFAULT) {
+    const r = document.createElement("div");
+    r.className = "krow";
+    const left = document.createElement("div");
+    const cat = document.createElement("span");
+    cat.className = "cat";
+    cat.textContent = b.cat;
+    left.appendChild(cat);
+    left.appendChild(document.createTextNode(b.label));
+    r.appendChild(left);
+
+    const chip = document.createElement("div");
+    chip.className = "kbd-chip";
+    for (const k of b.keys) {
+      const s = document.createElement("span");
+      s.textContent = k;
+      chip.appendChild(s);
+    }
+    r.appendChild(chip);
+    table.appendChild(r);
+  }
+  sec.appendChild(table);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 12px;";
+  const reset = button("Reset to defaults", () => alert("Coming soon."));
+  reset.classList.add("ghost", "coming-soon");
+  btnRow.appendChild(reset);
+  const exp = button("Export keymap", () => {
+    const data = BINDS_DEFAULT.map((b) => `${b.label}\t${b.keys.join("+")}`).join("\n");
+    void navigator.clipboard.writeText(data);
+    alert("Keymap copied to clipboard.");
+  });
+  exp.classList.add("ghost");
+  btnRow.appendChild(exp);
+  sec.appendChild(btnRow);
+
+  el.appendChild(sec);
+}
+
+// ===========================================================================
+// Kimbo
+// ===========================================================================
+
+async function renderKimbo(el: HTMLElement): Promise<void> {
   if (!config) return;
-  // The kimbo field may be missing on older configs.
-  const kimbo = (config as any).kimbo ?? { enabled: true, corner: "bottom_right", shell_integration: false };
-  (config as any).kimbo = kimbo;
+  el.appendChild(header(
+    "Kimbo widget",
+    "The tiny helper overlay that reacts to your shell and surfaces agent activity.",
+  ));
 
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">Kimbo</h2>`;
+  const kimbo = config.kimbo;
 
-  el.appendChild(makeToggle("Show Kimbo", kimbo.enabled, async (v) => {
-    kimbo.enabled = v;
-    await saveConfig();
-    const mod = await import("./kimbo");
-    mod.setKimboEnabled(v);
-  }));
+  const widget = section("Widget");
+  widget.appendChild(row(
+    "Show Kimbo",
+    "Hides the mascot without disabling the Kimbo system (shell integration, events).",
+    toggle(kimbo.enabled, async (v) => {
+      kimbo.enabled = v;
+      await saveConfig();
+      setKimboEnabled(v);
+    }),
+  ));
+  widget.appendChild(row(
+    "Corner",
+    "Where Kimbo docks inside the focused pane.",
+    select(kimbo.corner, [
+      ["bottom_right", "Bottom right"],
+      ["bottom_left", "Bottom left"],
+      ["top_right", "Top right"],
+      ["top_left", "Top left"],
+    ], async (v) => {
+      kimbo.corner = v;
+      await saveConfig();
+      setKimboCorner(v as any);
+    }),
+  ));
+  const chip = document.createElement("span");
+  chip.className = "kbd-chip";
+  for (const k of ["⌃", "T"]) {
+    const s = document.createElement("span");
+    s.textContent = k;
+    chip.appendChild(s);
+  }
+  widget.appendChild(row("Hide shortcut", "Temporarily hide Kimbo for this session.", chip));
+  el.appendChild(widget);
 
-  el.appendChild(makeSelect("Corner", ["bottom_right", "bottom_left", "top_right", "top_left"], kimbo.corner, async (v) => {
-    kimbo.corner = v;
-    await saveConfig();
-    const mod = await import("./kimbo");
-    mod.setKimboCorner(v as any);
-  }));
-
-  // --- Shell integration ---
-  const shellHeader = document.createElement("div");
-  shellHeader.textContent = "Shell Integration";
-  shellHeader.style.cssText = "font-size: 11px; text-transform: uppercase; color: var(--tab-inactive-fg); margin: 20px 0 6px;";
-  el.appendChild(shellHeader);
-
+  const shell = section("Shell integration");
   const desc = document.createElement("p");
-  desc.textContent = "Lets Kimbo react to command success (happy) and failure (sad). Installs a shell snippet you'll source from your rc file.";
-  desc.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-bottom: 10px; max-width: 480px;";
-  el.appendChild(desc);
+  desc.style.cssText = "color: var(--fg-muted); line-height: 1.5; font-size: 13px; margin: 0 0 14px;";
+  desc.innerHTML = `Lets Kimbo react to command success (<span style="color: var(--success)">happy</span>) and failure (<span style="color: var(--danger)">sad</span>), show live status, and pick up cwd changes.`;
+  shell.appendChild(desc);
 
-  el.appendChild(makeToggle("Enable shell integration", kimbo.shell_integration, async (v) => {
-    kimbo.shell_integration = v;
-    await saveConfig();
-    const mod = await import("./kimbo");
-    mod.setKimboShellIntegration(v);
-    if (v) await showShellInstructions(el);
-    else el.querySelectorAll(".kimbo-shell-card").forEach((n) => n.remove());
-  }));
+  shell.appendChild(row(
+    "Enable shell integration",
+    "",
+    toggle(kimbo.shell_integration, async (v) => {
+      kimbo.shell_integration = v;
+      await saveConfig();
+      setKimboShellIntegration(v);
+      // Re-render so code block shows/hides.
+      render();
+    }),
+  ));
 
-  if (kimbo.shell_integration) await showShellInstructions(el);
-}
+  if (kimbo.shell_integration) {
+    try {
+      const shellDir = await invoke<string>("write_kimbo_shell_scripts");
+      const shellPath = config.general.default_shell || "/bin/zsh";
+      const snippetFile = shellPath.endsWith("fish") ? "kimbo-init.fish"
+        : shellPath.endsWith("bash") ? "kimbo-init.bash"
+        : "kimbo-init.zsh";
+      const rcLine = `source ${shellDir}/${snippetFile}`;
 
-async function showShellInstructions(el: HTMLElement) {
-  if (!config) return;
+      const block = document.createElement("div");
+      block.className = "codeblock";
 
-  // Install snippets to ~/.config/kimbo/shell/
-  let shellDir = "";
-  try { shellDir = await invoke<string>("write_kimbo_shell_scripts"); }
-  catch (e) {
-    const err = document.createElement("div");
-    err.textContent = `Failed to install shell scripts: ${e}`;
-    err.style.cssText = "color: var(--accent-red); font-size: 12px; margin-top: 8px;";
-    el.appendChild(err);
-    return;
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.innerHTML = `Add this line to your shell rc (detected: <b style="color: var(--fg)">${snippetFile}</b>)`;
+      block.appendChild(hint);
+
+      const cr = document.createElement("div");
+      cr.className = "code-row";
+      const pre = document.createElement("pre");
+      pre.textContent = rcLine;
+      cr.appendChild(pre);
+      const copy = button("Copy", async () => {
+        try { await navigator.clipboard.writeText(rcLine); copy.textContent = "Copied"; }
+        catch { copy.textContent = "Copy failed"; }
+        setTimeout(() => { copy.innerHTML = ""; copy.appendChild(icon("copy", 11)); copy.appendChild(document.createTextNode(" Copy")); }, 1500);
+      });
+      copy.innerHTML = "";
+      copy.appendChild(icon("copy", 11));
+      copy.appendChild(document.createTextNode(" Copy"));
+      cr.appendChild(copy);
+      block.appendChild(cr);
+
+      shell.appendChild(block);
+    } catch (e) {
+      const err = document.createElement("div");
+      err.style.cssText = "color: var(--danger); font-size: 12px; margin-top: 8px;";
+      err.textContent = `Failed to install shell scripts: ${e}`;
+      shell.appendChild(err);
+    }
   }
 
-  const shellPath = config.general.default_shell || "/bin/zsh";
-  const snippetFile =
-    shellPath.endsWith("fish") ? "kimbo-init.fish"
-    : shellPath.endsWith("bash") ? "kimbo-init.bash"
-    : "kimbo-init.zsh";
-  const rcLine = `source ${shellDir}/${snippetFile}`;
+  el.appendChild(shell);
+}
 
-  // Drop any existing instruction card (avoid duplicates on re-render).
-  el.querySelectorAll(".kimbo-shell-card").forEach((n) => n.remove());
+// ===========================================================================
+// Advanced
+// ===========================================================================
 
-  const card = document.createElement("div");
-  card.className = "kimbo-shell-card";
-  card.style.cssText = "border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-top: 10px; max-width: 560px; background: var(--surface);";
+function renderAdvanced(el: HTMLElement): void {
+  if (!config) return;
+  el.appendChild(header("Advanced", "Experimental flags and low-level behavior. Handle with care."));
 
-  const label = document.createElement("div");
-  label.textContent = `Add this line to your shell rc (detected: ${snippetFile}):`;
-  label.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-bottom: 6px;";
-  card.appendChild(label);
+  const prefs = getPrefs();
 
-  const code = document.createElement("code");
-  code.textContent = rcLine;
-  code.style.cssText = "display: block; padding: 8px 10px; background: var(--bg); border-radius: 4px; font-family: monospace; font-size: 12px; word-break: break-all;";
-  card.appendChild(code);
+  const perf = section("Performance");
+  perf.appendChild(row(
+    "GPU rendering",
+    "Uses Metal/WebGPU for the terminal renderer. Currently always on.",
+    withComingSoon(toggle(prefs.gpuRendering, (v) => setPref("gpuRendering", v), true), true),
+  ));
+  perf.appendChild(row(
+    "Scrollback lines",
+    "How many lines Kimbo keeps in memory per pane.",
+    numInput(config.scrollback.lines, 1000, 200_000, 1000, (v) => {
+      config!.scrollback.lines = v;
+      void saveConfig();
+    }, "num"),
+  ));
+  perf.appendChild(row(
+    "Flush interval (ms)",
+    "Lower = smoother streaming, higher = better throughput.",
+    withComingSoon(numInput(prefs.flushIntervalMs, 4, 64, 1, (v) => setPref("flushIntervalMs", v), "narrow"), true),
+  ));
+  el.appendChild(perf);
 
-  const copyBtn = document.createElement("button");
-  copyBtn.textContent = "Copy to clipboard";
-  copyBtn.style.cssText = "margin-top: 8px; padding: 4px 10px; background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px;";
-  copyBtn.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(rcLine); copyBtn.textContent = "Copied!"; }
-    catch { copyBtn.textContent = "Copy failed"; }
-    setTimeout(() => { copyBtn.textContent = "Copy to clipboard"; }, 1500);
+  const cursor = section("Cursor");
+  cursor.appendChild(row("Cursor style", "",
+    segCtl(config.cursor.style, [
+      ["block", "Block"],
+      ["underline", "Underline"],
+      ["bar", "Bar"],
+    ], (v) => { config!.cursor.style = v; void saveConfig(); }),
+  ));
+  cursor.appendChild(row("Cursor blink", "",
+    toggle(config.cursor.blink, (v) => { config!.cursor.blink = v; void saveConfig(); }),
+  ));
+  el.appendChild(cursor);
+
+  const cfg = section("Config");
+  cfg.appendChild(row(
+    "Config file",
+    "~/.config/kimbo/config.toml",
+    button("Open in editor", async () => {
+      try { await openUrl(`file://${await invoke<string>("get_config_path").catch(() => "/tmp/kimbo-config.toml")}`); }
+      catch { alert("Open your config at ~/.config/kimbo/config.toml"); }
+    }),
+  ));
+  const resetBtn = button("Reset…", () => {
+    if (!confirm("Reset all settings to defaults? This cannot be undone.")) return;
+    alert("Coming soon — for now, remove ~/.config/kimbo/config.toml manually.");
   });
-  card.appendChild(copyBtn);
+  resetBtn.classList.add("danger", "coming-soon");
+  cfg.appendChild(row(
+    "Reset all settings",
+    "Clears your preferences and restarts with defaults.",
+    resetBtn,
+  ));
+  el.appendChild(cfg);
 
-  el.appendChild(card);
+  const priv = section("Privacy");
+  priv.appendChild(row(
+    "Send anonymous telemetry",
+    "Crash reports and anonymized usage. No command content. Kimbo does not collect telemetry today.",
+    withComingSoon(toggle(prefs.telemetry, (v) => setPref("telemetry", v), true), true),
+  ));
+  el.appendChild(priv);
 }
 
-function renderAdvanced(el: HTMLElement) {
+// ===========================================================================
+// About
+// ===========================================================================
+
+async function renderAbout(el: HTMLElement): Promise<void> {
   if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">Advanced</h2>`;
-
-  el.appendChild(makeField("Scrollback Lines", "number", String(config.scrollback.lines), (v) => {
-    config!.scrollback.lines = parseInt(v) || 10000;
-    saveConfig();
-  }));
-
-  el.appendChild(makeSelect("Cursor Style", ["block", "underline", "bar"], config.cursor.style, (v) => {
-    config!.cursor.style = v;
-    saveConfig();
-  }));
-
-  el.appendChild(makeToggle("Cursor Blink", config.cursor.blink, (v) => {
-    config!.cursor.blink = v;
-    saveConfig();
-  }));
-}
-
-async function renderAbout(el: HTMLElement) {
-  if (!config) return;
-  el.innerHTML = `<h2 style="margin-bottom: 20px; font-size: 18px;">About</h2>`;
+  el.appendChild(header("About", ""));
 
   const info = getCachedUpdate();
   const currentVersion = info?.current ?? "unknown";
 
-  // --- App identity block ---
-  const ident = document.createElement("div");
-  ident.style.cssText = "margin-bottom: 24px;";
+  const identity = document.createElement("div");
+  identity.className = "about-identity";
+  const logo = document.createElement("div");
+  logo.className = "logo";
+  identity.appendChild(logo);
 
-  const identName = document.createElement("div");
-  identName.style.cssText = "font-size: 16px; font-weight: 600;";
-  identName.textContent = "Kimbo";
-  ident.appendChild(identName);
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = "Kimbo";
+  meta.appendChild(name);
+  const version = document.createElement("div");
+  version.className = "version";
+  version.innerHTML = `Version ${escapeHtml(currentVersion)}`;
+  meta.appendChild(version);
+  const tagline = document.createElement("div");
+  tagline.className = "tagline";
+  tagline.textContent = "A fast, themeable terminal with a brain.";
+  meta.appendChild(tagline);
+  identity.appendChild(meta);
+  el.appendChild(identity);
 
-  const identVersion = document.createElement("div");
-  identVersion.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-top: 2px;";
-  identVersion.textContent = `Version ${currentVersion}`;
-  ident.appendChild(identVersion);
-
-  el.appendChild(ident);
-
-  // --- Updates block ---
-  el.appendChild(makeSubheader("Updates"));
-  const updatesBox = document.createElement("div");
-  updatesBox.style.cssText = "margin-bottom: 16px;";
-  el.appendChild(updatesBox);
-
+  // Updates
+  const upd = section("Updates");
   const status = document.createElement("div");
   status.style.cssText = "font-size: 13px; margin-bottom: 8px;";
-  updatesBox.appendChild(status);
+  const release = document.createElement("div");
+  release.style.cssText = "margin-bottom: 8px;";
 
-  const releaseBlock = document.createElement("div");
-  releaseBlock.style.cssText = "margin-bottom: 8px;";
-  updatesBox.appendChild(releaseBlock);
-
-  const renderUpdateState = (state: UpdateInfo | null, error: string | null) => {
-    releaseBlock.innerHTML = "";
+  const renderUpdateState = (state: UpdateInfo | null, error: string | null): void => {
+    release.innerHTML = "";
     if (error) {
       status.textContent = "Couldn't check (offline?)";
-      status.style.color = "var(--tab-inactive-fg)";
+      status.style.color = "var(--fg-muted)";
       return;
     }
     if (!state) {
       status.textContent = "Click 'Check for updates' to check.";
-      status.style.color = "var(--tab-inactive-fg)";
+      status.style.color = "var(--fg-muted)";
       return;
     }
     if (state.is_newer) {
-      const date = state.published_at && state.published_at.length >= 10
-        ? state.published_at.slice(0, 10)
-        : "";
-      status.textContent = "";
-      const versionStrong = document.createElement("strong");
-      versionStrong.textContent = `v${state.latest}`;
-      status.appendChild(versionStrong);
+      const date = state.published_at?.slice(0, 10) ?? "";
+      status.innerHTML = "";
+      const s = document.createElement("strong");
+      s.textContent = `v${state.latest}`;
+      status.appendChild(s);
       status.append(` is available${date ? ` (released ${date})` : ""}.`);
       status.style.color = "var(--fg)";
 
-      // Row: primary install action + secondary release-page link.
-      const row = document.createElement("div");
-      row.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 4px;";
-
-      const installBtn = document.createElement("button");
-      installBtn.textContent = "Download & install";
-      installBtn.style.cssText = "padding: 6px 12px; background: var(--accent-blue); border: 1px solid var(--accent-blue); color: var(--bg); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;";
-
-      const progressLine = document.createElement("div");
-      progressLine.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); margin-top: 6px; min-height: 16px;";
-
-      installBtn.addEventListener("click", async () => {
-        installBtn.disabled = true;
-        installBtn.textContent = "Starting…";
-        progressLine.textContent = "";
+      const row2 = document.createElement("div");
+      row2.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 6px;";
+      const install = button("Download & install", async () => {
+        install.disabled = true;
+        install.innerHTML = "";
+        install.appendChild(icon("download", 12));
+        install.appendChild(document.createTextNode(" Starting…"));
+        progress.textContent = "";
         try {
           await downloadAndInstallUpdate((p: DownloadProgress) => {
             if (p.total && p.total > 0) {
               const pct = Math.min(100, Math.floor((p.downloaded / p.total) * 100));
-              installBtn.textContent = `Downloading ${pct}%`;
-              progressLine.textContent = `${formatBytes(p.downloaded)} / ${formatBytes(p.total)}`;
+              install.textContent = `Downloading ${pct}%`;
+              progress.textContent = `${formatBytes(p.downloaded)} / ${formatBytes(p.total)}`;
             } else {
-              installBtn.textContent = "Downloading…";
-              progressLine.textContent = formatBytes(p.downloaded);
+              install.textContent = "Downloading…";
+              progress.textContent = formatBytes(p.downloaded);
             }
           });
-          // If we reach this line the relaunch didn't happen — show a hint.
-          installBtn.textContent = "Installed — relaunching";
+          install.textContent = "Installed — relaunching";
         } catch (e) {
-          console.error("downloadAndInstall failed:", e);
-          installBtn.disabled = false;
-          installBtn.textContent = "Download & install";
-          progressLine.textContent = `Update failed: ${String(e)}`;
-          progressLine.style.color = "var(--accent-red)";
+          install.disabled = false;
+          install.textContent = "Download & install";
+          progress.textContent = `Update failed: ${e}`;
+          progress.style.color = "var(--danger)";
         }
       });
-      row.appendChild(installBtn);
-
-      const pageLink = document.createElement("a");
-      pageLink.textContent = "Release page";
-      pageLink.href = "#";
-      pageLink.style.cssText = "font-size: 12px; color: var(--tab-inactive-fg); text-decoration: none; margin-left: 4px;";
-      pageLink.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        try { await openUrl(state.release_url); }
-        catch (e) { console.error("openUrl failed:", e); }
+      install.classList.add("primary");
+      row2.appendChild(install);
+      const pageLink = button("Release page", async () => {
+        try { await openUrl(state.release_url); } catch (_) {}
       });
-      row.appendChild(pageLink);
-
-      releaseBlock.appendChild(row);
-      releaseBlock.appendChild(progressLine);
+      pageLink.classList.add("ghost");
+      row2.appendChild(pageLink);
+      const progress = document.createElement("div");
+      progress.style.cssText = "font-size: 12px; color: var(--fg-muted); margin-top: 6px; min-height: 16px;";
+      release.appendChild(row2);
+      release.appendChild(progress);
     } else {
       status.textContent = "You're up to date.";
       status.style.color = "var(--fg)";
     }
   };
-
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   renderUpdateState(info, null);
 
-  const checkBtn = document.createElement("button");
-  checkBtn.textContent = "Check for updates";
-  checkBtn.style.cssText = "padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 16px;";
-  checkBtn.addEventListener("click", async () => {
+  const checkBtn = button("Check for updates", async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = "Checking…";
     try {
       const fresh = await forceCheckUpdate();
       renderUpdateState(fresh, null);
-      // Re-render the sidebar so the dot appears/disappears.
       render();
     } catch (e) {
-      console.warn("forceCheckUpdate failed:", e);
       renderUpdateState(null, String(e));
     } finally {
       checkBtn.disabled = false;
       checkBtn.textContent = "Check for updates";
     }
   });
-  el.appendChild(checkBtn);
 
-  el.appendChild(makeToggle("Check for updates automatically", config.updates.auto_check, (v) => {
-    config!.updates.auto_check = v;
-    saveConfig();
-  }));
+  upd.appendChild(row("Updates", "Last checked when you opened this panel.", checkBtn));
+  upd.appendChild(row(
+    "Auto-update",
+    "",
+    toggle(config.updates.auto_check, (v) => {
+      config!.updates.auto_check = v;
+      void saveConfig();
+    }),
+  ));
+  const prefs = getPrefs();
+  upd.appendChild(row(
+    "Release channel",
+    "Pick the update stream Kimbo subscribes to.",
+    withComingSoon(segCtl(prefs.releaseChannel, [
+      ["stable", "Stable"],
+      ["beta", "Beta"],
+      ["nightly", "Nightly"],
+    ], (v) => setPref("releaseChannel", v as typeof prefs.releaseChannel)), true),
+  ));
+  const row3 = document.createElement("div");
+  row3.style.cssText = "padding: var(--density-pad) 0;";
+  row3.appendChild(status);
+  row3.appendChild(release);
+  upd.appendChild(row3);
+  el.appendChild(upd);
 
-  // --- Links block ---
-  el.appendChild(makeSubheader("Links"));
-  const links = document.createElement("div");
-  links.style.cssText = "display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;";
-
-  const repoLink = document.createElement("a");
-  repoLink.textContent = "GitHub repository";
-  repoLink.href = "#";
-  repoLink.style.cssText = "color: var(--accent-blue, var(--fg)); text-decoration: underline; cursor: pointer; font-size: 13px;";
-  repoLink.addEventListener("click", async (ev) => {
-    ev.preventDefault();
-    try { await openUrl("https://github.com/lucatescari/kimbo-terminal"); }
-    catch (e) { console.error("openUrl failed:", e); }
-  });
-  links.appendChild(repoLink);
-
-  const licenseLink = document.createElement("a");
-  licenseLink.textContent = "License (MIT)";
-  licenseLink.href = "#";
-  licenseLink.style.cssText = "color: var(--accent-blue, var(--fg)); text-decoration: underline; cursor: pointer; font-size: 13px;";
-  licenseLink.addEventListener("click", async (ev) => {
-    ev.preventDefault();
-    try { await openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/LICENSE"); }
-    catch (e) { console.error("openUrl failed:", e); }
-  });
-  links.appendChild(licenseLink);
-
+  // Links
+  const links = section("Links");
+  const row4 = document.createElement("div");
+  row4.style.cssText = "display: flex; flex-wrap: wrap; gap: 8px;";
+  const githubBtn = button("GitHub repository", () => openUrl("https://github.com/lucatescari/kimbo-terminal"));
+  row4.appendChild(githubBtn);
+  row4.appendChild(button("Changelog", () => openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/CHANGELOG.md")));
+  row4.appendChild(button("Documentation", () => openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/README.md")));
+  row4.appendChild(button("Report an issue", () => openUrl("https://github.com/lucatescari/kimbo-terminal/issues/new")));
+  const licenseBtn = button("License (MIT)", () => openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/LICENSE"));
+  licenseBtn.classList.add("ghost");
+  row4.appendChild(licenseBtn);
+  links.appendChild(row4);
   el.appendChild(links);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Helpers — layout + controls
+// ===========================================================================
 
-function makeField(label: string, type: string, value: string, onChange: (v: string) => void): HTMLElement {
-  const group = document.createElement("div");
-  group.style.cssText = "margin-bottom: 16px;";
-
-  const lbl = document.createElement("div");
-  lbl.textContent = label;
-  lbl.style.cssText = "font-size: 11px; text-transform: uppercase; color: var(--tab-inactive-fg); margin-bottom: 6px;";
-
-  const input = document.createElement("input");
-  input.type = type;
-  input.value = value;
-  input.style.cssText = "width: 100%; max-width: 300px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; border-radius: 4px; font-size: 13px;";
-  input.addEventListener("change", () => onChange(input.value));
-
-  group.appendChild(lbl);
-  group.appendChild(input);
-  return group;
+function header(title: string, subtitle: string): HTMLElement {
+  const wrap = document.createElement("div");
+  const h1 = document.createElement("h1");
+  h1.textContent = title;
+  wrap.appendChild(h1);
+  const sub = document.createElement("p");
+  sub.className = "subtitle";
+  sub.innerHTML = subtitle || "&nbsp;";
+  wrap.appendChild(sub);
+  return wrap;
 }
 
-function makeSelect(label: string, options: string[], value: string, onChange: (v: string) => void): HTMLElement {
-  const group = document.createElement("div");
-  group.style.cssText = "margin-bottom: 16px;";
+function section(title: string): HTMLElement {
+  const sec = document.createElement("div");
+  sec.className = "section";
+  const head = document.createElement("div");
+  head.className = "section-head";
+  head.textContent = title;
+  sec.appendChild(head);
+  return sec;
+}
 
+function row(label: string, hint: string, control: HTMLElement): HTMLElement {
+  const r = document.createElement("div");
+  r.className = "row";
+  const lc = document.createElement("div");
+  lc.className = "lbl-col";
   const lbl = document.createElement("div");
+  lbl.className = "label";
   lbl.textContent = label;
-  lbl.style.cssText = "font-size: 11px; text-transform: uppercase; color: var(--tab-inactive-fg); margin-bottom: 6px;";
-
-  const select = document.createElement("select");
-  select.style.cssText = "background: var(--surface); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; border-radius: 4px; font-size: 13px;";
-  for (const opt of options) {
-    const o = document.createElement("option");
-    o.value = opt;
-    o.textContent = opt;
-    if (opt === value) o.selected = true;
-    select.appendChild(o);
+  lc.appendChild(lbl);
+  if (hint) {
+    const h = document.createElement("div");
+    h.className = "hint";
+    h.innerHTML = hint;
+    lc.appendChild(h);
   }
-  select.addEventListener("change", () => onChange(select.value));
-
-  group.appendChild(lbl);
-  group.appendChild(select);
-  return group;
+  r.appendChild(lc);
+  const cc = document.createElement("div");
+  cc.className = "ctl-col";
+  cc.appendChild(control);
+  r.appendChild(cc);
+  return r;
 }
 
-function makeToggle(label: string, value: boolean, onChange: (v: boolean) => void): HTMLElement {
-  const group = document.createElement("div");
-  group.style.cssText = "margin-bottom: 16px; display: flex; align-items: center; gap: 10px;";
-
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = value;
-  checkbox.style.cssText = "width: 16px; height: 16px; cursor: pointer;";
-  checkbox.addEventListener("change", () => onChange(checkbox.checked));
-
-  const lbl = document.createElement("span");
-  lbl.textContent = label;
-  lbl.style.cssText = "font-size: 13px;";
-
-  group.appendChild(checkbox);
-  group.appendChild(lbl);
-  return group;
+function button(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn";
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
 }
 
-async function saveConfig() {
+function toggle(value: boolean, onChange: (v: boolean) => void, disabled = false): HTMLElement {
+  const t = document.createElement("div");
+  t.className = "toggle" + (value ? " on" : "") + (disabled ? " disabled" : "");
+  t.setAttribute("role", "switch");
+  t.setAttribute("aria-checked", String(value));
+  t.addEventListener("click", () => {
+    if (disabled) return;
+    onChange(!value);
+  });
+  return t;
+}
+
+function select(value: string, opts: [string, string][], onChange: (v: string) => void): HTMLElement {
+  const s = document.createElement("select");
+  s.className = "select";
+  for (const [v, l] of opts) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = l;
+    if (v === value) o.selected = true;
+    s.appendChild(o);
+  }
+  s.addEventListener("change", () => onChange(s.value));
+  return s;
+}
+
+function segCtl(value: string, opts: [string, string][], onChange: (v: string) => void): HTMLElement {
+  const w = document.createElement("div");
+  w.className = "seg-ctl";
+  for (const [v, l] of opts) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = v === value ? "on" : "";
+    b.textContent = l;
+    b.addEventListener("click", () => onChange(v));
+    w.appendChild(b);
+  }
+  return w;
+}
+
+function numInput(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  onChange: (v: number) => void,
+  variant: "" | "narrow" | "num" = "narrow",
+): HTMLElement {
+  const i = document.createElement("input");
+  i.type = "number";
+  i.className = "input " + variant;
+  i.value = String(value);
+  i.min = String(min);
+  i.max = String(max);
+  i.step = String(step);
+  i.addEventListener("change", () => {
+    const v = parseFloat(i.value);
+    if (Number.isFinite(v)) onChange(v);
+  });
+  return i;
+}
+
+function range(value: number, min: number, max: number, step: number, onChange: (v: number) => void): HTMLElement {
+  const i = document.createElement("input");
+  i.type = "range";
+  i.min = String(min);
+  i.max = String(max);
+  i.step = String(step);
+  i.value = String(value);
+  i.addEventListener("input", () => onChange(parseFloat(i.value)));
+  return i;
+}
+
+function withComingSoon(control: HTMLElement, show: boolean): HTMLElement {
+  if (!show) return control;
+  const wrap = document.createElement("div");
+  wrap.style.display = "inline-flex";
+  wrap.style.alignItems = "center";
+  wrap.style.gap = "6px";
+  control.style.pointerEvents = "none";
+  control.style.opacity = "0.55";
+  wrap.appendChild(control);
+  const tag = document.createElement("span");
+  tag.className = "cs-tag";
+  tag.textContent = "Coming soon";
+  wrap.appendChild(tag);
+  return wrap;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]!));
+}
+
+// ---------------------------------------------------------------------------
+// Save
+// ---------------------------------------------------------------------------
+
+async function saveConfig(): Promise<void> {
   if (!config) return;
   applyTerminalOptions({
     fontFamily: config.font.family,
@@ -791,11 +1308,8 @@ async function saveConfig() {
     cursorBlink: config.cursor.blink,
     scrollback: config.scrollback.lines,
   });
-  // Re-fit panes since font metrics may have changed character size.
   fitAllPanes();
-  try {
-    await invoke("save_config", { config });
-  } catch (e) {
-    console.error("Failed to save config:", e);
-  }
+  try { await invoke("save_config", { config }); }
+  catch (e) { console.error("save_config:", e); }
+  applyRoot();
 }

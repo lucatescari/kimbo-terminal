@@ -128,6 +128,11 @@ function applyTheme(theme: ResolvedTheme) {
   root.style.setProperty("--accent-blue", theme.ansi_blue);
   root.style.setProperty("--accent-green", theme.ansi_green);
 
+  // Theme-type drives the new design tokens that differ between light/dark
+  // (shadow weights, fg-strong lift). theme_type comes from the resolved
+  // theme file ("light" | "dark" | "high-contrast" | …).
+  root.dataset.themeType = theme.theme_type || "dark";
+
   const xtermTheme: Record<string, string> = {
     background: theme.background,
     foreground: theme.foreground,

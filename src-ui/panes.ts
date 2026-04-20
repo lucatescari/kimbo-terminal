@@ -240,16 +240,48 @@ async function createLeaf(cwd?: string): Promise<LeafNode> {
   el.style.flex = "1";
   el.style.minWidth = "0";
   el.style.minHeight = "0";
-  el.style.display = "flex";
-  el.style.position = "relative";
   el.dataset.paneId = String(paneId);
 
   // Click to focus.
   el.addEventListener("mousedown", () => setActivePane(paneId));
 
+  // Pane head strip (pid · cwd · branch). Placed above the terminal container
+  // created by createTerminalSession; xterm sits below it and fills the rest.
+  const head = document.createElement("div");
+  head.className = "pane-head";
+  head.dataset.paneId = String(paneId);
+  head.innerHTML = `
+    <span class="pid"></span>
+    <span class="sep">·</span>
+    <span class="cwd"></span>
+  `;
+  el.appendChild(head);
+
   const session = await createTerminalSession(el, cwd);
 
+  updatePaneHead(head, paneId, session.ptyId, session.cwd ?? cwd ?? null);
+
+  // Refresh head when OSC 7 lands a new cwd. Poll lightly to avoid coupling
+  // to the OSC 7 parser — cheap and bounded to the visible panes.
+  const poll = window.setInterval(() => {
+    if (!document.body.contains(head)) {
+      clearInterval(poll);
+      return;
+    }
+    updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
+  }, 2000);
+
   return { type: "leaf", paneId, session, element: el };
+}
+
+function updatePaneHead(head: HTMLElement, paneId: number, ptyId: number, cwd: string | null): void {
+  const pid = head.querySelector<HTMLElement>(".pid");
+  const cwdEl = head.querySelector<HTMLElement>(".cwd");
+  if (pid) pid.textContent = `[${paneId}·pty${ptyId}]`;
+  if (cwdEl) {
+    const home = (cwd ?? "~").replace(/^\/Users\/[^/]+/, "~");
+    cwdEl.textContent = home;
+  }
 }
 
 export function setActivePane(id: number) {

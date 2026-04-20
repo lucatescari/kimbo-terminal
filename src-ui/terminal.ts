@@ -79,7 +79,11 @@ export async function createTerminalSession(
   const container = document.createElement("div");
   container.className = "terminal-container";
   container.style.width = "100%";
-  container.style.height = "100%";
+  // Height is flex-managed by the pane (pane is flex-column with .pane-head on
+  // top and .terminal-container taking the remaining space). A hardcoded 100%
+  // would overflow past the pane-head strip.
+  container.style.flex = "1";
+  container.style.minHeight = "0";
   parentEl.appendChild(container);
 
   // Modern emoji (🏳️‍🌈, ZWJ sequences, skin tones) need Unicode 11 widths

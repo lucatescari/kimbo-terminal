@@ -53,8 +53,8 @@ describe("settings: categories", () => {
 
   it("has Font category", () => {
     expect(settingsSource).toContain('"font"');
-    expect(settingsSource).toContain("Font Family");
-    expect(settingsSource).toContain("Font Size");
+    expect(settingsSource).toContain("Terminal font");
+    expect(settingsSource).toContain("Size");
   });
 
   it("has Workspaces category with scan dirs", () => {
@@ -65,9 +65,9 @@ describe("settings: categories", () => {
 
   it("has Advanced category with scrollback and cursor", () => {
     expect(settingsSource).toContain('"advanced"');
-    expect(settingsSource).toContain("Scrollback Lines");
-    expect(settingsSource).toContain("Cursor Style");
-    expect(settingsSource).toContain("Cursor Blink");
+    expect(settingsSource).toContain("Scrollback lines");
+    expect(settingsSource).toContain("Cursor style");
+    expect(settingsSource).toContain("Cursor blink");
   });
 
   it("has all 5 categories", () => {
@@ -123,7 +123,7 @@ describe("settings: About category", () => {
   });
 
   it("dispatches About in the render switch", () => {
-    expect(settingsSource).toMatch(/case "about":\s*renderAbout/);
+    expect(settingsSource).toMatch(/case "about":\s*void renderAbout/);
   });
 
   it("renderAbout reads cached update info", () => {
@@ -132,7 +132,7 @@ describe("settings: About category", () => {
   });
 
   it("renders the auto_check toggle", () => {
-    expect(settingsSource).toContain("Check for updates automatically");
+    expect(settingsSource).toContain("Auto-update");
     expect(settingsSource).toContain("config.updates.auto_check");
   });
 

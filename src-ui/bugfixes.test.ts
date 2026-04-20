@@ -70,9 +70,12 @@ describe("fix 2: unified themes", () => {
     expect(mainRsSource).toContain("delete_theme");
   });
 
-  it("settings UI has Yours and Available subheaders", () => {
-    expect(settingsSource).toContain("Yours");
-    expect(settingsSource).toContain("Available");
+  it("settings UI partitions themes into installed vs community-gallery", () => {
+    // New design uses a top theme grid + a separate "Community gallery"
+    // section for Available themes, instead of the old "Yours" subheader.
+    expect(settingsSource).toContain("Community gallery");
+    expect(settingsSource).toContain('t.source !== "Available"');
+    expect(settingsSource).toContain('t.source === "Available"');
     expect(settingsSource).toContain("list_unified_themes");
   });
 

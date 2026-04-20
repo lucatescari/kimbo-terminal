@@ -1,23 +1,16 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Test the HTML structure and CSS to catch layout regressions.
+// Test the HTML structure and CSS to catch layout regressions against the
+// Kimbo Redesign handoff (custom title bar, new tab styles, status bar).
 
 const html = readFileSync(resolve(__dirname, "index.html"), "utf-8");
 const css = readFileSync(resolve(__dirname, "style.css"), "utf-8");
 
 describe("index.html structure", () => {
-  it("does NOT have a custom title-bar (native macOS title bar handles it)", () => {
-    expect(html).not.toContain('id="title-bar"');
-    expect(html).not.toContain("data-tauri-drag-region");
-  });
-
-  it("has exactly one Kimbo text (in <title> only)", () => {
-    // The <title> tag is the only place "Kimbo" should appear in the HTML.
-    // The macOS title bar reads this, so the app title renders natively.
-    const matches = html.match(/Kimbo/g) || [];
-    expect(matches.length).toBe(1);
+  it("has a custom title-bar for the new chrome", () => {
+    expect(html).toContain('id="title-bar"');
   });
 
   it("has tab-bar element", () => {
@@ -26,6 +19,10 @@ describe("index.html structure", () => {
 
   it("has terminal-area element", () => {
     expect(html).toContain('id="terminal-area"');
+  });
+
+  it("has status-bar element", () => {
+    expect(html).toContain('id="status-bar"');
   });
 
   it("has overlay element with hidden class", () => {
@@ -40,10 +37,6 @@ describe("index.html structure", () => {
 });
 
 describe("style.css", () => {
-  it("does NOT have #titlebar styles", () => {
-    expect(css).not.toContain("#titlebar");
-  });
-
   it("has pane active border style", () => {
     expect(css).toContain(".pane.active");
     expect(css).toContain("var(--active-border)");
@@ -54,63 +47,90 @@ describe("style.css", () => {
     expect(css).toContain("webkit-scrollbar");
   });
 
-  it("scrollbar thumb is translucent, not white", () => {
-    // Should use rgba with low alpha, never solid white
+  it("scrollbar thumb is translucent, not solid white", () => {
     expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*#fff/);
     expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*white/);
     expect(css).toContain("rgba(255, 255, 255, 0.25)");
   });
 
   it("scrollbar is hidden by default and auto-shows while actively scrolling", () => {
-    // Default thumb is fully transparent
     expect(css).toContain("rgba(255, 255, 255, 0)");
-    // A .scrolling class on the terminal-container fades the thumb in
     expect(css).toContain(".terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb");
+  });
+
+  it("defines the full design-token set", () => {
+    for (const token of [
+      "--bg-elevated",
+      "--bg-sidebar",
+      "--border-strong",
+      "--fg-strong",
+      "--fg-muted",
+      "--fg-dim",
+      "--accent-tint",
+      "--shadow-lg",
+      "--font-mono",
+      "--font-ui",
+    ]) {
+      expect(css).toContain(token);
+    }
+  });
+
+  it("supports three tab styles via [data-style]", () => {
+    // Default (underline) uses the base .tab.active::after rule; pill and
+    // chevron layer on via attribute selectors.
+    expect(css).toContain('#tab-bar[data-style="pill"]');
+    expect(css).toContain('#tab-bar[data-style="chevron"]');
+    expect(css).toMatch(/\.tab\.active::after\s*\{/);
+  });
+
+  it("density is driven by [data-density] on :root", () => {
+    expect(css).toContain(':root[data-density="compact"]');
+    expect(css).toContain(':root[data-density="comfortable"]');
+    expect(css).toContain(':root[data-density="roomy"]');
   });
 });
 
-describe("tab bar styling (modern chrome-seamless)", () => {
-  const activeRule =
-    css.match(/\.tab\.active\s*\{([^}]*)\}/)?.[1] ?? "";
-  const tabRule =
-    css.match(/\.tab\s*\{([^}]*)\}/)?.[1] ?? "";
-  const tabBarRule =
-    css.match(/#tab-bar\s*\{([^}]*)\}/)?.[1] ?? "";
-
-  it("active tab has NO border-bottom (no underline indicator)", () => {
-    expect(activeRule).not.toMatch(/border-bottom/);
+describe("title bar", () => {
+  const titleBarRule = css.match(/#title-bar\s*\{([^}]*)\}/)?.[1] ?? "";
+  it("title bar has a fixed height", () => {
+    expect(titleBarRule).toMatch(/height:\s*36px/);
   });
-
-  it("tab bar has NO border-bottom (seamless into terminal area)", () => {
-    expect(tabBarRule).not.toMatch(/border-bottom/);
+  it("uses --bg-titlebar", () => {
+    expect(titleBarRule).toMatch(/background:\s*var\(--bg-titlebar\)/);
   });
+});
 
-  it("inactive tab has top-only rounded corners (8px 8px 0 0)", () => {
-    expect(tabRule).toMatch(/border-radius:\s*8px\s+8px\s+0\s+0/);
-  });
+describe("tab bar (handoff design)", () => {
+  const activeRule = css.match(/\.tab\.active\s*\{([^}]*)\}/)?.[1] ?? "";
+  const tabRule = css.match(/\.tab\s*\{([^}]*)\}/)?.[1] ?? "";
+  const tabBarRule = css.match(/#tab-bar\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  it("active tab background uses --bg (matches terminal area)", () => {
+  it("active tab background matches terminal area (--bg)", () => {
     expect(activeRule).toMatch(/background:\s*var\(--bg\)/);
   });
 
-  it("active tab is nudged 1px forward to overlap the seam", () => {
-    expect(activeRule).toMatch(/position:\s*relative/);
-    expect(activeRule).toMatch(/top:\s*1px/);
+  it("tab bar uses monospace font", () => {
+    expect(tabRule).toMatch(/font-family:\s*var\(--font-mono\)/);
   });
 
-  it("tab bar uses a 2px gap between tabs", () => {
-    expect(tabBarRule).toMatch(/gap:\s*2px/);
-  });
-
-  it("tab bar anchors tabs to the bottom edge (align-items: flex-end)", () => {
-    expect(tabBarRule).toMatch(/align-items:\s*flex-end/);
+  it("tab bar uses stretch alignment (full-height tabs)", () => {
+    expect(tabBarRule).toMatch(/align-items:\s*stretch/);
   });
 
   it("inactive tabs have a hover state distinct from the active rule", () => {
     expect(css).toMatch(/\.tab:hover:not\(\.active\)/);
   });
 
-  it("no border-right separator between tabs", () => {
-    expect(tabRule).not.toMatch(/border-right/);
+  it("active tab has an underline indicator", () => {
+    expect(css).toMatch(/\.tab\.active::after\s*\{/);
+  });
+
+  it("pill style swaps the underline for a bordered pill", () => {
+    expect(css).toMatch(/#tab-bar\[data-style="pill"\]\s+\.tab\.active/);
+  });
+
+  it("chevron style applies a clip-path", () => {
+    expect(css).toMatch(/#tab-bar\[data-style="chevron"\]\s+\.tab/);
+    expect(css).toMatch(/clip-path:\s*polygon/);
   });
 });
