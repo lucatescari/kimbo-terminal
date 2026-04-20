@@ -1,0 +1,257 @@
+/* Kimbo theme tokens. Every visual aspect flows through these vars.
+   To make a new theme: redefine this block on a [data-theme="yourname"] root. */
+
+:root,
+:root[data-theme="kimbo-dark"] {
+  /* surfaces */
+  --bg:              #14171c;
+  --bg-titlebar:     #0f1216;
+  --bg-tabs:         #1a1e24;
+  --bg-pane:         #11141a;
+  --bg-sidebar:      #171b21;
+  --bg-elevated:     #1e2229;
+  --bg-hover:        rgba(255,255,255,0.04);
+  --bg-active:       rgba(255,255,255,0.07);
+  --bg-input:        #1a1e24;
+
+  /* borders */
+  --border:          rgba(255,255,255,0.07);
+  --border-strong:   rgba(255,255,255,0.14);
+  --divider:         rgba(255,255,255,0.05);
+
+  /* text */
+  --fg:              #e6e8ec;
+  --fg-strong:       #f5f6f8;
+  --fg-muted:        #8c94a2;
+  --fg-dim:          #5b6370;
+  --fg-link:         var(--accent);
+
+  /* ANSI (terminal body) */
+  --ansi-black:   #1a1e24;
+  --ansi-red:     #e06c75;
+  --ansi-green:   #98c379;
+  --ansi-yellow:  #e5c07b;
+  --ansi-blue:    #61afef;
+  --ansi-magenta: #c678dd;
+  --ansi-cyan:    #56b6c2;
+  --ansi-white:   #c8cdd6;
+  --ansi-dim:     #6b7280;
+
+  /* accent & semantic */
+  --accent:          #8aa9ff;
+  --accent-strong:   #a6bdff;
+  --accent-tint:     rgba(138,169,255,0.12);
+  --accent-on:       #0b0e13;
+
+  --success:         #7ec688;
+  --warn:            #e3b765;
+  --danger:          #e47c7c;
+
+  /* selection + focus */
+  --selection:       rgba(138,169,255,0.25);
+  --focus-ring:      0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* shadows */
+  --shadow-sm:  0 1px 0 rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md:  0 4px 14px rgba(0,0,0,0.35);
+  --shadow-lg:  0 18px 48px rgba(0,0,0,0.5);
+  --shadow-window: 0 0 0 1px rgba(0,0,0,0.5), 0 24px 80px rgba(0,0,0,0.6);
+}
+
+/* ----- Kimbo Light ----- */
+:root[data-theme="kimbo-light"] {
+  --bg:              #f4f1ec;
+  --bg-titlebar:     #ece8e1;
+  --bg-tabs:         #e8e3da;
+  --bg-pane:         #fbf9f5;
+  --bg-sidebar:      #efeae2;
+  --bg-elevated:     #fdfbf7;
+  --bg-hover:        rgba(0,0,0,0.04);
+  --bg-active:       rgba(0,0,0,0.07);
+  --bg-input:        #fdfbf7;
+
+  --border:          rgba(60,50,35,0.12);
+  --border-strong:   rgba(60,50,35,0.22);
+  --divider:         rgba(60,50,35,0.08);
+
+  --fg:              #2a261f;
+  --fg-strong:       #14110c;
+  --fg-muted:        #6b6558;
+  --fg-dim:          #9a9486;
+  --fg-link:         var(--accent);
+
+  --ansi-black:   #2a261f;
+  --ansi-red:     #b5424c;
+  --ansi-green:   #5f8a3f;
+  --ansi-yellow:  #a87823;
+  --ansi-blue:    #3e6fb3;
+  --ansi-magenta: #8e4eb3;
+  --ansi-cyan:    #3d8e93;
+  --ansi-white:   #4a4538;
+  --ansi-dim:     #9a9486;
+
+  --accent:          #5773c9;
+  --accent-strong:   #3d58b0;
+  --accent-tint:     rgba(87,115,201,0.14);
+  --accent-on:       #ffffff;
+
+  --success:         #5f8a3f;
+  --warn:            #a87823;
+  --danger:          #b5424c;
+
+  --selection:       rgba(87,115,201,0.22);
+  --focus-ring:      0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --shadow-sm:  0 1px 0 rgba(60,50,35,0.04), 0 1px 2px rgba(60,50,35,0.06);
+  --shadow-md:  0 4px 14px rgba(60,50,35,0.10);
+  --shadow-lg:  0 18px 48px rgba(60,50,35,0.18);
+  --shadow-window: 0 0 0 1px rgba(60,50,35,0.12), 0 24px 80px rgba(60,50,35,0.22);
+}
+
+/* ----- Catppuccin Mocha ----- */
+:root[data-theme="mocha"] {
+  --bg:              #1e1e2e;
+  --bg-titlebar:     #181825;
+  --bg-tabs:         #232336;
+  --bg-pane:         #181825;
+  --bg-sidebar:      #1e1e2e;
+  --bg-elevated:     #2a2a3f;
+  --bg-hover:        rgba(205,214,244,0.06);
+  --bg-active:       rgba(205,214,244,0.10);
+  --bg-input:        #232336;
+
+  --border:          rgba(205,214,244,0.08);
+  --border-strong:   rgba(205,214,244,0.16);
+  --divider:         rgba(205,214,244,0.06);
+
+  --fg:              #cdd6f4;
+  --fg-strong:       #ffffff;
+  --fg-muted:        #a6adc8;
+  --fg-dim:          #6c7086;
+  --fg-link:         var(--accent);
+
+  --ansi-black:   #45475a;
+  --ansi-red:     #f38ba8;
+  --ansi-green:   #a6e3a1;
+  --ansi-yellow:  #f9e2af;
+  --ansi-blue:    #89b4fa;
+  --ansi-magenta: #cba6f7;
+  --ansi-cyan:    #94e2d5;
+  --ansi-white:   #bac2de;
+  --ansi-dim:     #6c7086;
+
+  --accent:          #cba6f7;
+  --accent-strong:   #dcbff9;
+  --accent-tint:     rgba(203,166,247,0.14);
+  --accent-on:       #1e1e2e;
+
+  --success:         #a6e3a1;
+  --warn:            #f9e2af;
+  --danger:          #f38ba8;
+
+  --selection:       rgba(203,166,247,0.25);
+  --focus-ring:      0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --shadow-sm:  0 1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.25);
+  --shadow-md:  0 4px 14px rgba(0,0,0,0.4);
+  --shadow-lg:  0 18px 48px rgba(0,0,0,0.55);
+  --shadow-window: 0 0 0 1px rgba(0,0,0,0.5), 0 24px 80px rgba(0,0,0,0.6);
+}
+
+/* ----- Catppuccin Latte ----- */
+:root[data-theme="latte"] {
+  --bg:              #eff1f5;
+  --bg-titlebar:     #e6e9ef;
+  --bg-tabs:         #dce0e8;
+  --bg-pane:         #eff1f5;
+  --bg-sidebar:      #e6e9ef;
+  --bg-elevated:     #ffffff;
+  --bg-hover:        rgba(76,79,105,0.06);
+  --bg-active:       rgba(76,79,105,0.10);
+  --bg-input:        #ffffff;
+
+  --border:          rgba(76,79,105,0.14);
+  --border-strong:   rgba(76,79,105,0.24);
+  --divider:         rgba(76,79,105,0.08);
+
+  --fg:              #4c4f69;
+  --fg-strong:       #1e1e2e;
+  --fg-muted:        #6c6f85;
+  --fg-dim:          #9ca0b0;
+
+  --ansi-black:   #5c5f77;
+  --ansi-red:     #d20f39;
+  --ansi-green:   #40a02b;
+  --ansi-yellow:  #df8e1d;
+  --ansi-blue:    #1e66f5;
+  --ansi-magenta: #8839ef;
+  --ansi-cyan:    #179299;
+  --ansi-white:   #5c5f77;
+  --ansi-dim:     #9ca0b0;
+
+  --accent:          #8839ef;
+  --accent-strong:   #6b1fd0;
+  --accent-tint:     rgba(136,57,239,0.12);
+  --accent-on:       #ffffff;
+
+  --success:         #40a02b;
+  --warn:            #df8e1d;
+  --danger:          #d20f39;
+
+  --selection:       rgba(136,57,239,0.20);
+  --focus-ring:      0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --shadow-sm:  0 1px 0 rgba(76,79,105,0.04), 0 1px 2px rgba(76,79,105,0.08);
+  --shadow-md:  0 4px 14px rgba(76,79,105,0.12);
+  --shadow-lg:  0 18px 48px rgba(76,79,105,0.20);
+  --shadow-window: 0 0 0 1px rgba(76,79,105,0.12), 0 24px 80px rgba(76,79,105,0.22);
+}
+
+/* ----- Tokyo Night ----- */
+:root[data-theme="tokyo"] {
+  --bg:              #1a1b26;
+  --bg-titlebar:     #16161e;
+  --bg-tabs:         #1f2030;
+  --bg-pane:         #16161e;
+  --bg-sidebar:      #1a1b26;
+  --bg-elevated:     #232438;
+  --bg-hover:        rgba(192,202,245,0.05);
+  --bg-active:       rgba(192,202,245,0.09);
+  --bg-input:        #1f2030;
+
+  --border:          rgba(192,202,245,0.08);
+  --border-strong:   rgba(192,202,245,0.16);
+  --divider:         rgba(192,202,245,0.05);
+
+  --fg:              #c0caf5;
+  --fg-strong:       #ffffff;
+  --fg-muted:        #9aa5ce;
+  --fg-dim:          #565f89;
+
+  --ansi-black:   #414868;
+  --ansi-red:     #f7768e;
+  --ansi-green:   #9ece6a;
+  --ansi-yellow:  #e0af68;
+  --ansi-blue:    #7aa2f7;
+  --ansi-magenta: #bb9af7;
+  --ansi-cyan:    #7dcfff;
+  --ansi-white:   #a9b1d6;
+  --ansi-dim:     #565f89;
+
+  --accent:          #7aa2f7;
+  --accent-strong:   #9cbaf9;
+  --accent-tint:     rgba(122,162,247,0.14);
+  --accent-on:       #1a1b26;
+
+  --success:         #9ece6a;
+  --warn:            #e0af68;
+  --danger:          #f7768e;
+
+  --selection:       rgba(122,162,247,0.25);
+  --focus-ring:      0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --shadow-sm:  0 1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.25);
+  --shadow-md:  0 4px 14px rgba(0,0,0,0.4);
+  --shadow-lg:  0 18px 48px rgba(0,0,0,0.55);
+  --shadow-window: 0 0 0 1px rgba(0,0,0,0.5), 0 24px 80px rgba(0,0,0,0.6);
+}
