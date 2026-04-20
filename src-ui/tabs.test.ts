@@ -212,6 +212,88 @@ describe("Cmd+W on a single-pane tab", () => {
   });
 });
 
+describe("Cmd+W close-order resilience (no zombie panes)", () => {
+  // User-reported regression: "Cmd+W closes only the terminal, not the pane".
+  //
+  // The shape of this bug is an ordering fragility in closeActive(): the
+  // destructive side-effect (session.dispose(), which synchronously detaches
+  // the .terminal-container from the DOM) runs BEFORE the DOM swap that
+  // removes the outer .pane frame. If anything between those two steps
+  // throws — real xterm/webgl dispose can, especially on GPU context loss or
+  // during teardown while async work is in flight — the user is left with
+  // the exact zombie state: terminal gone, empty .pane frame still on screen.
+  //
+  // These tests lock in the invariant: after a Cmd+W, no .pane may exist
+  // without its .terminal-container, regardless of whether dispose fails.
+
+  it("if session.dispose throws partway, the .pane is still removed", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    await h.panes.splitActive("vertical");
+
+    expect(h.terminalArea.querySelectorAll(".pane").length).toBe(2);
+
+    // Simulate a real-world partial-dispose failure: the xterm teardown
+    // detaches its .terminal-container (as the real dispose does as a side
+    // effect) and THEN throws before the outer pane is removed. This is
+    // what term.dispose() / webgl cleanup can do under GPU context loss.
+    const activeSession = h.sessions[h.sessions.length - 1];
+    const originalContainer = activeSession.container;
+    activeSession.dispose = () => {
+      activeSession.disposed = true;
+      originalContainer.remove();
+      throw new Error("simulated term.dispose() failure");
+    };
+
+    // The close call should not propagate the dispose error up to the
+    // keydown handler — it's the caller's job to swallow cleanup failures.
+    expect(() => h.tabs.closeActiveOrTab()).not.toThrow();
+
+    // Invariant: every .pane must still host its .terminal-container.
+    // A .pane with no .terminal-container is the exact zombie-frame state
+    // the user reported as "Cmd+W closes only the terminal".
+    const panes = h.terminalArea.querySelectorAll(".pane");
+    expect(panes.length, "exactly one pane should remain after Cmd+W").toBe(1);
+    for (const pane of panes) {
+      expect(
+        pane.querySelectorAll(".terminal-container").length,
+        "a .pane with no .terminal-container is the user-reported zombie state",
+      ).toBe(1);
+    }
+  });
+
+  it("a second Cmd+W after a failed dispose still works (guard must reset)", async () => {
+    // The re-entrancy guard (closeInFlight) must not get wedged if closeActive
+    // throws. Otherwise the user's first Cmd+W leaves a broken state AND
+    // their second Cmd+W is silently ignored — a double failure.
+    const h = await mount();
+    await h.tabs.createTab();
+    await h.panes.splitActive("vertical");
+    await h.panes.splitActive("horizontal"); // 3 panes
+
+    const firstActive = h.sessions[h.sessions.length - 1];
+    firstActive.dispose = () => {
+      firstActive.disposed = true;
+      firstActive.container.remove();
+      throw new Error("boom");
+    };
+
+    expect(() => h.tabs.closeActiveOrTab()).not.toThrow();
+
+    // Wait one animation frame so the re-entrancy guard resets.
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+    // Second Cmd+W on a now-2-pane tab should still close another pane.
+    h.tabs.closeActiveOrTab();
+
+    const panes = h.terminalArea.querySelectorAll(".pane");
+    expect(panes.length).toBe(1);
+    for (const pane of panes) {
+      expect(pane.querySelectorAll(".terminal-container").length).toBe(1);
+    }
+  });
+});
+
 describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
   // On macOS, a native menu item with CmdOrCtrl+W can fire BOTH the menu-action
   // event AND let the keydown bubble to the webview. Both paths ultimately

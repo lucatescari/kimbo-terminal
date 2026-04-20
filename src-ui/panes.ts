@@ -107,7 +107,19 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
   requestAnimationFrame(() => fitAll(tree!));
 }
 
-/** Close the active pane. */
+/**
+ * Close the active pane.
+ *
+ * Ordering is load-bearing: compute the DOM swap, perform it, THEN dispose
+ * the terminal session. The inverse order (dispose-then-swap) was the
+ * source of a user-reported regression: session.dispose() synchronously
+ * detaches the .terminal-container as part of its cleanup, and if anything
+ * after it threw (real term.dispose() / webgl teardown can on GPU context
+ * loss) the outer .pane frame never got removed. The user saw "Cmd+W
+ * closes only the terminal, not the pane". Swap-first makes the visible
+ * close atomic from the user's POV; dispose runs last and its failure is
+ * swallowed — a flaky teardown cannot strand the UI.
+ */
 export function closeActive(): void {
   if (!tree) return;
   if (tree.type === "leaf") return; // Don't close the last pane.
@@ -115,15 +127,13 @@ export function closeActive(): void {
   const leaf = findLeaf(tree, activePaneId);
   if (!leaf) return;
 
-  leaf.session.dispose();
-
-  // Find parent split and sibling.
+  // Find parent split and sibling BEFORE mutating anything.
   const parentInfo = findParentSplit(tree, activePaneId);
   if (!parentInfo) return;
 
   const { parent: splitNode, sibling } = parentInfo;
 
-  // Replace split node with sibling in DOM.
+  // Replace split node with sibling in DOM — this is the user-visible close.
   const grandparent = splitNode.element.parentElement!;
   grandparent.replaceChild(sibling.element, splitNode.element);
 
@@ -133,6 +143,14 @@ export function closeActive(): void {
   // Focus the first leaf in the sibling subtree.
   const firstLeaf = findFirstLeaf(sibling);
   if (firstLeaf) setActivePane(firstLeaf.paneId);
+
+  // Dispose last, and swallow failures so a flaky xterm/webgl teardown
+  // can't leave the UI half-closed.
+  try {
+    leaf.session.dispose();
+  } catch (e) {
+    console.warn("pane session dispose failed:", e);
+  }
 
   requestAnimationFrame(() => fitAll(tree!));
 }
@@ -214,7 +232,10 @@ export function getTree(): PaneTree | null {
 export function disposeTree(node: PaneTree | null): void {
   if (!node) return;
   if (node.type === "leaf") {
-    node.session.dispose();
+    // Swallow per-session failures so one flaky teardown can't abort the
+    // walk and leak the rest of the subtree's PTYs (same failure shape as
+    // the closeActive() zombie-pane bug).
+    try { node.session.dispose(); } catch (e) { console.warn("pane session dispose failed:", e); }
     return;
   }
   disposeTree(node.first);
