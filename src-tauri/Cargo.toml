@@ -27,3 +27,6 @@ kimbo-workspace = { path = "../crates/kimbo-workspace" }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 nix = { version = "0.29", features = ["term", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+window-vibrancy = "0.5"

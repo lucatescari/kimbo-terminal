@@ -34,6 +34,23 @@ fn main() {
             // workaround tracked in tauri-apps/wry#981.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+
+                // Mount NSVisualEffectView behind the (transparent) webview so the
+                // Background-opacity slider (src-ui/settings.ts, --app-alpha in
+                // style.css) has something to show through. UnderWindowBackground
+                // adapts to system light/dark appearance automatically.
+                #[cfg(target_os = "macos")]
+                {
+                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                    if let Err(e) = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::UnderWindowBackground,
+                        None,
+                        None,
+                    ) {
+                        log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
+                    }
+                }
             }
 
             // Build native macOS menu bar.
