@@ -72,6 +72,12 @@ vi.mock("./updates", () => ({
   hasPendingUpdate: () => false,
   downloadAndInstallUpdate: vi.fn(),
 }));
+const platformState = vi.hoisted(() => ({ isMacOS: true }));
+
+vi.mock("./platform", () => ({
+  isMacOS: () => platformState.isMacOS,
+}));
+
 vi.mock("./ui-prefs", () => ({
   getPrefs: () => ({
     density: "comfortable",
@@ -283,5 +289,33 @@ describe("settings modal: community-ready listener race", () => {
     expect(gallery!.textContent).not.toContain("Loading community themes");
     expect(gallery!.querySelector<HTMLElement>('.theme-card[data-slug="tokyo-night"]'))
       .not.toBeNull();
+  });
+});
+
+describe("settings modal: Background opacity row", () => {
+  beforeEach(() => { platformState.isMacOS = true; });
+
+  it("is enabled (no Coming-soon tag) on macOS", async () => {
+    await openSettingsToCategory("general");
+    const slider = document.querySelector<HTMLInputElement>(
+      'input[type="range"][min="60"][max="100"]'
+    );
+    expect(slider).not.toBeNull();
+    expect(slider!.style.pointerEvents).not.toBe("none");
+    // Sibling "Coming soon" tag should not be attached to this slider's row.
+    const row = slider!.closest(".row") ?? slider!.parentElement!.parentElement!;
+    expect(row.querySelector(".cs-tag")).toBeNull();
+  });
+
+  it("is disabled with Coming-soon tag on non-macOS", async () => {
+    platformState.isMacOS = false;
+    await openSettingsToCategory("general");
+    const slider = document.querySelector<HTMLInputElement>(
+      'input[type="range"][min="60"][max="100"]'
+    );
+    expect(slider).not.toBeNull();
+    expect(slider!.style.pointerEvents).toBe("none");
+    const wrap = slider!.parentElement!;
+    expect(wrap.querySelector(".cs-tag")).not.toBeNull();
   });
 });

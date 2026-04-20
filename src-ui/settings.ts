@@ -16,6 +16,7 @@ import { icon, type IconName } from "./icons";
 import { buildDropdown } from "./dropdown";
 import { buildThemeCard } from "./theme-card";
 import { getPrefs, setPref, applyRoot, type Density, type TabStyle } from "./ui-prefs";
+import { isMacOS } from "./platform";
 import {
   getCachedUpdate,
   forceCheckUpdate,
@@ -354,7 +355,7 @@ function renderGeneral(el: HTMLElement): void {
     "Background opacity",
     "Lower values make the window translucent.",
     withComingSoon(range(prefs.backgroundOpacity, 60, 100, 1,
-      (v) => setPref("backgroundOpacity", v)), true),
+      (v) => setPref("backgroundOpacity", v)), !isMacOS()),
   ));
   el.appendChild(windowSec);
 }
