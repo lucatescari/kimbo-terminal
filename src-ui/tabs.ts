@@ -9,6 +9,7 @@ import {
   fitAllPanes,
   getTree,
   setTree,
+  disposeTree,
 } from "./panes";
 import { kimboBus } from "./kimbo-bus";
 
@@ -126,6 +127,12 @@ export function closeTab(id: number) {
   if (idx === -1) return;
 
   const tab = tabs[idx];
+
+  // Dispose every pane session inside this tab BEFORE detaching the DOM, so
+  // closing a tab doesn't leave PTY processes dangling. The active tab's
+  // live tree is in the panes module; inactive tabs keep a snapshot.
+  disposeTree(tab.id === activeTabId ? getTree() : tab.treeSnapshot);
+
   tab.container.remove();
   tabs.splice(idx, 1);
 
@@ -170,8 +177,23 @@ export { closeActive, focusDirection, getActiveSession, fitAllPanes };
  * close the whole tab. `closeActive()` alone silently bails out on a single
  * pane (so the terminal + its square stick around), which isn't what a
  * macOS user expects from Cmd+W.
+ *
+ * Re-entrancy guard: on macOS, one physical Cmd+W can reach this function
+ * TWICE — once via the native-menu accelerator (Tauri "menu-action" event →
+ * main.ts listener) and once via the webview keydown handler (keys.ts).
+ * Without the guard, the first call collapses a 2-pane split into a leaf
+ * and the second call then closes the whole tab — the user sees "Cmd+W
+ * closed the pane AND then the tab" on a single press. The flag resets on
+ * the next animation frame, which is longer than the menu-event delivery
+ * gap but far shorter than a human double-press, so intentional repeat
+ * presses are unaffected.
  */
+let closeInFlight = false;
 export function closeActiveOrTab(): void {
+  if (closeInFlight) return;
+  closeInFlight = true;
+  requestAnimationFrame(() => { closeInFlight = false; });
+
   const t = getTree();
   if (t && t.type === "split") {
     closeActive();
