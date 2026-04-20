@@ -236,7 +236,7 @@ export function showCommandPalette(): void {
 
   panel.appendChild(buildFooter());
 
-  document.body.appendChild(overlay);
+  (document.getElementById("modal-root") ?? document.body).appendChild(overlay);
 
   keyHandler = (e: KeyboardEvent) => {
     if (!overlay) return;

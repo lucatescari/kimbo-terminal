@@ -5,7 +5,7 @@ mod pty_manager;
 
 use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use commands::theme::ThemeState;
 use commands::update::UpdateState;
 
@@ -26,6 +26,16 @@ fn main() {
         .manage(ThemeState::default())
         .manage(UpdateState::default())
         .setup(|app| {
+            // Force the webview's background to transparent so the CSS rounded
+            // body shows the desktop through at the corners. Without this,
+            // WebKit paints an opaque default background behind our HTML and
+            // fills the rounded gaps — making the window look square even
+            // with `transparent: true` on the window. This is the macOS
+            // workaround tracked in tauri-apps/wry#981.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+            }
+
             // Build native macOS menu bar.
             let handle = app.handle();
 

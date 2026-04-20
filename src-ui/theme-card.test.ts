@@ -1,20 +1,31 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
-import { renderUnifiedThemeCard } from "./theme-card";
+//
+// Tests the theme card behavior in isolation:
+//   - Click on Available card → onInstall callback (gallery → install flow)
+//   - Click on Builtin/Installed card → onActivate callback
+//   - Two-step uninstall: 1st click on × shows "Delete?" pill (no callback),
+//     2nd click within UNINSTALL_ARM_MS fires onUninstall
+//   - Arming times out after UNINSTALL_ARM_MS — a delayed second click does NOT
+//     fire the uninstall, it just re-arms
+//   - Author link click triggers onAuthorClick (not onActivate)
+//   - Builtin / Available cards have NO uninstall × (only Installed do)
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { buildThemeCard, UNINSTALL_ARM_MS, type ThemeCardCallbacks } from "./theme-card";
 import type { UnifiedTheme } from "./settings-types";
 
 function makeTheme(overrides: Partial<UnifiedTheme> = {}): UnifiedTheme {
   return {
-    slug: "sample",
-    name: "Sample",
+    slug: "catppuccin-mocha",
+    name: "Catppuccin Mocha",
     theme_type: "dark",
-    author: "someone",
-    version: "1.2.3",
+    author: "catppuccin",
+    version: "1.0.0",
     swatches: {
-      background: "#111",
-      foreground: "#eee",
-      accent: "#09f",
-      cursor: "#fff",
+      background: "#1e1e2e",
+      foreground: "#cdd6f4",
+      accent: "#cba6f7",
+      cursor: "#f5e0dc",
     },
     source: "Installed",
     active: false,
@@ -22,74 +33,157 @@ function makeTheme(overrides: Partial<UnifiedTheme> = {}): UnifiedTheme {
   };
 }
 
-describe("renderUnifiedThemeCard", () => {
-  it("shows the theme name", () => {
-    const card = renderUnifiedThemeCard(makeTheme(), noopCallbacks());
-    expect(card.textContent).toContain("Sample");
+interface Calls {
+  activate: string[];
+  install: string[];
+  uninstall: string[];
+  author: string[];
+}
+
+function makeCallbacks(): ThemeCardCallbacks & { calls: Calls } {
+  const calls: Calls = { activate: [], install: [], uninstall: [], author: [] };
+  return {
+    onActivate: (s) => calls.activate.push(s),
+    onInstall: (s) => calls.install.push(s),
+    onUninstall: (s) => calls.uninstall.push(s),
+    onAuthorClick: (s) => calls.author.push(s),
+    calls,
+  };
+}
+
+beforeEach(() => {
+  document.body.innerHTML = "";
+});
+
+describe("theme card: rendering", () => {
+  it("renders name + author + version", () => {
+    const card = buildThemeCard(makeTheme(), { active: false }, makeCallbacks());
+    expect(card.querySelector(".name span")?.textContent).toBe("Catppuccin Mocha");
+    expect(card.querySelector(".author a")?.textContent).toBe("@catppuccin");
+    expect(card.querySelector(".author span")?.textContent).toBe(" · v1.0.0");
   });
 
-  it("renders @author as a link to the author's GitHub", () => {
-    const card = renderUnifiedThemeCard(makeTheme({ author: "jsmith" }), noopCallbacks());
-    const link = card.querySelector('[data-role="author-link"]') as HTMLAnchorElement;
-    expect(link).not.toBeNull();
-    expect(link.textContent).toBe("@jsmith");
-    expect(link.getAttribute("href")).toBe("https://github.com/jsmith");
+  it("shows the active dot when opts.active is true", () => {
+    const off = buildThemeCard(makeTheme(), { active: false }, makeCallbacks());
+    const on = buildThemeCard(makeTheme(), { active: true }, makeCallbacks());
+    expect(off.querySelector(".name .dot")).toBeNull();
+    expect(on.querySelector(".name .dot")).not.toBeNull();
+    expect(on.classList.contains("selected")).toBe(true);
   });
 
-  it("omits the author segment when author is empty", () => {
-    const card = renderUnifiedThemeCard(makeTheme({ author: "" }), noopCallbacks());
-    expect(card.querySelector('[data-role="author-link"]')).toBeNull();
-    expect(card.textContent).toContain("v1.2.3");
+  it("shows an Install badge for Available themes only", () => {
+    const avail = buildThemeCard(makeTheme({ source: "Available" }), { active: false }, makeCallbacks());
+    const inst = buildThemeCard(makeTheme({ source: "Installed" }), { active: false }, makeCallbacks());
+    const builtin = buildThemeCard(makeTheme({ source: "Builtin" }), { active: false }, makeCallbacks());
+    expect(avail.querySelector(".badge")?.textContent).toBe("Install");
+    expect(inst.querySelector(".badge")).toBeNull();
+    expect(builtin.querySelector(".badge")).toBeNull();
   });
 
-  it("omits the version segment when version is empty", () => {
-    const card = renderUnifiedThemeCard(makeTheme({ version: "" }), noopCallbacks());
-    expect(card.textContent).not.toMatch(/v\d/);
-  });
-
-  it("activates the theme on left click for Installed / Builtin", () => {
-    const onActivate = vi.fn();
-    const cb = { ...noopCallbacks(), onActivate };
-    const card = renderUnifiedThemeCard(makeTheme({ source: "Installed" }), cb);
-    card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(onActivate).toHaveBeenCalledWith("sample");
-  });
-
-  it("installs the theme on left click for Available", () => {
-    const onInstall = vi.fn();
-    const cb = { ...noopCallbacks(), onInstall };
-    const card = renderUnifiedThemeCard(makeTheme({ source: "Available" }), cb);
-    card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(onInstall).toHaveBeenCalledWith("sample");
-  });
-
-  it("fires onContextMenu on right click and prevents the default menu", () => {
-    const onContextMenu = vi.fn();
-    const cb = { ...noopCallbacks(), onContextMenu };
-    const card = renderUnifiedThemeCard(makeTheme(), cb);
-    const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 20 });
-    card.dispatchEvent(ev);
-    expect(onContextMenu).toHaveBeenCalledWith("sample", 10, 20);
-    expect(ev.defaultPrevented).toBe(true);
-  });
-
-  it("does not activate when the author link is clicked", () => {
-    const onActivate = vi.fn();
-    const onOpenAuthor = vi.fn();
-    const cb = { ...noopCallbacks(), onActivate, onOpenAuthor };
-    const card = renderUnifiedThemeCard(makeTheme({ author: "jsmith" }), cb);
-    const link = card.querySelector('[data-role="author-link"]') as HTMLElement;
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(onOpenAuthor).toHaveBeenCalledWith("jsmith");
-    expect(onActivate).not.toHaveBeenCalled();
+  it("shows the uninstall × ONLY for Installed themes (not Builtin or Available)", () => {
+    const inst = buildThemeCard(makeTheme({ source: "Installed" }), { active: false }, makeCallbacks());
+    const builtin = buildThemeCard(makeTheme({ source: "Builtin", slug: "kimbo-dark" }), { active: false }, makeCallbacks());
+    const avail = buildThemeCard(makeTheme({ source: "Available" }), { active: false }, makeCallbacks());
+    expect(inst.querySelector(".theme-del")).not.toBeNull();
+    expect(builtin.querySelector(".theme-del")).toBeNull();
+    expect(avail.querySelector(".theme-del")).toBeNull();
   });
 });
 
-function noopCallbacks() {
-  return {
-    onActivate: vi.fn(),
-    onInstall: vi.fn(),
-    onOpenAuthor: vi.fn(),
-    onContextMenu: vi.fn(),
-  };
-}
+describe("theme card: click → activate / install", () => {
+  it("clicking an Installed card calls onActivate (not onInstall, not onUninstall)", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed", slug: "tokyo-night" }), { active: false }, cb);
+    card.click();
+    expect(cb.calls.activate).toEqual(["tokyo-night"]);
+    expect(cb.calls.install).toEqual([]);
+    expect(cb.calls.uninstall).toEqual([]);
+  });
+
+  it("clicking a Builtin card calls onActivate", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Builtin", slug: "kimbo-dark" }), { active: false }, cb);
+    card.click();
+    expect(cb.calls.activate).toEqual(["kimbo-dark"]);
+  });
+
+  it("clicking an Available card calls onInstall (the gallery flow)", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Available", slug: "rose-pine" }), { active: false }, cb);
+    card.click();
+    expect(cb.calls.install).toEqual(["rose-pine"]);
+    expect(cb.calls.activate).toEqual([]);
+  });
+
+  it("clicking the author link does NOT activate the theme", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed", author: "lucatescari" }), { active: false }, cb);
+    const link = card.querySelector<HTMLAnchorElement>(".author a")!;
+    link.click();
+    expect(cb.calls.author).toEqual(["lucatescari"]);
+    expect(cb.calls.activate).toEqual([]);
+  });
+});
+
+describe("theme card: two-step uninstall flow", () => {
+  it("first click on × does NOT call onUninstall — it arms the pill", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed" }), { active: false }, cb);
+    document.body.appendChild(card);
+
+    const del = card.querySelector<HTMLElement>(".theme-del")!;
+    expect(del.classList.contains("arm")).toBe(false);
+
+    del.click();
+
+    expect(cb.calls.uninstall).toEqual([]);                        // NOT called yet
+    expect(del.classList.contains("arm")).toBe(true);              // armed visually
+    expect(del.querySelector("span")?.textContent).toBe("Delete?"); // pill text
+  });
+
+  it("second click on the armed × calls onUninstall with the slug", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed", slug: "catppuccin-mocha" }), { active: false }, cb);
+    document.body.appendChild(card);
+
+    const del = card.querySelector<HTMLElement>(".theme-del")!;
+    del.click(); // arm
+    del.click(); // confirm
+
+    expect(cb.calls.uninstall).toEqual(["catppuccin-mocha"]);
+    expect(del.classList.contains("arm")).toBe(false);
+  });
+
+  it("clicking the × does NOT bubble to the card click handler (no spurious activate)", () => {
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed", slug: "tokyo-night" }), { active: false }, cb);
+    document.body.appendChild(card);
+
+    const del = card.querySelector<HTMLElement>(".theme-del")!;
+    del.click(); // arm
+    del.click(); // confirm
+
+    expect(cb.calls.activate).toEqual([]); // card click never fired
+    expect(cb.calls.uninstall).toEqual(["tokyo-night"]);
+  });
+
+  it("the armed pill auto-disarms after UNINSTALL_ARM_MS — a late second click only re-arms", () => {
+    vi.useFakeTimers();
+    const cb = makeCallbacks();
+    const card = buildThemeCard(makeTheme({ source: "Installed", slug: "rose-pine" }), { active: false }, cb);
+    document.body.appendChild(card);
+
+    const del = card.querySelector<HTMLElement>(".theme-del")!;
+    del.click(); // arm
+    expect(del.classList.contains("arm")).toBe(true);
+
+    vi.advanceTimersByTime(UNINSTALL_ARM_MS + 50);
+    expect(del.classList.contains("arm")).toBe(false); // disarmed by timer
+
+    del.click(); // re-arm (NOT confirm — armed state was reset)
+    expect(cb.calls.uninstall).toEqual([]);
+    expect(del.classList.contains("arm")).toBe(true);
+
+    vi.useRealTimers();
+  });
+});

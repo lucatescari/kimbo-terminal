@@ -91,12 +91,17 @@ describe("style.css", () => {
 });
 
 describe("title bar", () => {
-  const titleBarRule = css.match(/#title-bar\s*\{([^}]*)\}/)?.[1] ?? "";
+  // `#title-bar` has multiple rule blocks (base + corner-radius rounding).
+  // Concatenate them so the assertions match regardless of which block a
+  // property is declared in.
+  const titleBarRules = [...css.matchAll(/#title-bar\s*\{([^}]*)\}/g)]
+    .map((m) => m[1])
+    .join("\n");
   it("title bar has a fixed height", () => {
-    expect(titleBarRule).toMatch(/height:\s*36px/);
+    expect(titleBarRules).toMatch(/height:\s*36px/);
   });
   it("uses --bg-titlebar", () => {
-    expect(titleBarRule).toMatch(/background:\s*var\(--bg-titlebar\)/);
+    expect(titleBarRules).toMatch(/background:\s*var\(--bg-titlebar\)/);
   });
 });
 

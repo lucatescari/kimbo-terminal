@@ -38,15 +38,20 @@ describe("fix 1: theme previews with color swatches", () => {
     expect(unifiedRsSource).toContain("pub cursor: String");
   });
 
-  it("theme-card.ts renders color swatch dots", () => {
+  it("theme-card.ts renders the preview using theme swatches", () => {
     const cardSource = readFileSync(resolve(__dirname, "theme-card.ts"), "utf-8");
-    expect(cardSource).toContain("border-radius: 50%");
-    expect(cardSource).toContain("renderUnifiedThemeCard");
+    // The new card uses a CSS-styled `.preview .strip` (built in buildPreview)
+    // instead of inline 50%-radius dots — but it still pulls colors from the
+    // theme's own swatches.
+    expect(cardSource).toContain("buildThemeCard");
+    expect(cardSource).toContain("t.swatches.background");
+    expect(cardSource).toContain("t.swatches.foreground");
+    expect(cardSource).toContain("t.swatches.accent");
   });
 
-  it("theme card background uses theme's own background color", () => {
+  it("theme card preview background uses the theme's own background color", () => {
     const cardSource = readFileSync(resolve(__dirname, "theme-card.ts"), "utf-8");
-    expect(cardSource).toContain("background: ${t.swatches.background}");
+    expect(cardSource).toContain("preview.style.background = t.swatches.background");
   });
 });
 

@@ -27,12 +27,13 @@
 .kimbo.dragging { cursor: grabbing; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.6)); }
 .kimbo.hidden { display: none; }
 
-/* Corner anchoring. Top corners sit BELOW the 36px tab-bar plus a small gap,
-   so upward-floating overlays fly over the tab-bar instead of clipping. */
-.kimbo.corner-bottom_right { right: 16px; bottom: 16px; left: auto; top: auto; }
-.kimbo.corner-bottom_left  { left: 16px;  bottom: 16px; right: auto; top: auto; }
-.kimbo.corner-top_right    { right: 16px; top: 52px;    left: auto; bottom: auto; }
-.kimbo.corner-top_left     { left: 16px;  top: 52px;    right: auto; bottom: auto; }
+/* Corner anchoring. Top corners sit BELOW the 36px title-bar + 38px tab-bar
+   so upward-floating overlays fly over the tab-bar instead of clipping.
+   Bottom corners sit ABOVE the 22px status-bar so Kimbo doesn't overlap it. */
+.kimbo.corner-bottom_right { right: 16px; bottom: 36px; left: auto; top: auto; }
+.kimbo.corner-bottom_left  { left: 16px;  bottom: 36px; right: auto; top: auto; }
+.kimbo.corner-top_right    { right: 16px; top: 88px;    left: auto; bottom: auto; }
+.kimbo.corner-top_left     { left: 16px;  top: 88px;    right: auto; bottom: auto; }
 
 /* Body animations per mood. */
 @keyframes kimbo-breathe { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1.5px) scale(1.05); } }

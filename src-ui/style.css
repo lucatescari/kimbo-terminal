@@ -108,16 +108,65 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  /* html + body MUST stay transparent so the webview's transparent layer
+     shows the desktop through the rounded corners of #app-frame below.
+     border-radius + overflow:hidden on body itself is unreliable on WebKit
+     (overflow propagates to html, clipping behaves oddly), so we put the
+     rounded shape on a plain <div> wrapper instead. */
+  background: transparent;
+  margin: 0;
+  padding: 0;
 }
 
 body {
   display: flex;
   flex-direction: column;
+}
+
+/* The actual visible window surface. Rounded, opaque, clips children. */
+#app-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  /* macOS window corner radius. macOS 26 (Tahoe) uses ~14px; previous
+     Ventura/Sonoma used ~11px. */
+  border-radius: 14px;
+  overflow: hidden;
+  /* isolate + translateZ promotes #app-frame to its own compositing layer
+     so WebKit's GPU clip respects the border-radius on every descendant
+     (including the xterm canvas, which otherwise ignores parent clipping
+     on macOS). */
+  isolation: isolate;
+  transform: translateZ(0);
+  /* Subtle inner highlight + 1px alpha rim. Ambient drop shadow is
+     provided by the native macOS NSWindow shadow (shadow: true in
+     tauri.conf.json) — with webview background forced transparent in
+     Rust setup, it follows this rounded shape, not the square window. */
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+:root[data-theme-type="light"] #app-frame {
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.75),
+    0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+/* Round the top of the title bar so it matches the window corners. */
+#title-bar {
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+/* Round the bottom of the status bar to the window corners. */
+#status-bar {
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
 }
 
 ::selection { background: var(--selection); }
@@ -141,16 +190,54 @@ body {
   -webkit-app-region: drag;
 }
 
+/* Custom macOS-style traffic lights (decorations: false ⇒ no native chrome).
+   Sized/spaced to match the real traffic lights: 12px circles, 8px gap. */
 #title-bar .traffic {
   display: flex;
-  gap: 8px;
   align-items: center;
-  -webkit-app-region: no-drag;
-  /* Leave space for the macOS native traffic lights. */
-  visibility: hidden;
-  width: 60px;
+  gap: 8px;
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  margin-right: 4px;
 }
+.tl-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  transition: filter 0.1s;
+}
+.tl-close { background: #ff5f57; }
+.tl-min   { background: #febc2e; }
+.tl-max   { background: #28c840; }
+.tl-btn:hover { filter: brightness(0.92); }
+
+/* Glyph — visible on group hover, like macOS. */
+.tl-btn .glyph {
+  width: 12px;
+  height: 12px;
+  stroke: rgba(0, 0, 0, 0.55);
+  fill: rgba(0, 0, 0, 0.55);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+#title-bar .traffic:hover .tl-btn .glyph { opacity: 1; }
+
+/* Unfocused window: traffic lights dim to grey like native behavior. */
+#title-bar.window-unfocused .tl-btn {
+  background: color-mix(in oklab, var(--fg) 12%, transparent);
+  box-shadow: none;
+}
+#title-bar.window-unfocused .tl-btn .glyph { opacity: 0; }
 
 #title-bar .title {
   position: absolute;
@@ -560,6 +647,10 @@ body {
   place-items: center;
   z-index: 200;
   animation: modal-fade 0.18s ease-out;
+  /* The blurred backdrop is a Tauri drag region (see data-tauri-drag-region
+     set in settings.ts / welcome-popup.ts) so users can reposition the
+     window by grabbing it. Inner panels don't carry the attribute, so
+     their controls remain clickable. */
 }
 
 @keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -865,7 +956,108 @@ body {
   cursor: not-allowed;
 }
 
-/* Segmented control */
+/* Custom dropdown (replaces native <select> and segmented controls). */
+.dd-trigger {
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  justify-content: space-between;
+  transition: background 0.12s, border-color 0.12s;
+}
+.dd-trigger:hover { background: var(--bg-hover); }
+.dd-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.dd-trigger .dd-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-trigger .dd-chev {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.dd-menu {
+  position: fixed;
+  z-index: 500;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  min-width: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  animation: dd-rise 0.12s ease-out;
+  font-family: var(--font-ui);
+}
+@keyframes dd-rise {
+  from { transform: translateY(-4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.dd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+  font-family: var(--font-ui);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+.dd-row:hover,
+.dd-row.active {
+  background: var(--accent-tint);
+  color: var(--fg-strong);
+}
+.dd-row.selected {
+  font-weight: 600;
+  color: var(--accent);
+}
+.dd-row-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-row-hint {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.dd-row-check {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Segmented control (kept for legacy / narrow multi-button rows). */
 .seg-ctl {
   display: inline-flex;
   padding: 2px;
@@ -939,6 +1131,48 @@ body {
 }
 .swatch.selected {
   box-shadow: 0 0 0 2px var(--accent);
+}
+.swatch.swatch-custom {
+  background: conic-gradient(
+    from 0deg,
+    #f38ba8,
+    #f9e2af,
+    #a6e3a1,
+    #7dcfff,
+    #cba6f7,
+    #f38ba8
+  );
+}
+
+/* Custom accent popover — anchored under the custom swatch. */
+.accent-popover {
+  position: fixed;
+  z-index: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  animation: dd-rise 0.12s ease-out;
+  -webkit-app-region: no-drag;
+}
+.accent-color-picker {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.accent-color-picker::-webkit-color-swatch-wrapper { padding: 2px; }
+.accent-color-picker::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
 }
 
 /* Codeblock (shell integration) */
@@ -1059,6 +1293,46 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   backdrop-filter: blur(4px);
+}
+
+/* Uninstall affordance — visible on hover for Installed (non-builtin) cards.
+   Two-step: first click expands into a red "Delete?" pill, second click
+   confirms. Times out after 3s (CSS handles the appearance; JS manages the
+   .arm class + timer). */
+.theme-card .theme-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: color-mix(in oklab, var(--bg) 60%, transparent);
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s, padding 0.12s;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.theme-card:hover .theme-del,
+.theme-card .theme-del.arm { opacity: 1; }
+.theme-card .theme-del:hover {
+  background: var(--danger);
+  color: var(--accent-on);
+}
+.theme-card .theme-del.arm {
+  background: var(--danger);
+  color: var(--accent-on);
+  padding: 0 8px;
 }
 
 /* Font preview */

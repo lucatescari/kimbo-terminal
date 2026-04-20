@@ -34,7 +34,7 @@ export function isWelcomeVisible(): boolean {
 export function showWelcome(): void {
   if (rootEl) return;
   rootEl = buildPopup();
-  document.body.appendChild(rootEl);
+  (document.getElementById("modal-root") ?? document.body).appendChild(rootEl);
 
   keydownHandler = (e: KeyboardEvent) => {
     if (e.key === "Escape" || e.key === "Enter") {
@@ -93,8 +93,22 @@ function buildPopup(): HTMLElement {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.dataset.role = "welcome";
+  // Tauri drag region on the blurred backdrop — see comment in settings.ts.
+  overlay.setAttribute("data-tauri-drag-region", "");
+  // Use screenX/screenY (not clientX/clientY) to tell drag from click —
+  // during a Tauri native window drag the window follows the pointer, so
+  // client coords stay pinned. See the matching comment in settings.ts.
+  let downScreenX = 0, downScreenY = 0;
+  overlay.addEventListener("mousedown", (e) => {
+    downScreenX = e.screenX;
+    downScreenY = e.screenY;
+  });
   overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) hideWelcome();
+    if (e.target !== overlay) return;
+    const dx = Math.abs(e.screenX - downScreenX);
+    const dy = Math.abs(e.screenY - downScreenY);
+    if (dx > 4 || dy > 4) return;
+    hideWelcome();
   });
 
   const card = document.createElement("div");

@@ -13,6 +13,8 @@ import { setKimboInConsoleView, setKimboEnabled, setKimboCorner, setKimboShellIn
 import type { UnifiedTheme } from "./settings-types";
 import { showWelcome } from "./welcome-popup";
 import { icon, type IconName } from "./icons";
+import { buildDropdown } from "./dropdown";
+import { buildThemeCard } from "./theme-card";
 import { getPrefs, setPref, applyRoot, type Density, type TabStyle } from "./ui-prefs";
 import {
   getCachedUpdate,
@@ -69,10 +71,20 @@ let visible = false;
 let config: AppConfig | null = null;
 let unifiedThemes: UnifiedTheme[] = [];
 let communityResolved = false;
+/** Total entries in the community manifest, regardless of install state. */
+let communityCatalogSize = 0;
 let activeCategory: SettingsCategory = "appearance";
 let overlayEl: HTMLElement | null = null;
 let themesEventUnlisten: UnlistenFn | null = null;
 let escapeHandler: ((e: KeyboardEvent) => void) | null = null;
+
+/** Mount target for modal overlays. Using #modal-root inside #app-frame means
+ *  overlays get clipped by the frame's border-radius (since #app-frame has
+ *  transform: translateZ(0) it becomes the containing block for position:fixed
+ *  descendants). Falls back to body if the host is somehow missing. */
+function modalHost(): HTMLElement {
+  return document.getElementById("modal-root") ?? document.body;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -104,6 +116,7 @@ export function hideSettings(): void {
   if (themesEventUnlisten) { themesEventUnlisten(); themesEventUnlisten = null; }
   if (escapeHandler) { document.removeEventListener("keydown", escapeHandler, true); escapeHandler = null; }
   communityResolved = false;
+  communityCatalogSize = 0;
 }
 
 export function isSettingsVisible(): boolean {
@@ -125,10 +138,31 @@ async function showSettings(): Promise<void> {
 
   overlayEl = document.createElement("div");
   overlayEl.className = "modal-overlay";
-  overlayEl.addEventListener("click", (e) => {
-    if (e.target === overlayEl) hideSettings();
+  // Tauri drag region — mousedown on the blurred backdrop drags the window.
+  // The inner .settings panel is NOT given this attribute, so controls
+  // inside the panel stay clickable. The CSS `-webkit-app-region: drag`
+  // property is unreliable when combined with backdrop-filter on WKWebView,
+  // so we rely on the Tauri attribute which already works for the title bar.
+  overlayEl.setAttribute("data-tauri-drag-region", "");
+  // Discriminate between click (close) and window-drag (keep open). Under
+  // Tauri's data-tauri-drag-region, macOS starts a native window drag on
+  // mousedown and the window follows the pointer — so clientX/clientY stay
+  // PINNED relative to the window during and after the drag. Only
+  // screenX/screenY track actual pointer movement, so that's what we
+  // compare against to tell a drag apart from a real click.
+  let downScreenX = 0, downScreenY = 0;
+  overlayEl.addEventListener("mousedown", (e) => {
+    downScreenX = e.screenX;
+    downScreenY = e.screenY;
   });
-  document.body.appendChild(overlayEl);
+  overlayEl.addEventListener("click", (e) => {
+    if (e.target !== overlayEl) return;
+    const dx = Math.abs(e.screenX - downScreenX);
+    const dy = Math.abs(e.screenY - downScreenY);
+    if (dx > 4 || dy > 4) return;
+    hideSettings();
+  });
+  modalHost().appendChild(overlayEl);
 
   escapeHandler = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -140,21 +174,38 @@ async function showSettings(): Promise<void> {
 
   render();
 
-  // Async themes load; community resolves via event.
-  const active = config?.theme.name ?? "";
-  try {
-    unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
-    if (activeCategory === "appearance") render();
-  } catch (e) { console.warn("list_unified_themes:", e); }
-
+  // Attach the community-ready listener BEFORE invoking list_unified_themes.
+  // The backend's list_unified_themes spawns a task that can emit the event
+  // as soon as it runs — if the cache is warm this may happen before our
+  // awaited invoke resumes. Registering late drops those emits and the
+  // gallery stays stuck on "Loading community themes…".
+  let eventReceived = false;
   if (themesEventUnlisten) { themesEventUnlisten(); themesEventUnlisten = null; }
   try {
-    themesEventUnlisten = await listen<UnifiedTheme[]>("themes://community-ready", (e) => {
-      unifiedThemes = e.payload;
-      communityResolved = true;
-      if (visible && activeCategory === "appearance") render();
-    });
+    themesEventUnlisten = await listen<{ themes: UnifiedTheme[]; community_catalog_size: number; community_resolved: boolean }>(
+      "themes://community-ready",
+      (e) => {
+        eventReceived = true;
+        unifiedThemes = e.payload.themes;
+        communityCatalogSize = e.payload.community_catalog_size;
+        communityResolved = e.payload.community_resolved;
+        if (visible && activeCategory === "appearance") render();
+      },
+    );
   } catch (_) { /* ignore */ }
+
+  // Async themes load; community resolves via the event above. The event
+  // payload is strictly richer than this invoke's return value (local +
+  // community), so if the event already fired we skip the assignment —
+  // otherwise we'd clobber the community data with a locals-only list.
+  const active = config?.theme.name ?? "";
+  try {
+    const local = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
+    if (!eventReceived) {
+      unifiedThemes = local;
+      if (activeCategory === "appearance") render();
+    }
+  } catch (e) { console.warn("list_unified_themes:", e); }
 }
 
 function render(): void {
@@ -377,20 +428,50 @@ function renderAppearance(el: HTMLElement): void {
   const prefs = getPrefs();
   const accentPicker = document.createElement("div");
   accentPicker.className = "swatches";
-  const ACCENTS = ["", "#8aa9ff", "#f38ba8", "#a6e3a1", "#f9e2af", "#cba6f7", "#7dcfff"];
-  for (const c of ACCENTS) {
+  const PRESET_ACCENTS = ["#8aa9ff", "#f38ba8", "#a6e3a1", "#f9e2af", "#cba6f7", "#7dcfff"];
+  const isPreset = (c: string): boolean =>
+    c === "" || PRESET_ACCENTS.includes(c.toLowerCase());
+
+  // Theme-default swatch
+  const defaultSw = document.createElement("button");
+  defaultSw.type = "button";
+  defaultSw.className = "swatch" + (prefs.accent === "" ? " selected" : "");
+  defaultSw.style.background = "var(--accent)";
+  defaultSw.textContent = "A";
+  defaultSw.title = "Theme default";
+  defaultSw.addEventListener("click", () => {
+    setPref("accent", "");
+    render();
+  });
+  accentPicker.appendChild(defaultSw);
+
+  // Preset swatches
+  for (const c of PRESET_ACCENTS) {
     const sw = document.createElement("button");
     sw.type = "button";
-    sw.className = "swatch" + (prefs.accent === c ? " selected" : "");
-    sw.style.background = c === "" ? "var(--accent)" : c;
-    if (c === "") sw.textContent = "A";
-    sw.title = c === "" ? "Theme default" : c;
+    sw.className =
+      "swatch" + (prefs.accent.toLowerCase() === c ? " selected" : "");
+    sw.style.background = c;
+    sw.title = c;
     sw.addEventListener("click", () => {
       setPref("accent", c);
       render();
     });
     accentPicker.appendChild(sw);
   }
+
+  // Custom-color swatch
+  const customActive = !isPreset(prefs.accent);
+  const customSw = document.createElement("button");
+  customSw.type = "button";
+  customSw.className =
+    "swatch swatch-custom" + (customActive ? " selected" : "");
+  if (customActive) customSw.style.background = prefs.accent;
+  customSw.title = customActive ? `Custom: ${prefs.accent}` : "Custom color…";
+  customSw.addEventListener("click", () => {
+    openCustomAccentPopover(customSw, prefs.accent);
+  });
+  accentPicker.appendChild(customSw);
   accentSec.appendChild(row(
     "Accent color",
     "Overrides the theme's accent. Used for selection, active tab, and highlights.",
@@ -419,16 +500,32 @@ function renderAppearance(el: HTMLElement): void {
   // Community gallery
   const gallery = section("Community gallery");
   gallery.classList.add("gallery");
-  if (!communityResolved) {
-    const loading = document.createElement("div");
-    loading.textContent = "Loading community themes…";
-    loading.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
-    gallery.appendChild(loading);
+  const galleryMsg = (text: string): HTMLElement => {
+    const d = document.createElement("div");
+    d.textContent = text;
+    d.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
+    return d;
+  };
+  if (!communityResolved && communityCatalogSize === 0) {
+    // Fetch in progress OR fetch failed (no cache, no network response yet).
+    gallery.appendChild(galleryMsg("Loading community themes…"));
+  } else if (!communityResolved) {
+    // Resolved=false but we have a catalog size from a prior successful
+    // fetch — shouldn't happen in practice, same UX as loading.
+    gallery.appendChild(galleryMsg("Loading community themes…"));
+  } else if (communityCatalogSize === 0) {
+    // Actually offline or catalog empty.
+    gallery.appendChild(galleryMsg("Community themes unavailable (offline?)"));
   } else if (available.length === 0) {
-    const empty = document.createElement("div");
-    empty.textContent = "Community themes unavailable (offline?)";
-    empty.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
-    gallery.appendChild(empty);
+    // Fetch succeeded and all themes in catalog are already installed.
+    {
+      const n = communityCatalogSize;
+      const noun = n === 1 ? "theme" : "themes";
+      const verb = n === 1 ? "is" : "are";
+      gallery.appendChild(galleryMsg(
+        `All ${n} community ${noun} ${verb} installed. Uninstall any theme above (hover → ×) to see it in the gallery again.`,
+      ));
+    }
   } else {
     const grid = document.createElement("div");
     grid.className = "theme-grid";
@@ -438,109 +535,59 @@ function renderAppearance(el: HTMLElement): void {
   el.appendChild(gallery);
 }
 
+/** Wrap buildThemeCard with the install / activate / uninstall plumbing
+ *  specific to the settings panel. Logic lives in theme-card.ts (which is
+ *  unit-tested); this just bridges those callbacks to invoke() and updates
+ *  to in-memory state. */
 function themeCard(t: UnifiedTheme, active: boolean): HTMLElement {
-  const card = document.createElement("button");
-  card.type = "button";
-  card.className = "theme-card" + (active ? " selected" : "");
-  card.dataset.slug = t.slug;
-
-  const preview = document.createElement("div");
-  preview.className = "preview";
-  preview.style.background = t.swatches.background;
-  const tl = document.createElement("div");
-  tl.className = "tl";
-  for (const color of ["#ff5f57", "#febc2e", "#28c840"]) {
-    const d = document.createElement("span");
-    d.style.background = color;
-    tl.appendChild(d);
-  }
-  preview.appendChild(tl);
-
-  const strip = document.createElement("div");
-  strip.className = "strip";
-  const heights = ["70%", "100%", "55%", "85%"];
-  const colors = [t.swatches.foreground, t.swatches.accent, t.swatches.cursor, t.swatches.foreground];
-  for (let i = 0; i < 4; i++) {
-    const s = document.createElement("span");
-    s.style.background = colors[i];
-    s.style.height = heights[i];
-    strip.appendChild(s);
-  }
-  preview.appendChild(strip);
-  card.appendChild(preview);
-
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  const name = document.createElement("div");
-  name.className = "name";
-  const nameText = document.createElement("span");
-  nameText.textContent = t.name;
-  name.appendChild(nameText);
-  if (active) {
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    name.appendChild(dot);
-  }
-  meta.appendChild(name);
-
-  const author = document.createElement("div");
-  author.className = "author";
-  if (t.author) {
-    const a = document.createElement("a");
-    a.textContent = `@${t.author}`;
-    a.href = `https://github.com/${t.author}`;
-    a.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try { await openUrl(`https://github.com/${t.author}`); } catch (_) {}
-    });
-    author.appendChild(a);
-  }
-  if (t.version) {
-    const v = document.createElement("span");
-    v.textContent = ` · v${t.version}`;
-    author.appendChild(v);
-  }
-  meta.appendChild(author);
-  card.appendChild(meta);
-
-  if (t.source === "Available") {
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = "Install";
-    card.appendChild(badge);
-  }
-
-  card.addEventListener("click", async () => {
-    try {
-      if (t.source === "Available") {
-        await invoke("install_theme", { slug: t.slug, activeSlug: config?.theme.name ?? "" });
+  return buildThemeCard(t, { active }, {
+    onActivate: async (slug) => {
+      try {
+        if (!config) return;
+        config.theme.name = slug;
+        await saveConfig();
+        await loadTheme(slug);
+        if (activeCategory === "appearance") render();
+      } catch (e) { console.error("activate theme failed:", e); }
+    },
+    onInstall: async (slug) => {
+      try {
+        await invoke("install_theme", { slug, activeSlug: config?.theme.name ?? "" });
+        if (!config) return;
+        config.theme.name = slug;
+        await saveConfig();
+        await loadTheme(slug);
+        // Don't refetch the list — install_theme already spawns emit_full_list,
+        // and the themes://community-ready listener will push the updated
+        // state. A manual refetch here would race and clobber Available.
+        if (activeCategory === "appearance") render();
+      } catch (e) { console.error("install theme failed:", e); }
+    },
+    onUninstall: async (slug) => {
+      try {
+        // The backend refuses to delete the currently-active theme — it
+        // would leave the app pointing at a missing file. If the user is
+        // uninstalling the active theme, switch to kimbo-dark FIRST so the
+        // delete proceeds. Without this the delete is a silent no-op
+        // (alert() is broken in Tauri 2 without the dialog plugin).
+        if (config && config.theme.name === slug) {
+          console.warn(`uninstall: '${slug}' is active; switching to kimbo-dark first`);
+          config.theme.name = "kimbo-dark";
+          await saveConfig();
+          await loadTheme("kimbo-dark");
+        }
+        await invoke("delete_theme", { slug, activeSlug: config?.theme.name ?? "" });
+      } catch (err) {
+        // alert() is silently swallowed by Tauri 2 (no dialog plugin), so
+        // route to console.error which surfaces in devtools — at least
+        // there's a visible signal when something goes wrong.
+        console.error(`uninstall '${slug}' failed:`, err);
       }
-      if (!config) return;
-      config.theme.name = t.slug;
-      await saveConfig();
-      await loadTheme(t.slug);
-      unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: t.slug });
-      if (activeCategory === "appearance") render();
-    } catch (e) {
-      console.error("theme action failed:", e);
-    }
+    },
+    onAuthorClick: async (username) => {
+      try { await openUrl(`https://github.com/${username}`); } catch (_) { /* ignore */ }
+    },
   });
-
-  card.addEventListener("contextmenu", async (e) => {
-    e.preventDefault();
-    if (t.source === "Installed") {
-      if (confirm(`Delete theme "${t.name}"?`)) {
-        try {
-          await invoke("delete_theme", { slug: t.slug, activeSlug: config?.theme.name ?? "" });
-          unifiedThemes = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: config?.theme.name ?? "" });
-          render();
-        } catch (err) { console.error("delete_theme:", err); }
-      }
-    }
-  });
-
-  return card;
 }
 
 // ===========================================================================
@@ -1205,32 +1252,21 @@ function toggle(value: boolean, onChange: (v: boolean) => void, disabled = false
   return t;
 }
 
+/** Dropdown helper — the universal selector. Replaces native <select> and
+ *  segmented controls so everything in settings uses the same visual
+ *  language and updates its own "selected" label correctly. */
 function select(value: string, opts: [string, string][], onChange: (v: string) => void): HTMLElement {
-  const s = document.createElement("select");
-  s.className = "select";
-  for (const [v, l] of opts) {
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = l;
-    if (v === value) o.selected = true;
-    s.appendChild(o);
-  }
-  s.addEventListener("change", () => onChange(s.value));
-  return s;
+  return buildDropdown({
+    value,
+    options: opts.map(([v, l]) => ({ value: v, label: l })),
+    onChange,
+  });
 }
 
+/** Alias so existing call-sites keep compiling. Functionally identical to
+ *  select() now — the old seg-ctl component is unused. */
 function segCtl(value: string, opts: [string, string][], onChange: (v: string) => void): HTMLElement {
-  const w = document.createElement("div");
-  w.className = "seg-ctl";
-  for (const [v, l] of opts) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = v === value ? "on" : "";
-    b.textContent = l;
-    b.addEventListener("click", () => onChange(v));
-    w.appendChild(b);
-  }
-  return w;
+  return select(value, opts, onChange);
 }
 
 function numInput(
@@ -1292,6 +1328,92 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]!));
+}
+
+/** Normalize "#abc", "abc", "#aabbcc", "aabbcc" → "#aabbcc"; null if invalid. */
+function normalizeHex(input: string): string | null {
+  const s = input.trim().replace(/^#/, "").toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(s)) {
+    return "#" + s.split("").map((c) => c + c).join("");
+  }
+  if (/^[0-9a-f]{6}$/.test(s)) return "#" + s;
+  return null;
+}
+
+/** Popover anchored under the custom-accent swatch with a native color picker
+ *  and a hex text input. Apply writes prefs.accent and closes. */
+function openCustomAccentPopover(anchor: HTMLElement, current: string): void {
+  const existing = document.querySelector(".accent-popover");
+  if (existing) { existing.remove(); return; }
+
+  const initialHex = normalizeHex(current) ?? "#8aa9ff";
+
+  const pop = document.createElement("div");
+  pop.className = "accent-popover";
+  pop.addEventListener("click", (e) => e.stopPropagation());
+  pop.addEventListener("mousedown", (e) => e.stopPropagation());
+
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "accent-color-picker";
+  colorInput.value = initialHex;
+
+  const hex = document.createElement("input");
+  hex.type = "text";
+  hex.className = "input";
+  hex.value = initialHex;
+  hex.placeholder = "#rrggbb";
+  hex.spellcheck = false;
+  hex.style.minWidth = "100px";
+  hex.style.width = "100px";
+
+  colorInput.addEventListener("input", () => { hex.value = colorInput.value; });
+  hex.addEventListener("input", () => {
+    const n = normalizeHex(hex.value);
+    if (n) colorInput.value = n;
+  });
+
+  const apply = (): void => {
+    const n = normalizeHex(hex.value);
+    if (!n) { hex.style.borderColor = "var(--danger)"; return; }
+    setPref("accent", n);
+    close();
+    render();
+  };
+
+  hex.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); apply(); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
+
+  const applyBtn = button("Apply", apply);
+  applyBtn.classList.add("primary", "small");
+
+  pop.appendChild(colorInput);
+  pop.appendChild(hex);
+  pop.appendChild(applyBtn);
+
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${r.bottom + 6}px`;
+  pop.style.left = `${r.left}px`;
+
+  (overlayEl ?? modalHost()).appendChild(pop);
+
+  // Dismiss on outside mousedown. Registered next tick so the click that
+  // opened the popover doesn't immediately close it.
+  let onDocDown: ((e: MouseEvent) => void) | null = null;
+  const close = (): void => {
+    pop.remove();
+    if (onDocDown) document.removeEventListener("mousedown", onDocDown, true);
+  };
+  setTimeout(() => {
+    onDocDown = (e: MouseEvent) => {
+      if (!pop.contains(e.target as Node)) close();
+    };
+    document.addEventListener("mousedown", onDocDown, true);
+  }, 0);
+
+  requestAnimationFrame(() => hex.focus());
 }
 
 // ---------------------------------------------------------------------------

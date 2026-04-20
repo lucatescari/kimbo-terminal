@@ -1,5 +1,4 @@
 import { getActiveSession } from "./tabs";
-import { toggleCommandPalette } from "./command-palette";
 import { getCwd } from "./pty";
 
 let root: HTMLElement;
@@ -46,28 +45,10 @@ function render(): void {
   const utf = segment("utf-8 · LF · zsh", { muted: true });
   const info = segment(state.pid ? `pid ${state.pid} · ${state.cwd}` : state.cwd, { muted: true });
 
-  const cmdBtn = document.createElement("button");
-  cmdBtn.className = "seg";
-  cmdBtn.type = "button";
-  cmdBtn.title = "Open command palette";
-  cmdBtn.addEventListener("click", () => toggleCommandPalette());
-
-  const kbd = document.createElement("span");
-  kbd.className = "kbd";
-  kbd.textContent = "⌘K";
-  const cmdLbl = document.createElement("span");
-  cmdLbl.textContent = "commands";
-  cmdLbl.style.color = "var(--fg-dim)";
-  cmdLbl.style.marginLeft = "4px";
-  cmdBtn.appendChild(kbd);
-  cmdBtn.appendChild(cmdLbl);
-
   root.appendChild(utf);
   root.appendChild(sep());
   root.appendChild(spacer());
   root.appendChild(info);
-  root.appendChild(sep());
-  root.appendChild(cmdBtn);
 }
 
 function segment(text: string, opts?: { muted?: boolean; accent?: boolean }): HTMLElement {

@@ -15,12 +15,17 @@
         "title": "Kimbo",
         "width": 1200,
         "height": 800,
-        "decorations": true
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "minWidth": 600,
+        "minHeight": 400
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
