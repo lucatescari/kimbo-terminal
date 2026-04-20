@@ -354,7 +354,7 @@ function renderGeneral(el: HTMLElement): void {
   windowSec.appendChild(row(
     "Background opacity",
     "Lower values make the window translucent.",
-    withComingSoon(range(prefs.backgroundOpacity, 60, 100, 1,
+    withComingSoon(range(prefs.backgroundOpacity, 10, 100, 1,
       (v) => setPref("backgroundOpacity", v)), !isMacOS()),
   ));
   el.appendChild(windowSec);

@@ -25,7 +25,7 @@ export interface UiPrefs {
   confirmQuit: boolean;
   /** General → New window position. Coming soon. */
   newWindowPosition: NewWindowPosition;
-  /** General → Background opacity (60–100). Settings slider is enabled on
+  /** General → Background opacity (10–100). Settings slider is enabled on
    *  macOS only; value is always written to --app-alpha by applyRoot(). */
   backgroundOpacity: number;
   /** Advanced → GPU rendering. Coming soon (xterm already uses WebGL). */
