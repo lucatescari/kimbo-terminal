@@ -103,6 +103,12 @@ export function applyRoot(): void {
   // Tab-style attribute on tab bar.
   const bar = document.getElementById("tab-bar");
   if (bar) bar.dataset.style = prefs.tabStyle;
+
+  // Window translucency alpha. At 100 → "1" (fully opaque; the vibrancy
+  // layer mounted on the Rust side is hidden). Below 100 scales the
+  // chrome fill so the blur shows through. Single source of truth for
+  // all chrome surfaces; see style.css #app-frame, #title-bar, tab fills.
+  root.style.setProperty("--app-alpha", String(prefs.backgroundOpacity / 100));
 }
 
 type Listener = (p: UiPrefs) => void;
