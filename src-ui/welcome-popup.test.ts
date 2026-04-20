@@ -186,3 +186,53 @@ describe("welcome-popup: initWelcome", () => {
     expect(isWelcomeVisible()).toBe(true);
   });
 });
+
+describe("welcome-popup: focus management", () => {
+  beforeEach(() => {
+    cleanupDom();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+
+  it("Tab cycles forward from OK to 'never show again'", () => {
+    showWelcome();
+    const ok = document.querySelector<HTMLButtonElement>("[data-welcome-action='ok']")!;
+    const never = document.querySelector<HTMLButtonElement>("[data-welcome-action='never']")!;
+    ok.focus();
+    expect(document.activeElement).toBe(ok);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(never);
+  });
+
+  it("Tab cycles forward from 'never show again' back to OK", () => {
+    showWelcome();
+    const ok = document.querySelector<HTMLButtonElement>("[data-welcome-action='ok']")!;
+    const never = document.querySelector<HTMLButtonElement>("[data-welcome-action='never']")!;
+    never.focus();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(ok);
+  });
+
+  it("Shift+Tab cycles backward from OK to 'never show again'", () => {
+    showWelcome();
+    const ok = document.querySelector<HTMLButtonElement>("[data-welcome-action='ok']")!;
+    const never = document.querySelector<HTMLButtonElement>("[data-welcome-action='never']")!;
+    ok.focus();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(never);
+  });
+
+  it("hideWelcome removes focus from the popup (returns to body)", () => {
+    showWelcome();
+    const ok = document.querySelector<HTMLButtonElement>("[data-welcome-action='ok']")!;
+    ok.focus();
+    expect(document.activeElement).toBe(ok);
+
+    hideWelcome();
+    // After dismiss, focus must not be stuck on a detached element.
+    expect(document.activeElement).toBe(document.body);
+  });
+});

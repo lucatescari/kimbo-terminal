@@ -34,6 +34,19 @@ export function showWelcome(): void {
     if (e.key === "Escape" || e.key === "Enter") {
       e.preventDefault();
       hideWelcome();
+      return;
+    }
+    if (e.key === "Tab" && rootEl) {
+      const ok = rootEl.querySelector<HTMLButtonElement>("[data-welcome-action='ok']");
+      const never = rootEl.querySelector<HTMLButtonElement>("[data-welcome-action='never']");
+      if (!ok || !never) return;
+      e.preventDefault();
+      const forward = !e.shiftKey;
+      const current = document.activeElement;
+      const next = forward
+        ? (current === ok ? never : ok)
+        : (current === never ? ok : never);
+      next.focus();
     }
   };
   document.addEventListener("keydown", keydownHandler);
@@ -44,6 +57,10 @@ export function showWelcome(): void {
 
 export function hideWelcome(): void {
   if (!rootEl) return;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && rootEl.contains(active)) {
+    active.blur();
+  }
   rootEl.remove();
   rootEl = null;
   if (keydownHandler) {
