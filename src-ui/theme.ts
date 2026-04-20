@@ -133,6 +133,15 @@ function applyTheme(theme: ResolvedTheme) {
   // theme file ("light" | "dark" | "high-contrast" | …).
   root.dataset.themeType = theme.theme_type || "dark";
 
+  // Pin the NSWindow appearance so the NSVisualEffectView (macOS vibrancy
+  // behind the webview) picks a matching light/dark material. Without
+  // this, the system-wide appearance wins and the Kimbo light theme shows
+  // a dark blur through the translucent chrome (and vice versa).
+  // Fire-and-forget; a failure here is cosmetic, not blocking.
+  invoke("set_window_theme", { themeType: theme.theme_type || "dark" }).catch(
+    (e) => console.warn("set_window_theme failed:", e),
+  );
+
   const xtermTheme: Record<string, string> = {
     // Transparent so #app-frame (which carries --app-alpha chrome fill) shows
     // through under the terminal viewport. The theme's background hex is still

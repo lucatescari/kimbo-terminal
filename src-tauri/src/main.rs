@@ -14,6 +14,26 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Pin the NSWindow's appearance to the active Kimbo theme so the
+/// NSVisualEffectView (mounted in setup) picks up a matching light/dark
+/// vibrancy material regardless of the system-wide appearance.
+///
+/// Without this, a user running macOS in dark mode but using the Kimbo
+/// light theme sees a dark blur behind the translucent chrome — the
+/// window ends up grayer, not lighter, as the opacity slider goes down.
+#[tauri::command]
+fn set_window_theme(app: tauri::AppHandle, theme_type: String) {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("main") {
+        let t = match theme_type.as_str() {
+            "light" => Some(tauri::Theme::Light),
+            "dark" => Some(tauri::Theme::Dark),
+            _ => None, // high-contrast, custom, or unknown: follow system.
+        };
+        let _ = win.set_theme(t);
+    }
+}
+
 fn main() {
     env_logger::init();
 
@@ -142,6 +162,7 @@ fn main() {
             commands::workspace::list_projects,
             commands::update::check_for_updates,
             quit_app,
+            set_window_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri application");
