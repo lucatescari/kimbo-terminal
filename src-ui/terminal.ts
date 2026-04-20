@@ -20,6 +20,8 @@ import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
+import { stripAnsiBlackBg } from "./ansi-bg-transparent";
+import { getPrefs } from "./ui-prefs";
 
 export interface TerminalSession {
   id: number;
@@ -197,9 +199,13 @@ export async function createTerminalSession(
     return true;
   });
 
-  // Wire output: PTY -> xterm.js
+  // Wire output: PTY -> xterm.js. We run the bytes through a cheap ANSI
+  // filter that maps "set bg to black" SGR codes (40 / 100 / 48;5;0 /
+  // 48;2;0;0;0) to "reset bg" (49), so translucent terminals don't get
+  // opaque black boxes behind tool-emitted labels like Vite's "Running".
+  // The pref is read per-chunk so toggling it in settings applies live.
   const unlistenOutput = await onPtyOutput(ptyId, (data) => {
-    term.write(data);
+    term.write(getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data);
   });
 
   // Wire input: xterm.js -> PTY

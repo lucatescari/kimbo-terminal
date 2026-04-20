@@ -40,6 +40,10 @@ export interface UiPrefs {
   fontSmoothing: FontSmoothing;
   /** General → Open on launch. "last" — restore, "home" — home dir, "workspace" — last workspace. */
   startup: "last" | "home" | "workspace";
+  /** Appearance → Treat ANSI black bg as default (transparent).
+   *  When on, CLI tools that emit green-on-black labels (vite/tauri/chalk)
+   *  render with the window's translucent bg instead of an opaque rectangle. */
+  transparentBlackBg: boolean;
 }
 
 const DEFAULTS: UiPrefs = {
@@ -56,6 +60,7 @@ const DEFAULTS: UiPrefs = {
   releaseChannel: "stable",
   fontSmoothing: "subpixel",
   startup: "last",
+  transparentBlackBg: true,
 };
 
 let cache: UiPrefs | null = null;

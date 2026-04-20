@@ -358,6 +358,11 @@ function renderGeneral(el: HTMLElement): void {
     withComingSoon(range(prefs.backgroundOpacity, 0, 100, 1,
       (v) => setPref("backgroundOpacity", v)), !isMacOS()),
   ));
+  windowSec.appendChild(row(
+    "Transparent black bg",
+    "When on, CLI tools that emit green-on-black labels render against the window's translucent background instead of solid dark rectangles.",
+    toggle(prefs.transparentBlackBg, (v) => setPref("transparentBlackBg", v)),
+  ));
   el.appendChild(windowSec);
 }
 
