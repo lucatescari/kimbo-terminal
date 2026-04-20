@@ -211,8 +211,8 @@ function renderGeneral(el: HTMLElement) {
   const welcome = config.welcome ?? { show_on_startup: true };
   config.welcome = welcome;
 
-  el.appendChild(makeToggle("Show welcome on startup", config.welcome.show_on_startup, (v) => {
-    config!.welcome.show_on_startup = v;
+  el.appendChild(makeToggle("Show welcome on startup", welcome.show_on_startup, (v) => {
+    welcome.show_on_startup = v;
     saveConfig();
   }));
 

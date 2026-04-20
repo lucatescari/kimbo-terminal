@@ -156,7 +156,7 @@ describe("settings: welcome integration", () => {
 
   it("renderGeneral adds a 'Show welcome on startup' toggle", () => {
     expect(settingsSource).toContain("Show welcome on startup");
-    expect(settingsSource).toMatch(/config(!|\?)?\.welcome\.show_on_startup/);
+    expect(settingsSource).toMatch(/welcome\.show_on_startup/);
   });
 
   it("renderGeneral adds a 'Show welcome now' button wired to showWelcome", () => {
