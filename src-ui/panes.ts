@@ -206,6 +206,21 @@ export function getTree(): PaneTree | null {
   return tree;
 }
 
+/**
+ * Recursively dispose every terminal session in a subtree. Used by
+ * closeTab() so closing a tab doesn't leak PTY processes and doesn't leave
+ * xterm instances attached to detached DOM. Safe to call with null.
+ */
+export function disposeTree(node: PaneTree | null): void {
+  if (!node) return;
+  if (node.type === "leaf") {
+    node.session.dispose();
+    return;
+  }
+  disposeTree(node.first);
+  disposeTree(node.second);
+}
+
 export function setTree(newTree: PaneTree | null) {
   tree = newTree;
   if (tree) {
