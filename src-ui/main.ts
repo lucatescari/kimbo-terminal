@@ -9,6 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
 import { initUpdateCheck } from "./updates";
+import { initWelcome } from "./welcome-popup";
 import { setTabTitleHandler } from "./terminal";
 import { setTabTitle } from "./tabs";
 import { initFindBar } from "./find-bar";
@@ -71,6 +72,8 @@ async function init() {
   if (cfg) {
     initUpdateCheck(cfg).catch((e) => console.warn("initUpdateCheck:", e));
   }
+
+  if (cfg) initWelcome(cfg);
 
   initKeys();
   await createTab();

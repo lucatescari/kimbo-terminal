@@ -304,6 +304,20 @@ describe("accelerator ↔ keyboard-shortcut consistency", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section 5: main.ts welcome popup wiring
+// ---------------------------------------------------------------------------
+
+describe("main: welcome popup wiring", () => {
+  it("main.ts imports initWelcome from welcome-popup", () => {
+    expect(mainTsSource).toMatch(/initWelcome[\s\S]*from\s+["']\.\/welcome-popup["']/);
+  });
+
+  it("main.ts calls initWelcome with the boot config", () => {
+    expect(mainTsSource).toMatch(/initWelcome\s*\(\s*cfg\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Section 4: keys.ts hygiene — no inline no-op actions
 // ---------------------------------------------------------------------------
 
