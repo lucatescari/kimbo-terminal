@@ -299,7 +299,7 @@ describe("settings modal: Background opacity row", () => {
   it("is enabled (no Coming-soon tag) on macOS", async () => {
     await openSettingsToCategory("general");
     const slider = document.querySelector<HTMLInputElement>(
-      'input[type="range"][min="10"][max="100"]'
+      'input[type="range"][min="0"][max="100"]'
     );
     expect(slider).not.toBeNull();
     expect(slider!.style.pointerEvents).not.toBe("none");
@@ -312,7 +312,7 @@ describe("settings modal: Background opacity row", () => {
     platformState.isMacOS = false;
     await openSettingsToCategory("general");
     const slider = document.querySelector<HTMLInputElement>(
-      'input[type="range"][min="10"][max="100"]'
+      'input[type="range"][min="0"][max="100"]'
     );
     expect(slider).not.toBeNull();
     expect(slider!.style.pointerEvents).toBe("none");
