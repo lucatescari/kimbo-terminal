@@ -17,6 +17,7 @@ pub struct AppConfig {
     pub workspace: WorkspaceConfig,
     pub kimbo: KimboConfig,
     pub updates: UpdatesConfig,
+    pub welcome: WelcomeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +77,12 @@ pub struct UpdatesConfig {
     pub auto_check: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WelcomeConfig {
+    pub show_on_startup: bool,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -88,6 +95,7 @@ impl Default for AppConfig {
             workspace: WorkspaceConfig::default(),
             kimbo: KimboConfig::default(),
             updates: UpdatesConfig::default(),
+            welcome: WelcomeConfig::default(),
         }
     }
 }
@@ -159,6 +167,12 @@ impl Default for KimboConfig {
 impl Default for UpdatesConfig {
     fn default() -> Self {
         Self { auto_check: true }
+    }
+}
+
+impl Default for WelcomeConfig {
+    fn default() -> Self {
+        Self { show_on_startup: true }
     }
 }
 
@@ -383,5 +397,31 @@ size = 16.0
 "#;
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert!(config.updates.auto_check);
+    }
+
+    #[test]
+    fn test_default_welcome_config() {
+        let config = AppConfig::default();
+        assert!(config.welcome.show_on_startup);
+    }
+
+    #[test]
+    fn test_parse_welcome_toml() {
+        let toml_str = r#"
+[welcome]
+show_on_startup = false
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.welcome.show_on_startup);
+    }
+
+    #[test]
+    fn test_welcome_config_missing_uses_defaults() {
+        let toml_str = r#"
+[font]
+size = 16.0
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.welcome.show_on_startup);
     }
 }
