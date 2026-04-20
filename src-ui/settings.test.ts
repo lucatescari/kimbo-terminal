@@ -148,3 +148,23 @@ describe("settings: About category", () => {
     expect(settingsSource).toContain("github.com/lucatescari/kimbo-terminal");
   });
 });
+
+describe("settings: welcome integration", () => {
+  it("AppConfig interface includes welcome section", () => {
+    expect(settingsSource).toMatch(/welcome\s*:\s*\{\s*show_on_startup\s*:\s*boolean/);
+  });
+
+  it("renderGeneral adds a 'Show welcome on startup' toggle", () => {
+    expect(settingsSource).toContain("Show welcome on startup");
+    expect(settingsSource).toMatch(/config(!|\?)?\.welcome\.show_on_startup/);
+  });
+
+  it("renderGeneral adds a 'Show welcome now' button wired to showWelcome", () => {
+    expect(settingsSource).toContain("Show welcome now");
+    expect(settingsSource).toContain("showWelcome");
+  });
+
+  it("settings.ts imports showWelcome from welcome-popup", () => {
+    expect(settingsSource).toMatch(/showWelcome[\s\S]*from\s+["']\.\/welcome-popup["']/);
+  });
+});

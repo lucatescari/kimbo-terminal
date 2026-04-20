@@ -8,6 +8,7 @@ import { setKimboInConsoleView } from "./kimbo";
 import type { UnifiedTheme } from "./settings-types";
 import { renderUnifiedThemeCard } from "./theme-card";
 import { showThemeContextMenu } from "./theme-context-menu";
+import { showWelcome } from "./welcome-popup";
 import {
   getCachedUpdate,
   forceCheckUpdate,
@@ -30,6 +31,7 @@ interface AppConfig {
   keybindings: { bindings: Record<string, string> };
   workspace: { auto_detect: boolean; scan_dirs: string[] };
   updates: { auto_check: boolean };
+  welcome: { show_on_startup: boolean };
 }
 
 type Category = "general" | "appearance" | "font" | "workspaces" | "kimbo" | "advanced" | "about";
@@ -204,6 +206,23 @@ function renderGeneral(el: HTMLElement) {
     config!.general.default_shell = v;
     saveConfig();
   }));
+
+  // Welcome popup
+  const welcome = config.welcome ?? { show_on_startup: true };
+  config.welcome = welcome;
+
+  el.appendChild(makeToggle("Show welcome on startup", config.welcome.show_on_startup, (v) => {
+    config!.welcome.show_on_startup = v;
+    saveConfig();
+  }));
+
+  const showNowBtn = document.createElement("button");
+  showNowBtn.textContent = "Show welcome now";
+  showNowBtn.style.cssText = "margin-top: 8px; padding: 6px 12px; background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 4px; cursor: pointer; font-size: 12px;";
+  showNowBtn.addEventListener("click", () => {
+    showWelcome();
+  });
+  el.appendChild(showNowBtn);
 }
 
 function renderAppearance(el: HTMLElement) {
