@@ -1334,14 +1334,35 @@ function iconBtn(name: IconName, label: string, onClick: () => void): HTMLButton
   return b;
 }
 
-function toggle(value: boolean, onChange: (v: boolean) => void, disabled = false): HTMLElement {
+export function __createToggleForTests(
+  initial: boolean,
+  onChange: (v: boolean) => void,
+  disabled = false,
+): HTMLElement {
+  return toggle(initial, onChange, disabled);
+}
+
+function toggle(initial: boolean, onChange: (v: boolean) => void, disabled = false): HTMLElement {
   const t = document.createElement("div");
-  t.className = "toggle" + (value ? " on" : "") + (disabled ? " disabled" : "");
+  // We used to capture `value` in the click closure and call onChange(!value)
+  // on every click — which meant the "current value" was frozen at element-
+  // creation time, so a toggle without a surrounding re-render flipped once
+  // and then got stuck (second click just fired onChange with the same value
+  // again, and the `.on` CSS class never updated). Track the state inside
+  // the element itself so every click reads and mutates the actual current
+  // value, not the snapshot the factory was called with.
+  let on = initial;
+  const apply = () => {
+    t.className = "toggle" + (on ? " on" : "") + (disabled ? " disabled" : "");
+    t.setAttribute("aria-checked", String(on));
+  };
   t.setAttribute("role", "switch");
-  t.setAttribute("aria-checked", String(value));
+  apply();
   t.addEventListener("click", () => {
     if (disabled) return;
-    onChange(!value);
+    on = !on;
+    apply();
+    onChange(on);
   });
   return t;
 }
