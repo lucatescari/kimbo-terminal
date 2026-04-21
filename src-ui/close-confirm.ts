@@ -9,15 +9,22 @@
 // descendant. So when the user confirms, anything `npm run dev` spawned
 // terminates too — no more init-owned orphans hanging on the port.
 
-import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree } from "./tabs";
+import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree, getTabCount } from "./tabs";
 import { ptyIsBusy } from "./pty";
 import { getPrefs, setPref } from "./ui-prefs";
 import { showConfirmDialog } from "./quit-dialog";
+import { confirmAndQuit } from "./quit-confirm";
 
 /** Active-pane close (⌘W in the standard case — closes a split pane or
  *  the whole tab when only one pane remains). Returns the boolean for
  *  tests; real callers can ignore it. */
 export async function confirmAndCloseActive(): Promise<boolean> {
+  // Last-tab-single-pane case: closeTab() refuses to kill the only tab,
+  // so closeActiveOrTab() would silently do nothing and ⌘W would look
+  // broken. Route through the quit flow instead — confirmAndQuit handles
+  // its own busy-check + dialog, so we don't double-prompt here.
+  if (isLastTabSingleLeaf()) return await confirmAndQuit();
+
   const session = getActiveSession();
   if (!session) {
     closeActiveOrTab();
@@ -55,6 +62,10 @@ export async function confirmAndCloseActive(): Promise<boolean> {
  *  rust if ANY is busy; one busy pane triggers the dialog, listing how
  *  many descendants will be killed. */
 export async function confirmAndCloseActiveTab(): Promise<boolean> {
+  // Closing the only tab is really a quit — closeTab() bails on the last
+  // tab, so without this ⌘⇧W would be a silent no-op on a single-tab window.
+  if (getTabCount() <= 1) return await confirmAndQuit();
+
   const tab = getActiveTab();
   if (!tab) return true;
 
@@ -91,6 +102,15 @@ function closingWholeTab(): boolean {
   const tree = getTree();
   if (!tree) return true;
   return tree.type === "leaf";
+}
+
+/** True when ⌘W would try to close the very last tab/pane — at which
+ *  point the user actually wants to quit the app, because the tab bar
+ *  has nothing left to show. */
+function isLastTabSingleLeaf(): boolean {
+  if (getTabCount() > 1) return false;
+  const tree = getTree();
+  return !tree || tree.type === "leaf";
 }
 
 /** Collect every pane in the active tab and ask rust if each is busy. */

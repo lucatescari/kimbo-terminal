@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getActiveSession: vi.fn(),
   getActiveTab: vi.fn(),
   getTree: vi.fn(),
+  getTabCount: vi.fn().mockReturnValue(2),
+  confirmAndQuit: vi.fn().mockResolvedValue(true),
   ptyIsBusy: vi.fn().mockResolvedValue(false),
   showConfirmDialog: vi.fn(),
   setPref: vi.fn(),
@@ -18,6 +20,7 @@ vi.mock("./tabs", () => ({
   getActiveSession: () => mocks.getActiveSession(),
   getActiveTab: () => mocks.getActiveTab(),
   getTree: () => mocks.getTree(),
+  getTabCount: () => mocks.getTabCount(),
 }));
 vi.mock("./pty", () => ({ ptyIsBusy: mocks.ptyIsBusy }));
 vi.mock("./ui-prefs", () => ({
@@ -25,6 +28,7 @@ vi.mock("./ui-prefs", () => ({
   setPref: mocks.setPref,
 }));
 vi.mock("./quit-dialog", () => ({ showConfirmDialog: mocks.showConfirmDialog }));
+vi.mock("./quit-confirm", () => ({ confirmAndQuit: mocks.confirmAndQuit }));
 
 import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
 
@@ -34,6 +38,8 @@ beforeEach(() => {
   mocks.getActiveSession.mockReset();
   mocks.getActiveTab.mockReset();
   mocks.getTree.mockReset();
+  mocks.getTabCount.mockReset().mockReturnValue(2);
+  mocks.confirmAndQuit.mockReset().mockResolvedValue(true);
   mocks.ptyIsBusy.mockReset().mockResolvedValue(false);
   mocks.showConfirmDialog.mockReset();
   mocks.setPref.mockReset();
@@ -137,6 +143,26 @@ describe("confirmAndCloseActive: pane is busy", () => {
   });
 });
 
+describe("confirmAndCloseActive: last tab + single leaf → route to quit", () => {
+  it("⌘W on a single-tab single-pane window triggers confirmAndQuit", async () => {
+    mocks.getTabCount.mockReturnValue(1);
+    mocks.getTree.mockReturnValue({ type: "leaf" });
+    await confirmAndCloseActive();
+    expect(mocks.confirmAndQuit).toHaveBeenCalledOnce();
+    expect(mocks.closeActiveOrTab).not.toHaveBeenCalled();
+  });
+
+  it("⌘W on a single-tab SPLIT still closes the pane (doesn't quit)", async () => {
+    mocks.getTabCount.mockReturnValue(1);
+    mocks.getTree.mockReturnValue({ type: "split" });
+    mocks.getActiveSession.mockReturnValue({ ptyId: 3 });
+    mocks.ptyIsBusy.mockResolvedValue(false);
+    await confirmAndCloseActive();
+    expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
+    expect(mocks.closeActiveOrTab).toHaveBeenCalledOnce();
+  });
+});
+
 // -----------------------------------------------------------------------
 // confirmAndCloseActiveTab — ⌘⇧W / menu "Close Tab"
 // -----------------------------------------------------------------------
@@ -205,6 +231,13 @@ describe("confirmAndCloseActiveTab", () => {
         body: expect.stringMatching(/3 panes/),
       }),
     );
+  });
+
+  it("last tab → route to confirmAndQuit instead of no-op closeTab", async () => {
+    mocks.getTabCount.mockReturnValue(1);
+    await confirmAndCloseActiveTab();
+    expect(mocks.confirmAndQuit).toHaveBeenCalledOnce();
+    expect(mocks.closeTab).not.toHaveBeenCalled();
   });
 
   it("cancel keeps the tab open; don't-ask-again still persists", async () => {
