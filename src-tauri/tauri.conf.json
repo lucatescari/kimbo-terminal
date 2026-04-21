@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicobrinkkemper/tauri-v2-schema/main/tauri.conf.json",
   "productName": "Kimbo",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "com.kimbo.terminal",
   "build": {
     "frontendDist": "../dist",
