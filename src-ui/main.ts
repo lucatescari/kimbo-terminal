@@ -4,6 +4,8 @@ import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, 
 import { initKeys } from "./keys";
 import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY } from "./theme";
 import { initSettings, toggleSettings } from "./settings";
+import { confirmAndQuit } from "./quit-confirm";
+import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
 import { listen } from "@tauri-apps/api/event";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
@@ -124,17 +126,26 @@ async function init() {
     console.warn("Failed to init drag-drop:", e);
   }
 
-  // Listen for macOS menu bar actions.
+  // Listen for macOS menu bar actions. The "quit" case is routed through
+  // confirmAndQuit so the General → "Confirm before quit" pref kicks in
+  // regardless of how the user invoked the quit (menu, shortcut, red-x).
   await listen<string>("menu-action", (event) => {
     switch (event.payload) {
       case "settings": toggleSettings(); break;
       case "new_tab": createTab(); break;
-      case "close_pane": closeActiveOrTab(); break;
-      case "close_tab": { const t = getActiveTab(); if (t) closeTab(t.id); } break;
+      case "close_pane": void confirmAndCloseActive(); break;
+      case "close_tab": void confirmAndCloseActiveTab(); break;
       case "split_vertical": splitActive("vertical"); break;
       case "split_horizontal": splitActive("horizontal"); break;
+      case "quit": void confirmAndQuit(); break;
     }
   });
+
+  // Rust fires `quit-requested` from its window CloseRequested handler
+  // (red-x button, OS-level close) after calling api.prevent_close(). We
+  // answer the prompt here; on confirm, invoke("quit_app") exits the
+  // process and this listener is torn down along with the runtime.
+  await listen("quit-requested", () => { void confirmAndQuit(); });
 
   // Handle window resize.
   const resizeObserver = new ResizeObserver(() => {
