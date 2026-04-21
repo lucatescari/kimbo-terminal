@@ -84,4 +84,10 @@ impl PtyManager {
         let pty = sessions.get(&id).ok_or("PTY not found")?;
         Ok(pty.cwd().map(|p| p.to_string_lossy().to_string()))
     }
+
+    pub fn is_busy(&self, id: u32) -> Result<bool, String> {
+        let sessions = self.sessions.lock().unwrap();
+        let pty = sessions.get(&id).ok_or("PTY not found")?;
+        Ok(pty.is_busy())
+    }
 }

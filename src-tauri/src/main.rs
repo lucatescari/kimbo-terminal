@@ -136,18 +136,37 @@ fn main() {
 
             app.set_menu(menu)?;
 
-            // Handle menu item clicks → emit events to frontend.
+            // Handle menu item clicks → emit events to frontend. "quit" is
+            // forwarded like every other menu-action (it used to call
+            // app_handle.exit(0) directly, which bypassed the JS
+            // confirm-on-quit flow); the frontend's menu-action listener
+            // now routes it through confirmAndQuit() so the pref is
+            // respected no matter which quit affordance was used.
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
-                    "quit" => app_handle.exit(0),
                     "settings" | "new_tab" | "close_pane" | "close_tab"
-                    | "split_vertical" | "split_horizontal" => {
+                    | "split_vertical" | "split_horizontal" | "quit" => {
                         let _ = app_handle.emit("menu-action", id);
                     }
                     _ => {}
                 }
             });
+
+            // Intercept the window's close request (red-x button, Cmd+W on
+            // the window, OS-level close) so the same JS confirm flow can
+            // run. We prevent the default close and emit `quit-requested`;
+            // the frontend then either calls invoke("quit_app") to really
+            // exit or swallows the request when the user cancels.
+            if let Some(win) = app.get_webview_window("main") {
+                let handle_for_close = app.handle().clone();
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = handle_for_close.emit("quit-requested", ());
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -157,6 +176,7 @@ fn main() {
             commands::pty::resize_pty,
             commands::pty::close_pty,
             commands::pty::get_cwd,
+            commands::pty::pty_is_busy,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,

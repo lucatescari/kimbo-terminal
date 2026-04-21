@@ -13,3 +13,4 @@ libc = "0.2"
 
 [dev-dependencies]
 dirs = "5"
+libc = "0.2"

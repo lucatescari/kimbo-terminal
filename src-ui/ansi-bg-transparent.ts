@@ -16,6 +16,17 @@
 //   - 48;2;0;0;0 — truecolor bg rgb(0,0,0)
 // Every other CSI parameter, and every non-SGR CSI, passes through untouched.
 //
+// We also rewrite `2` (dim/faint) to `22` (no-dim). xterm.js's WebGL renderer
+// stores the DIM attribute as a bit inside the cell's bg word (BgFlags.DIM =
+// 0x8000000). RectangleRenderer.updateBackgrounds then draws a per-cell rect
+// for any cell where `bg !== 0` — including pure-DIM cells with no actual bg
+// color — and _updateRectangle forces alpha to 1 on the default theme bg.
+// So `\x1b[2m` on an `rgba(0,0,0,0)` theme renders as a **solid black box**
+// behind the glyph. Concurrently, npm scripts, zsh prompts, and most CLIs
+// emit `\x1b[2m` liberally, which is why so much output ends up boxed. There
+// is no way to opt out of the faulty rect path without a fork of xterm, so
+// we pre-empt it by dropping the DIM attribute entirely in the stream.
+//
 // The filter operates on bytes because xterm's write() path is byte-oriented
 // and we don't want to introduce a stateful TextDecoder boundary. ANSI/CSI
 // sequences are ASCII-only, and ASCII byte values never appear inside a
@@ -49,9 +60,13 @@ export function stripAnsiBlackBg(input: Uint8Array): Uint8Array {
   if (!hasEsc(input)) return input;
 
   const n = input.length;
-  // Worst case: same length as input (40 → 49 preserves width; 48;5;0 → 49
-  // shrinks). We never grow, so a single pre-allocation fits every outcome.
-  const out = new Uint8Array(n);
+  // Worst case: 40→49 preserves width, 48;5;0→49 shrinks, but 2→22 (DIM
+  // rewrite) grows by one byte per occurrence. Count every digit-2 byte
+  // as a cheap upper bound on growth — false positives (a literal "2" in
+  // shell output) just leave a few unused bytes at the tail.
+  let growBudget = 0;
+  for (let k = 0; k < n; k++) if (input[k] === 0x32) growBudget++;
+  const out = new Uint8Array(n + growBudget);
   let oi = 0;
   // Set to true the moment we actually rewrite a black-bg param, so an
   // all-passthrough chunk can return the original reference without copying.
@@ -84,7 +99,7 @@ export function stripAnsiBlackBg(input: Uint8Array): Uint8Array {
       continue;
     }
 
-    // SGR sequence. Parse params and rewrite any black-bg selectors.
+    // SGR sequence. Parse params and rewrite any dark-bg selectors.
     const params = parseParams(input, i + 2, j);
     const kept: number[] = [];
     let mutated = false;
@@ -95,22 +110,47 @@ export function stripAnsiBlackBg(input: Uint8Array): Uint8Array {
         mutated = true;
         continue;
       }
-      if (p === 48 && params[k + 1] === 5 && params[k + 2] === 0) {
-        kept.push(49);
-        mutated = true;
+      // Extended color selectors (48;…, 38;…) have sub-parameters that live
+      // in the same SGR param list. We must consume them as a group so their
+      // inner numbers (`2` for truecolor mode, `5` for indexed, RGB values,
+      // index values) don't get misread as standalone SGR attributes — in
+      // particular, a truecolor selector like `48;2;200;0;0` contains a `2`
+      // that must NOT be treated as SGR dim.
+      if ((p === 48 || p === 38) && params[k + 1] === 5) {
+        // 256-color indexed. Bg-side: rewrite near-blacks (0/8/16/232..237)
+        // to 49. Fg-side or non-dark bg: pass the whole 3-tuple through.
+        if (p === 48 && isDarkIndexed(params[k + 2])) {
+          kept.push(49);
+          mutated = true;
+        } else {
+          kept.push(p, 5, params[k + 2]);
+        }
         k += 2;
         continue;
       }
-      if (
-        p === 48 &&
-        params[k + 1] === 2 &&
-        params[k + 2] === 0 &&
-        params[k + 3] === 0 &&
-        params[k + 4] === 0
-      ) {
-        kept.push(49);
-        mutated = true;
+      if ((p === 48 || p === 38) && params[k + 1] === 2) {
+        // Truecolor. Bg-side: if every channel <= 0x33, rewrite to 49.
+        // Fg-side or non-dark bg: pass the whole 5-tuple through.
+        if (
+          p === 48 &&
+          isDarkTruecolor(params[k + 2], params[k + 3], params[k + 4])
+        ) {
+          kept.push(49);
+          mutated = true;
+        } else {
+          kept.push(p, 2, params[k + 2], params[k + 3], params[k + 4]);
+        }
         k += 4;
+        continue;
+      }
+      // Standalone dim/faint → no-dim. See the module header — xterm.js's
+      // WebGL renderer treats a DIM cell as having a non-default bg and
+      // draws an opaque black rect behind it. 22 clears DIM without
+      // resetting anything else. Must come AFTER the 38/48 branches so we
+      // don't misread the `2` inside `48;2;R;G;B` as standalone dim.
+      if (p === 2) {
+        kept.push(22);
+        mutated = true;
         continue;
       }
       kept.push(p);
@@ -139,6 +179,33 @@ export function stripAnsiBlackBg(input: Uint8Array): Uint8Array {
   }
 
   return didRewrite ? out.subarray(0, oi) : input;
+}
+
+/** True when an xterm 256-color palette index is "near-black":
+ *    0   ANSI black
+ *    8   ANSI bright black (a dark gray on most themes)
+ *    16  first cell of the 6×6×6 color cube — pure black again
+ *    232..237  the first six rungs of the 24-step grayscale ramp
+ *      (#080808, #121212, #1c1c1c, #262626, #303030, #3a3a3a)
+ *  — these are the palette indices tools like webpack / angular / ink
+ *  pick when they want a dim panel that blends into a dark terminal.
+ *  Anything brighter is treated as an intentional visual element. */
+function isDarkIndexed(idx: number | undefined): boolean {
+  if (idx === undefined) return false;
+  if (idx === 0 || idx === 8 || idx === 16) return true;
+  return idx >= 232 && idx <= 237;
+}
+
+/** Truecolor RGB that counts as "near-black" — every channel <= 0x33
+ *  (~20% brightness). Stricter than a sum-threshold so saturated dark
+ *  reds/greens/blues aren't accidentally wiped. */
+function isDarkTruecolor(
+  r: number | undefined,
+  g: number | undefined,
+  b: number | undefined,
+): boolean {
+  if (r === undefined || g === undefined || b === undefined) return false;
+  return r <= 0x33 && g <= 0x33 && b <= 0x33;
 }
 
 function parseParams(buf: Uint8Array, start: number, end: number): number[] {

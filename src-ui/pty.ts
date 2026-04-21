@@ -25,6 +25,14 @@ export async function getCwd(id: number): Promise<string | null> {
   return await invoke<string | null>("get_cwd", { id });
 }
 
+/** True when the PTY's foreground process group is NOT the shell itself
+ *  — i.e. the shell has spawned a child (vim, `npm run dev`, `claude`, …)
+ *  and is currently blocked waiting on it. Used by the confirm-quit flow
+ *  to distinguish "idle prompt" panes from "running something" panes. */
+export async function ptyIsBusy(id: number): Promise<boolean> {
+  return await invoke<boolean>("pty_is_busy", { id });
+}
+
 export function onPtyOutput(
   id: number,
   callback: (data: Uint8Array) => void,

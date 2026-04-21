@@ -196,12 +196,64 @@ function firstLeafCwd(node: any): string | null {
   return firstLeafCwd(node.first) ?? firstLeafCwd(node.second);
 }
 
+/** Total number of open tabs. Used by confirm-quit to decide whether the
+ *  user has "active work" that's worth a confirmation dialog. */
+export function getTabCount(): number {
+  return tabs.length;
+}
+
+/** Total number of panes across every tab (splits counted separately).
+ *  Walks the live tree for the active tab and each inactive tab's stored
+ *  treeSnapshot. Used alongside getTabCount to detect a multi-pane /
+ *  multi-tab session worth confirming on quit. */
+export function countPanesAcrossTabs(): number {
+  let n = 0;
+  for (const t of tabs) {
+    const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
+    n += countLeaves(tree);
+  }
+  return n;
+}
+
+function countLeaves(node: any): number {
+  if (!node) return 0;
+  if (node.type === "leaf") return 1;
+  return countLeaves(node.first) + countLeaves(node.second);
+}
+
+/** Enumerate every open pane with its owning tab's display name. Used by
+ *  the quit-confirm flow to tell the user *which* pane is running
+ *  something — "vim is running in Project X / pane 2" reads better than
+ *  a bare pane-count. */
+export interface PaneRef {
+  tabName: string;
+  ptyId: number;
+}
+
+export function collectOpenPanes(): PaneRef[] {
+  const out: PaneRef[] = [];
+  for (const t of tabs) {
+    const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
+    walkLeaves(tree, (leaf) => {
+      out.push({ tabName: t.titleOverride ?? t.name, ptyId: leaf.session.ptyId });
+    });
+  }
+  return out;
+}
+
+function walkLeaves(node: any, visit: (leaf: any) => void): void {
+  if (!node) return;
+  if (node.type === "leaf") { visit(node); return; }
+  walkLeaves(node.first, visit);
+  walkLeaves(node.second, visit);
+}
+
 // Pane operations forwarded from keys.ts.
 export function splitActive(dir: "vertical" | "horizontal"): void {
   _splitActive(dir);
   kimboBus.emit({ type: "pane-split" });
 }
-export { closeActive, focusDirection, getActiveSession, fitAllPanes };
+export { closeActive, focusDirection, getActiveSession, fitAllPanes, getTree };
 
 /**
  * Cmd+W behavior: close the active pane if we're inside a split, otherwise

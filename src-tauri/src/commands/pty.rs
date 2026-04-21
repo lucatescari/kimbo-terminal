@@ -39,3 +39,8 @@ pub fn close_pty(id: u32, manager: State<'_, PtyManager>) -> Result<(), String> 
 pub fn get_cwd(id: u32, manager: State<'_, PtyManager>) -> Result<Option<String>, String> {
     manager.get_cwd(id)
 }
+
+#[tauri::command]
+pub fn pty_is_busy(id: u32, manager: State<'_, PtyManager>) -> Result<bool, String> {
+    manager.is_busy(id)
+}
