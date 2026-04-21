@@ -201,10 +201,12 @@ export async function createTerminalSession(
 
   // Wire output: PTY -> xterm.js. We run the bytes through a cheap ANSI
   // filter that maps "set bg to black" SGR codes (40 / 100 / 48;5;0 /
-  // 48;2;0;0;0) to "reset bg" (49), so translucent terminals don't get
-  // opaque black boxes behind tool-emitted labels like Vite's "Running".
+  // 48;2;0;0;0) to "reset bg" (49) AND neutralises the DIM attribute
+  // (`\x1b[2m` → `\x1b[22m`) since xterm.js's WebGL renderer draws an
+  // opaque black rect behind any DIM cell — see ansi-bg-transparent.ts.
   // The pref is read per-chunk so toggling it in settings applies live.
   const unlistenOutput = await onPtyOutput(ptyId, (data) => {
+    dumpPtyChunkIfArmed(data, ptyId);
     term.write(getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data);
   });
 
@@ -271,4 +273,53 @@ export async function createTerminalSession(
   };
 
   return session;
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic hex-dump of raw PTY bytes. Dormant until the user sets
+// `localStorage.kimboDiagBurst = "N"` in devtools — the next N chunks are
+// hex-dumped with an ASCII gutter. Each chunk is truncated to
+// MAX_BYTES_PER_CHUNK so a chatty dev server doesn't wipe out the console.
+// Used to diagnose rendering issues like the xterm DIM-attribute black-box
+// that motivated the `\x1b[2m`→`\x1b[22m` rewrite.
+// ---------------------------------------------------------------------------
+
+const MAX_BYTES_PER_CHUNK = 600;
+
+function dumpPtyChunkIfArmed(buf: Uint8Array, ptyId: number): void {
+  let remaining: number;
+  try {
+    remaining = parseInt(localStorage.getItem("kimboDiagBurst") || "0", 10);
+  } catch {
+    return;
+  }
+  if (!Number.isFinite(remaining) || remaining <= 0) return;
+
+  try { localStorage.setItem("kimboDiagBurst", String(remaining - 1)); } catch {}
+
+  const slice = buf.length > MAX_BYTES_PER_CHUNK ? buf.subarray(0, MAX_BYTES_PER_CHUNK) : buf;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[kimbo.diag.chunk ${remaining}] pty=${ptyId} len=${buf.length}` +
+      (buf.length > MAX_BYTES_PER_CHUNK ? ` (truncated to ${MAX_BYTES_PER_CHUNK})` : "") +
+      `\n` +
+      formatHexDump(slice),
+  );
+}
+
+/** 16-byte-per-row hex dump with an ASCII gutter. ESC is rendered as `.ESC`
+ *  to make CSI sequences jump out; other non-printables as `.`. */
+function formatHexDump(buf: Uint8Array): string {
+  const rows: string[] = [];
+  for (let i = 0; i < buf.length; i += 16) {
+    const chunk = buf.subarray(i, Math.min(i + 16, buf.length));
+    const hex = Array.from(chunk, (b) => b.toString(16).padStart(2, "0")).join(" ");
+    const ascii = Array.from(chunk, (b) => {
+      if (b === 0x1b) return "␛";
+      if (b >= 0x20 && b <= 0x7e) return String.fromCharCode(b);
+      return ".";
+    }).join("");
+    rows.push(`${i.toString(16).padStart(4, "0")}  ${hex.padEnd(47)}  ${ascii}`);
+  }
+  return rows.join("\n");
 }
