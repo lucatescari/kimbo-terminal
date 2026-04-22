@@ -127,3 +127,13 @@
 }
 .kimbo-menu-item { padding: 6px 14px; cursor: pointer; }
 .kimbo-menu-item:hover { background: var(--active-border, #89b4fa); color: var(--bg, #1e1e2e); }
+
+/* OSC 1337 inline images are rendered inside xterm.js decoration
+   elements. The decoration is cell-granular; we want the <img> inside
+   to keep its own pixel dimensions without being clipped by a
+   sub-pixel rounding in the cell grid. */
+.xterm .xterm-decoration img {
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}

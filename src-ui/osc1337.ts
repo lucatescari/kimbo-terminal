@@ -130,3 +130,117 @@ export function decodeBase64Bytes(data: string, maxBytes: number): Uint8Array | 
     return null;
   }
 }
+
+export interface LayoutAttrs {
+  width: string | null;
+  height: string | null;
+  preserveAspectRatio: boolean;
+}
+
+export interface ResolvedLayout {
+  pxWidth: number;
+  pxHeight: number;
+  rowsToReserve: number;
+}
+
+const MAX_DIM = 4096;
+
+/** Resolve OSC 1337 width/height attrs (cells, Npx, N%, auto) into actual
+ *  pixel dimensions plus the number of terminal rows the image should
+ *  occupy in the buffer. Pure function: callers provide all measurements. */
+export function resolveImageLayout(
+  attrs: LayoutAttrs,
+  natural: { width: number; height: number },
+  cell: { width: number; height: number },
+  viewport: { width: number; height: number },
+): ResolvedLayout {
+  const safeNaturalWidth = Math.max(1, natural.width);
+  const safeNaturalHeight = Math.max(1, natural.height);
+  const aspect = safeNaturalWidth / safeNaturalHeight;
+
+  const wAxis = {
+    unitCell: cell.width,
+    unitViewport: viewport.width,
+    natural: safeNaturalWidth,
+  };
+  const hAxis = {
+    unitCell: cell.height,
+    unitViewport: viewport.height,
+    natural: safeNaturalHeight,
+  };
+
+  const w = resolveAxis(attrs.width, wAxis);
+  const h = resolveAxis(attrs.height, hAxis);
+
+  let pxWidth: number;
+  let pxHeight: number;
+
+  if (w != null && h != null) {
+    if (attrs.preserveAspectRatio) {
+      const scale = Math.min(w / safeNaturalWidth, h / safeNaturalHeight);
+      pxWidth = safeNaturalWidth * scale;
+      pxHeight = safeNaturalHeight * scale;
+    } else {
+      pxWidth = w;
+      pxHeight = h;
+    }
+  } else if (w != null) {
+    pxWidth = w;
+    pxHeight = attrs.preserveAspectRatio ? w / aspect : safeNaturalHeight;
+  } else if (h != null) {
+    pxHeight = h;
+    pxWidth = attrs.preserveAspectRatio ? h * aspect : safeNaturalWidth;
+  } else {
+    pxWidth = safeNaturalWidth;
+    pxHeight = safeNaturalHeight;
+  }
+
+  // Keep rendering bounded to the terminal viewport width.
+  if (pxWidth > viewport.width) {
+    const scale = viewport.width / pxWidth;
+    pxWidth = viewport.width;
+    pxHeight *= scale;
+  }
+
+  // Global sanity cap to avoid giant overlays and layout thrash.
+  if (pxHeight > MAX_DIM) {
+    const scale = MAX_DIM / pxHeight;
+    pxHeight = MAX_DIM;
+    pxWidth *= scale;
+  }
+
+  pxWidth = Math.max(1, Math.round(pxWidth));
+  pxHeight = Math.max(1, Math.round(pxHeight));
+
+  return {
+    pxWidth,
+    pxHeight,
+    rowsToReserve: Math.max(1, Math.ceil(pxHeight / Math.max(1, cell.height))),
+  };
+}
+
+function resolveAxis(
+  value: string | null,
+  axis: { unitCell: number; unitViewport: number; natural: number },
+): number | null {
+  if (value == null || value === "" || value === "auto") return null;
+  if (value.endsWith("px")) {
+    const n = Number(value.slice(0, -2));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (value.endsWith("%")) {
+    const n = Number(value.slice(0, -1));
+    return Number.isFinite(n) ? (n / 100) * axis.unitViewport : null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n * axis.unitCell : null;
+}
+
+/** Given an image marker line and current viewport top (absolute buffer
+ *  line), return the overlay pixel top offset relative to viewport top. */
+export function computeOverlayTop(
+  args: { markerLine: number; viewportTop: number },
+  cell: { width: number; height: number },
+): number {
+  return (args.markerLine - args.viewportTop) * cell.height;
+}

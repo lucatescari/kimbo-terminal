@@ -237,13 +237,24 @@ describe("terminal: OSC 8 hyperlinks", () => {
 });
 
 describe("terminal: OSC 1337 inline images", () => {
-  it("imports parseOsc1337InlineImage in terminal.ts", () => {
-    expect(terminalSource).toContain('from "./osc1337"');
-    expect(terminalSource).toContain("parseOsc1337InlineImage");
+  it("imports attachOsc1337Renderer in terminal.ts", () => {
+    expect(terminalSource).toContain('from "./osc1337-renderer"');
+    expect(terminalSource).toContain("attachOsc1337Renderer");
   });
 
-  it("registers OSC 1337 handler", () => {
-    expect(terminalSource).toMatch(/registerOscHandler\s*\(\s*1337\s*,/);
+  it("wires inline renderer and dispose", () => {
+    expect(terminalSource).toMatch(/attachOsc1337Renderer\s*\(/);
+    expect(terminalSource).toMatch(/disposeInlineImages\s*\(\s*\)/);
+  });
+
+  it("runs PTY output through the OSC 1337 cursor-advance preprocessor", () => {
+    // Required so fastfetch's `\x1b[9A` after an inline image lands on
+    // the image's top row (cursor advance has to be spliced into the
+    // same parser chunk as the OSC — it can't be deferred from inside
+    // the OSC handler).
+    expect(terminalSource).toContain('from "./osc1337-preprocess"');
+    expect(terminalSource).toContain("Osc1337CursorAdvancer");
+    expect(terminalSource).toMatch(/\.transform\s*\(\s*\w+\s*\)/);
   });
 });
 

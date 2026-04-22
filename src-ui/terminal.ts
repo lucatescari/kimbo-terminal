@@ -20,7 +20,8 @@ import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
-import { parseOsc1337InlineImage } from "./osc1337";
+import { attachOsc1337Renderer } from "./osc1337-renderer";
+import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 
 export interface TerminalSession {
   id: number;
@@ -144,17 +145,12 @@ export async function createTerminalSession(
     openUrl(uri).catch((e) => console.error("openUrl failed:", e));
   });
 
-  // OSC 1337 iTerm inline images. First milestone: detect and consume payloads
-  // and render a textual marker so base64 control sequences don't pollute the
-  // terminal output. Full bitmap rendering comes next.
-  term.parser.registerOscHandler(1337, (data) => {
-    const image = parseOsc1337InlineImage(data);
-    if (!image) return false;
-    const fileLabel = image.name || "image";
-    const geometry = [image.width, image.height].filter(Boolean).join("x") || "auto";
-    const sizeLabel = image.size != null ? `${image.size} bytes` : "unknown size";
-    term.write(`\r\n[inline image: ${fileLabel}, ${geometry}, ${sizeLabel}]\r\n`);
-    return true;
+  // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
+  // delegated to a dedicated module so terminal.ts stays focused on wiring.
+  const disposeInlineImages = attachOsc1337Renderer(term, container, {
+    onImageClick: (blobUrl) => {
+      openUrl(blobUrl).catch((e) => console.error("openUrl failed:", e));
+    },
   });
 
   // Create backend PTY.
@@ -182,9 +178,22 @@ export async function createTerminalSession(
     return true;
   });
 
-  // Wire output: PTY -> xterm.js
+  // Wire output: PTY -> xterm.js, with an OSC 1337 cursor-advance
+  // preprocessor. The preprocessor splices `\r\n * height` after every
+  // cell-sized inline image so fastfetch's subsequent `\x1b[9A` (cursor
+  // up) lands on the image's top row instead of on prior scrollback. See
+  // osc1337-preprocess.ts for why this can't be done from inside the OSC
+  // handler (term.write there is queued after the current parser chunk).
+  const osc1337Advancer = new Osc1337CursorAdvancer();
+  // PTY bytes are UTF-8. The preprocessor scans for ASCII-only OSC markers,
+  // so we decode to a string first — without this, `this.pending + chunk`
+  // coerces the Uint8Array to its comma-separated decimal form and xterm
+  // renders "27,91,52,..." instead of the escape sequence. `stream: true`
+  // preserves partial UTF-8 code points across chunk boundaries.
+  const ptyDecoder = new TextDecoder("utf-8");
   const unlistenOutput = await onPtyOutput(ptyId, (data) => {
-    term.write(data);
+    const text = ptyDecoder.decode(data, { stream: true });
+    term.write(osc1337Advancer.transform(text));
   });
 
   // Wire input: xterm.js -> PTY
@@ -235,6 +244,7 @@ export async function createTerminalSession(
     container,
     cwd: null,
     dispose() {
+      disposeInlineImages();
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
       unlistenOutput();

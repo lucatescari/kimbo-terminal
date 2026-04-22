@@ -529,6 +529,7 @@ body {
 .split-handle.horizontal { height: 2px; cursor: row-resize; }
 
 .terminal-container {
+  position: relative;
   width: 100%;
   overflow: hidden;
   flex: 1;

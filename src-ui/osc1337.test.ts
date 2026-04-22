@@ -99,3 +99,123 @@ describe("decodeBase64Bytes", () => {
     expect(out!.length).toBe(4);
   });
 });
+
+import { resolveImageLayout } from "./osc1337";
+
+describe("resolveImageLayout", () => {
+  // Shared test fixtures — typical Kimbo cell size, viewport, and 200x100 image.
+  const cell = { width: 8, height: 16 };
+  const viewport = { width: 800, height: 600 };
+  const natural = { width: 200, height: 100 };
+
+  it("resolves auto/auto to natural size, clamped to viewport width", () => {
+    const out = resolveImageLayout(
+      { width: "auto", height: "auto", preserveAspectRatio: true },
+      natural, cell, viewport,
+    );
+    expect(out).toEqual({ pxWidth: 200, pxHeight: 100, rowsToReserve: 7 });
+    // rowsToReserve = ceil(100 / 16) = 7
+  });
+
+  it("resolves cells (integer units)", () => {
+    const out = resolveImageLayout(
+      { width: "10", height: "5", preserveAspectRatio: false },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(80);  // 10 cells * 8 px
+    expect(out.pxHeight).toBe(80); // 5 cells * 16 px
+    expect(out.rowsToReserve).toBe(5);
+  });
+
+  it("resolves Npx literal pixels", () => {
+    const out = resolveImageLayout(
+      { width: "400px", height: "200px", preserveAspectRatio: false },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(400);
+    expect(out.pxHeight).toBe(200);
+  });
+
+  it("resolves N% against viewport", () => {
+    const out = resolveImageLayout(
+      { width: "50%", height: "auto", preserveAspectRatio: true },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(400); // 50% of 800
+    expect(out.pxHeight).toBe(200); // preserved ratio: 400 * (100/200)
+  });
+
+  it("preserves aspect ratio when only one dim given", () => {
+    const out = resolveImageLayout(
+      { width: "100px", height: "auto", preserveAspectRatio: true },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(100);
+    expect(out.pxHeight).toBe(50);
+  });
+
+  it("fit-inside (letterbox) when both dims given and preserveAspectRatio", () => {
+    // Image is 200x100 (2:1). Box is 400x400 (1:1). Fit-inside => 400x200.
+    const out = resolveImageLayout(
+      { width: "400px", height: "400px", preserveAspectRatio: true },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(400);
+    expect(out.pxHeight).toBe(200);
+  });
+
+  it("clamps width to viewport", () => {
+    const out = resolveImageLayout(
+      { width: "2000px", height: "auto", preserveAspectRatio: true },
+      natural, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(800); // clamped
+    expect(out.pxHeight).toBe(400); // preserved ratio
+  });
+
+  it("clamps height to MAX_DIM (4096)", () => {
+    const tall = { width: 100, height: 10000 };
+    const out = resolveImageLayout(
+      { width: "auto", height: "auto", preserveAspectRatio: true },
+      tall, cell, viewport,
+    );
+    expect(out.pxHeight).toBeLessThanOrEqual(4096);
+  });
+
+  it("allows explicit upscale requests when dimensions are provided", () => {
+    const tiny = { width: 10, height: 10 };
+    const out = resolveImageLayout(
+      { width: "500px", height: "500px", preserveAspectRatio: true },
+      tiny, cell, viewport,
+    );
+    expect(out.pxWidth).toBe(500);
+    expect(out.pxHeight).toBe(500);
+  });
+
+  it("rowsToReserve is ceil(pxHeight / cellHeight)", () => {
+    const out = resolveImageLayout(
+      { width: "auto", height: "33px", preserveAspectRatio: false },
+      natural, cell, viewport,
+    );
+    expect(out.pxHeight).toBe(33);
+    expect(out.rowsToReserve).toBe(3); // ceil(33 / 16)
+  });
+});
+
+import { computeOverlayTop } from "./osc1337";
+
+describe("computeOverlayTop", () => {
+  const cell = { width: 8, height: 16 };
+
+  it("returns top=0 when marker is at first visible row", () => {
+    expect(computeOverlayTop({ markerLine: 10, viewportTop: 10 }, cell)).toBe(0);
+  });
+
+  it("returns positive top when marker is below viewport top", () => {
+    expect(computeOverlayTop({ markerLine: 15, viewportTop: 10 }, cell)).toBe(80);
+  });
+
+  it("returns negative top when marker has scrolled above viewport", () => {
+    expect(computeOverlayTop({ markerLine: 7, viewportTop: 10 }, cell)).toBe(-48);
+  });
+});
