@@ -109,3 +109,24 @@ export function sniffBitmapFormat(bytes: Uint8Array): BitmapFormat | null {
     return "webp";
   return null;
 }
+
+/** Decode a base64 string to a Uint8Array, rejecting inputs whose decoded
+ *  size would exceed `maxBytes` and inputs that aren't valid base64.
+ *  Pre-estimates size from length so we can reject a 1 GB payload before
+ *  allocating anything. Tolerates whitespace (OSC payloads sometimes
+ *  arrive line-wrapped). */
+export function decodeBase64Bytes(data: string, maxBytes: number): Uint8Array | null {
+  if (!data) return null;
+  const sanitized = data.replace(/\s+/g, "");
+  if (!sanitized) return null;
+  const estimated = estimateBase64Bytes(sanitized);
+  if (estimated == null || estimated > maxBytes) return null;
+  try {
+    const binary = atob(sanitized);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}

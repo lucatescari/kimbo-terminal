@@ -69,3 +69,33 @@ describe("sniffBitmapFormat", () => {
     expect(sniffBitmapFormat(new Uint8Array([]))).toBeNull();
   });
 });
+
+import { decodeBase64Bytes } from "./osc1337";
+
+describe("decodeBase64Bytes", () => {
+  it("decodes valid base64 to Uint8Array", () => {
+    // "abcd" base64 = "YWJjZA=="
+    const out = decodeBase64Bytes("YWJjZA==", 1024);
+    expect(out).not.toBeNull();
+    expect(Array.from(out!)).toEqual([97, 98, 99, 100]);
+  });
+
+  it("returns null when decoded size exceeds maxBytes", () => {
+    // 8 base64 chars => 6 bytes decoded; cap at 5 → reject
+    expect(decodeBase64Bytes("YWJjZGVm", 5)).toBeNull();
+  });
+
+  it("returns null for invalid base64", () => {
+    expect(decodeBase64Bytes("!!!not-base64!!!", 1024)).toBeNull();
+  });
+
+  it("returns null for empty input", () => {
+    expect(decodeBase64Bytes("", 1024)).toBeNull();
+  });
+
+  it("tolerates whitespace in payload", () => {
+    const out = decodeBase64Bytes("YWJj\n  ZA==", 1024);
+    expect(out).not.toBeNull();
+    expect(out!.length).toBe(4);
+  });
+});
