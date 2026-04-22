@@ -393,4 +393,16 @@ describe("Tab bar scroll region structure", () => {
     expect(children.indexOf(scrollRegion!)).toBeLessThan(children.indexOf(rightArrow!));
     expect(children.indexOf(rightArrow!)).toBeLessThan(children.indexOf(newBtn!));
   });
+
+  it("scroll arrows are hidden when all tabs fit (no overflow)", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    const leftArrow = h.tabBar.querySelector(".tab-scroll-arrow.left");
+    const rightArrow = h.tabBar.querySelector(".tab-scroll-arrow.right");
+
+    // In jsdom, scrollWidth === clientWidth (no real layout), so arrows should be hidden
+    expect(leftArrow!.classList.contains("visible")).toBe(false);
+    expect(rightArrow!.classList.contains("visible")).toBe(false);
+  });
 });

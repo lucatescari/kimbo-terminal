@@ -46,6 +46,13 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   tabBarEl = tabBar;
   terminalAreaEl = terminalArea;
   initPanes(terminalArea);
+
+  tabBarEl.addEventListener("scroll", () => updateScrollArrows(), { capture: true });
+
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => updateScrollArrows());
+    ro.observe(tabBarEl);
+  }
 }
 
 export async function createTab(cwd?: string): Promise<Tab> {
