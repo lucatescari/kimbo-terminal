@@ -326,11 +326,51 @@ body {
   border-bottom: 1px solid var(--divider);
   height: 38px;
   flex-shrink: 0;
+}
+
+.tab-scroll-region {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
   padding: 0 4px;
   gap: 2px;
-  overflow-x: auto;
 }
-#tab-bar::-webkit-scrollbar { display: none; }
+.tab-scroll-region::-webkit-scrollbar { display: none; }
+
+.tab-scroll-arrow {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+  padding: 0;
+}
+.tab-scroll-arrow:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.tab-scroll-arrow.visible {
+  display: flex;
+}
+
+.tab.dragging {
+  position: relative;
+  z-index: 10;
+  opacity: 0.92;
+  transform: scale(1.04);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tab.drag-shifting {
+  transition: transform 150ms ease-out;
+}
 
 .tab {
   display: flex;
@@ -417,6 +457,8 @@ body {
 
 /* Pill style */
 #tab-bar[data-style="pill"] {
+}
+#tab-bar[data-style="pill"] .tab-scroll-region {
   padding: 6px 6px 4px;
   gap: 4px;
 }
@@ -434,6 +476,8 @@ body {
 
 /* Chevron style */
 #tab-bar[data-style="chevron"] {
+}
+#tab-bar[data-style="chevron"] .tab-scroll-region {
   padding: 0;
   gap: 0;
 }
