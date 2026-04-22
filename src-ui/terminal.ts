@@ -4,6 +4,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   createPty,
@@ -106,13 +107,59 @@ export async function createTerminalSession(
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
   // context lost on display sleep).
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (e) {
-    console.warn("WebGL renderer unavailable, falling back to default:", e);
-  }
+  //
+  // WKWebView often fires WebGL context loss when the window is backgrounded.
+  // We dispose the addon on loss (xterm requirement), but we must load a new
+  // WebglAddon when the user returns — otherwise the session stays on the
+  // Canvas renderer permanently and translucent/DIM compositing no longer
+  // matches the stream filter in ansi-bg-transparent.ts.
+  let webglAddon: WebglAddon | null = null;
+
+  const tryLoadWebglAddon = (): void => {
+    if (webglAddon) return;
+    try {
+      const w = new WebglAddon();
+      w.onContextLoss(() => {
+        webglAddon = null;
+        try {
+          w.dispose();
+        } catch {
+          /* ignore */
+        }
+      });
+      term.loadAddon(w);
+      webglAddon = w;
+    } catch (e) {
+      console.warn("WebGL renderer unavailable, falling back to default:", e);
+    }
+  };
+
+  tryLoadWebglAddon();
+
+  const restoreWebglAfterContextLoss = (): void => {
+    if (document.visibilityState !== "visible") return;
+    // Defer one frame: WKWebView sometimes isn't ready to create a new GL
+    // context synchronously on the same tick as focus/visibility.
+    requestAnimationFrame(() => {
+      tryLoadWebglAddon();
+      fit.fit();
+    });
+  };
+  window.addEventListener("focus", restoreWebglAfterContextLoss);
+  document.addEventListener("visibilitychange", restoreWebglAfterContextLoss);
+
+  /** Native window focus — DOM `window` focus does not always track Cmd-Tab in Tauri/WKWebView. */
+  let unlistenTauriFocus: (() => void) | undefined;
+  void getCurrentWindow()
+    .onFocusChanged(({ payload: focused }) => {
+      if (focused) restoreWebglAfterContextLoss();
+    })
+    .then((unlisten) => {
+      unlistenTauriFocus = unlisten;
+    })
+    .catch(() => {
+      /* No Tauri bridge (e.g. vitest). */
+    });
 
   registerTerminal(term);
   // NOTE: the element passed to us by createLeaf is still detached from the
@@ -276,6 +323,9 @@ export async function createTerminalSession(
     cwd: null,
     dispose() {
       disposeInlineImages();
+      window.removeEventListener("focus", restoreWebglAfterContextLoss);
+      document.removeEventListener("visibilitychange", restoreWebglAfterContextLoss);
+      unlistenTauriFocus?.();
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
       unlistenOutput();

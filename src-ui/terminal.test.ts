@@ -70,6 +70,15 @@ describe("terminal: WebGL renderer", () => {
     expect(terminalSource).toMatch(/try\s*\{[\s\S]*?new WebglAddon/);
     expect(terminalSource).toContain("onContextLoss");
   });
+
+  it("reattaches WebGL after context loss when the window regains focus or visibility", () => {
+    expect(terminalSource).toContain('addEventListener("focus"');
+    expect(terminalSource).toContain('addEventListener("visibilitychange"');
+    expect(terminalSource).toContain("restoreWebglAfterContextLoss");
+    expect(terminalSource).toContain('from "@tauri-apps/api/window"');
+    expect(terminalSource).toContain("getCurrentWindow");
+    expect(terminalSource).toContain("onFocusChanged");
+  });
 });
 
 describe("terminal: Unicode 11 widths", () => {

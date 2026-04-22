@@ -65,37 +65,77 @@ describe("Osc1337CursorAdvancer non-injection cases", () => {
   it("does not inject for px dimensions", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=400px;height=200px");
-    expect(adv.transform(o)).toBe(o);
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
   });
 
   it("does not inject for percent dimensions", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=50%;height=auto");
-    expect(adv.transform(o)).toBe(o);
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
   });
 
   it("does not inject for auto dimensions", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=auto;height=auto");
-    expect(adv.transform(o)).toBe(o);
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
   });
 
   it("does not inject when only width is cell-sized", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=28;height=auto");
-    expect(adv.transform(o)).toBe(o);
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
   });
 
   it("does not inject when only height is cell-sized", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=auto;height=9");
-    expect(adv.transform(o)).toBe(o);
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
   });
 
   it("does not inject for zero or negative cell counts", () => {
     const adv = new Osc1337CursorAdvancer();
     const o = osc("inline=1;width=0;height=9");
+    expect(adv.transform(o)).toBe(o + "\r\n".repeat(12));
+  });
+
+  it("does not inject fallback rows for non-inline File payloads", () => {
+    const adv = new Osc1337CursorAdvancer();
+    const o = osc("inline=0;width=auto;height=auto");
     expect(adv.transform(o)).toBe(o);
+  });
+});
+
+describe("Osc1337CursorAdvancer multipart mode", () => {
+  it("injects rows on FileEnd when MultipartFile has cell width/height", () => {
+    const adv = new Osc1337CursorAdvancer();
+    const start = "\x1b]1337;MultipartFile=inline=1;width=28;height=9\x07";
+    const part = "\x1b]1337;FilePart=YWJjZA==\x07";
+    const end = "\x1b]1337;FileEnd\x07";
+    const out = adv.transform(`${start}${part}${end}`);
+    expect(out).toBe(`${start}${part}${end}${"\r\n".repeat(9)}`);
+  });
+
+  it("does not inject for multipart when dimensions are non-cell values", () => {
+    const adv = new Osc1337CursorAdvancer();
+    const start = "\x1b]1337;MultipartFile=inline=1;width=50%;height=auto\x07";
+    const end = "\x1b]1337;FileEnd\x07";
+    expect(adv.transform(`${start}${end}`)).toBe(`${start}${end}${"\r\n".repeat(12)}`);
+  });
+
+  it("does not inject until FileEnd arrives (missing end keeps layout untouched)", () => {
+    const adv = new Osc1337CursorAdvancer();
+    const start = "\x1b]1337;MultipartFile=inline=1;width=28;height=9\x07";
+    const part = "\x1b]1337;FilePart=YWJjZA==\x07";
+    expect(adv.transform(`${start}${part}`)).toBe(`${start}${part}`);
+  });
+
+  it("preserves interleaved non-image output between multipart chunks", () => {
+    const adv = new Osc1337CursorAdvancer();
+    const start = "\x1b]1337;MultipartFile=inline=1;width=28;height=9\x07";
+    const part = "\x1b]1337;FilePart=YWJjZA==\x07";
+    const end = "\x1b]1337;FileEnd\x07";
+    const out = adv.transform(`${start}hello\r\n${part}world${end}`);
+    expect(out).toBe(`${start}hello\r\n${part}world${end}${"\r\n".repeat(9)}`);
   });
 });
 

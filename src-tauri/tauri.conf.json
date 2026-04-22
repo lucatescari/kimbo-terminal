@@ -17,6 +17,7 @@
         "height": 800,
         "decorations": false,
         "transparent": true,
+        "backgroundThrottling": "disabled",
         "shadow": true,
         "minWidth": 600,
         "minHeight": 400

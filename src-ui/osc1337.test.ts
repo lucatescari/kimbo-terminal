@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseOsc1337InlineImage } from "./osc1337";
+import { parseOsc1337InlineImage, parseOsc1337MultipartStart } from "./osc1337";
 
 describe("parseOsc1337InlineImage", () => {
   it("parses a valid inline-image payload", () => {
@@ -25,6 +25,26 @@ describe("parseOsc1337InlineImage", () => {
   it("returns null for non-1337 image payloads", () => {
     expect(parseOsc1337InlineImage("foo=bar")).toBeNull();
     expect(parseOsc1337InlineImage("")).toBeNull();
+  });
+});
+
+describe("parseOsc1337MultipartStart", () => {
+  it("parses multipart metadata payload", () => {
+    const msg = parseOsc1337MultipartStart(
+      "MultipartFile=name=Y2F0LmpwZw==;width=28;height=9;inline=1;size=2048",
+    );
+    expect(msg).toEqual({
+      name: "cat.jpg",
+      width: "28",
+      height: "9",
+      preserveAspectRatio: true,
+      inline: true,
+      size: null,
+    });
+  });
+
+  it("returns null for non-multipart payloads", () => {
+    expect(parseOsc1337MultipartStart("File=inline=1:YWJjZA==")).toBeNull();
   });
 });
 
@@ -199,6 +219,18 @@ describe("resolveImageLayout", () => {
     );
     expect(out.pxHeight).toBe(33);
     expect(out.rowsToReserve).toBe(3); // ceil(33 / 16)
+  });
+
+  it("conservatively clamps auto-sized images to 40 cols x 12 rows", () => {
+    const out = resolveImageLayout(
+      { width: "auto", height: "auto", preserveAspectRatio: true },
+      { width: 2000, height: 1000 },
+      cell,
+      viewport,
+    );
+    expect(out.pxWidth).toBeLessThanOrEqual(320); // 40 * 8
+    expect(out.pxHeight).toBeLessThanOrEqual(192); // 12 * 16
+    expect(out.rowsToReserve).toBeLessThanOrEqual(12);
   });
 });
 

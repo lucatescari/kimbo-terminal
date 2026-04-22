@@ -2,6 +2,7 @@ import type { Terminal } from "@xterm/xterm";
 import {
   decodeBase64Bytes,
   parseOsc1337InlineImage,
+  parseOsc1337MultipartStart,
   resolveImageLayout,
   sniffBitmapFormat,
 } from "./osc1337";
@@ -26,6 +27,9 @@ export function attachOsc1337Renderer(
   container: HTMLElement,
   opts: AttachOptions = {},
 ): () => void {
+  let multipartMeta: NonNullable<ReturnType<typeof parseOsc1337MultipartStart>> | null = null;
+  let multipartParts: string[] = [];
+
   const fallbackMarker = (
     parsed: NonNullable<ReturnType<typeof parseOsc1337InlineImage>>,
     reason?: string,
@@ -143,6 +147,34 @@ export function attachOsc1337Renderer(
   };
 
   const oscHandler = (data: string): boolean => {
+    const multipartStart = parseOsc1337MultipartStart(data);
+    if (multipartStart) {
+      multipartMeta = multipartStart;
+      multipartParts = [];
+      return true;
+    }
+
+    if (data.startsWith("FilePart=")) {
+      if (multipartMeta) multipartParts.push(data.slice("FilePart=".length));
+      return true;
+    }
+
+    if (data === "FileEnd") {
+      if (!multipartMeta) return true;
+      const parsed = multipartMeta;
+      const base64 = multipartParts.join("");
+      multipartMeta = null;
+      multipartParts = [];
+      if (!parsed.inline) {
+        fallbackMarker(parsed, "download-only, not rendered");
+        return true;
+      }
+      const markerColumn = term.buffer.active.cursorX;
+      const marker = term.registerMarker(0);
+      void renderImage(parsed, base64, marker, markerColumn);
+      return true;
+    }
+
     const parsed = parseOsc1337InlineImage(data);
     if (!parsed) return false;
     if (!parsed.inline) {

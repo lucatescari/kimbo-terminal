@@ -7,6 +7,9 @@ export interface Osc1337InlineImage {
   size: number | null;
 }
 
+const DEFAULT_MAX_COLS = 40;
+const DEFAULT_MAX_ROWS = 12;
+
 /** Parse iTerm2 OSC 1337 inline-image payloads:
  *  `File=key=value;key=value:BASE64_DATA`.
  *  Returns metadata even when data is omitted/invalid so callers can still
@@ -18,36 +21,22 @@ export function parseOsc1337InlineImage(payload: string): Osc1337InlineImage | n
   const attrsRaw = payload.slice("File=".length, colon);
   const dataRaw = payload.slice(colon + 1);
 
-  const attrs = new Map<string, string>();
-  for (const pair of attrsRaw.split(";")) {
-    if (!pair) continue;
-    const eq = pair.indexOf("=");
-    if (eq < 0) continue;
-    attrs.set(pair.slice(0, eq), pair.slice(eq + 1));
-  }
-
-  const nameB64 = attrs.get("name");
-  let name: string | null = null;
-  if (nameB64) {
-    try {
-      name = decodeBase64Text(nameB64);
-    } catch {
-      name = null;
-    }
-  }
+  const attrs = parseAttrs(attrsRaw);
 
   const sizeAttr = attrs.get("size");
   const parsedSize = sizeAttr ? Number(sizeAttr) : NaN;
   const estimatedSize = estimateBase64Bytes(dataRaw);
 
-  return {
-    name,
-    width: attrs.get("width") ?? null,
-    height: attrs.get("height") ?? null,
-    preserveAspectRatio: attrs.get("preserveAspectRatio") !== "0",
-    inline: attrs.get("inline") === "1",
-    size: Number.isFinite(parsedSize) ? parsedSize : estimatedSize,
-  };
+  return toInlineImage(attrs, Number.isFinite(parsedSize) ? parsedSize : estimatedSize);
+}
+
+/** Parse multipart start payload:
+ *  `MultipartFile=key=value;key=value`
+ *  No data body is present yet; parts arrive in subsequent FilePart events. */
+export function parseOsc1337MultipartStart(payload: string): Osc1337InlineImage | null {
+  if (!payload || !payload.startsWith("MultipartFile=")) return null;
+  const attrsRaw = payload.slice("MultipartFile=".length);
+  return toInlineImage(parseAttrs(attrsRaw), null);
 }
 
 function decodeBase64Text(data: string): string {
@@ -195,6 +184,16 @@ export function resolveImageLayout(
     pxHeight = safeNaturalHeight;
   }
 
+  // Conservative default mode for terminal flow when callers don't specify
+  // dimensions: keep images reasonably small and text-friendly by default.
+  if (isAutoLike(attrs.width) && isAutoLike(attrs.height)) {
+    const maxDefaultWidth = DEFAULT_MAX_COLS * Math.max(1, cell.width);
+    const maxDefaultHeight = DEFAULT_MAX_ROWS * Math.max(1, cell.height);
+    const scale = Math.min(maxDefaultWidth / pxWidth, maxDefaultHeight / pxHeight, 1);
+    pxWidth *= scale;
+    pxHeight *= scale;
+  }
+
   // Keep rendering bounded to the terminal viewport width.
   if (pxWidth > viewport.width) {
     const scale = viewport.width / pxWidth;
@@ -234,6 +233,42 @@ function resolveAxis(
   }
   const n = Number(value);
   return Number.isFinite(n) ? n * axis.unitCell : null;
+}
+
+function parseAttrs(attrsRaw: string): Map<string, string> {
+  const attrs = new Map<string, string>();
+  for (const pair of attrsRaw.split(";")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    attrs.set(pair.slice(0, eq), pair.slice(eq + 1));
+  }
+  return attrs;
+}
+
+function toInlineImage(attrs: Map<string, string>, size: number | null): Osc1337InlineImage {
+  const nameB64 = attrs.get("name");
+  let name: string | null = null;
+  if (nameB64) {
+    try {
+      name = decodeBase64Text(nameB64);
+    } catch {
+      name = null;
+    }
+  }
+
+  return {
+    name,
+    width: attrs.get("width") ?? null,
+    height: attrs.get("height") ?? null,
+    preserveAspectRatio: attrs.get("preserveAspectRatio") !== "0",
+    inline: attrs.get("inline") === "1",
+    size,
+  };
+}
+
+function isAutoLike(v: string | null): boolean {
+  return v == null || v === "" || v === "auto";
 }
 
 /** Given an image marker line and current viewport top (absolute buffer

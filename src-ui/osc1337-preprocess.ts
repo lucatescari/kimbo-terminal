@@ -28,6 +28,17 @@
  */
 export class Osc1337CursorAdvancer {
   private pending = "";
+  private pendingMultipartRows = 0;
+
+  storeMultipartRows(rows: number): void {
+    this.pendingMultipartRows = rows;
+  }
+
+  consumeMultipartRows(): number {
+    const rows = this.pendingMultipartRows;
+    this.pendingMultipartRows = 0;
+    return rows;
+  }
 
   transform(chunk: string): string {
     const combined = this.pending + chunk;
@@ -69,7 +80,7 @@ export class Osc1337CursorAdvancer {
       const osc = combined.slice(oscStart, oscEnd);
       out += osc;
 
-      const cellRows = parseCellHeight(osc);
+      const cellRows = parseCellHeight(osc, this);
       if (cellRows > 0) {
         out += "\r\n".repeat(cellRows);
       }
@@ -85,10 +96,12 @@ export class Osc1337CursorAdvancer {
    *  bytes can't glue onto the next real chunk. */
   reset(): void {
     this.pending = "";
+    this.pendingMultipartRows = 0;
   }
 }
 
 const OSC_1337_PREFIX = "\x1b]1337;";
+const DEFAULT_AUTO_ROWS = 12;
 
 /** Find BEL or ST terminator after `from`. Returns the position and the
  *  terminator length (1 for BEL, 2 for ST). Base64 data never contains
@@ -123,23 +136,47 @@ function findTrailingPartialPrefix(s: string, from: number): number {
 /** Given a complete OSC 1337 sequence (from `\x1b]1337;` through its
  *  terminator inclusive), return `height` in cells if the payload is
  *  `File=…width=<int>…height=<int>…:<data>`. Returns 0 otherwise. */
-function parseCellHeight(osc: string): number {
+function parseCellHeight(osc: string, state: Osc1337CursorAdvancer): number {
   const attrsStart = OSC_1337_PREFIX.length;
-  const colon = osc.indexOf(":", attrsStart);
-  if (colon < 0) return 0;
-  const attrsRaw = osc.slice(attrsStart, colon);
+  const tail = osc.slice(attrsStart, osc.endsWith("\x1b\\") ? -2 : -1);
+  const colon = tail.indexOf(":");
+  const attrsRaw = colon >= 0 ? tail.slice(0, colon) : tail;
+
+  if (attrsRaw.startsWith("MultipartFile=")) {
+    state.storeMultipartRows(parseRowsFromFileAttrs(attrsRaw.slice("MultipartFile=".length)));
+    return 0;
+  }
+
+  if (attrsRaw === "FileEnd") {
+    return state.consumeMultipartRows();
+  }
+
+  if (attrsRaw.startsWith("FilePart=")) return 0;
+
   if (!attrsRaw.startsWith("File=")) return 0;
+  return parseRowsFromFileAttrs(attrsRaw.slice("File=".length));
+}
+
+function parseRowsFromFileAttrs(attrs: string): number {
   let width = "";
   let height = "";
-  for (const pair of attrsRaw.slice("File=".length).split(";")) {
+  let inline = "";
+  for (const pair of attrs.split(";")) {
     const eq = pair.indexOf("=");
     if (eq < 0) continue;
     const key = pair.slice(0, eq);
     if (key === "width") width = pair.slice(eq + 1);
     else if (key === "height") height = pair.slice(eq + 1);
+    else if (key === "inline") inline = pair.slice(eq + 1);
   }
-  if (!isPositiveInteger(width) || !isPositiveInteger(height)) return 0;
-  return Number(height);
+
+  // Exact cell-sized dimensions: preserve the precise iTerm-like cursor advance.
+  if (isPositiveInteger(width) && isPositiveInteger(height)) return Number(height);
+
+  // For inline images with non-cell sizing (auto/px/%/missing), reserve a
+  // conservative default so subsequent shell output never overlays the image.
+  if (inline === "1") return DEFAULT_AUTO_ROWS;
+  return 0;
 }
 
 function isPositiveInteger(s: string): boolean {

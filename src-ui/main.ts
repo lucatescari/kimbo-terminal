@@ -147,6 +147,15 @@ async function init() {
   // process and this listener is torn down along with the runtime.
   await listen("quit-requested", () => { void confirmAndQuit(); });
 
+  // After native translucency + WKWebView fixes on refocus, nudge CSS + xterm so
+  // --app-alpha and WebGL/canvas layers repaint (see commands/window.rs).
+  await listen("kimbo-window-focused", () => {
+    requestAnimationFrame(() => {
+      applyRoot();
+      fitAllPanes();
+    });
+  });
+
   // Handle window resize.
   const resizeObserver = new ResizeObserver(() => {
     fitAllPanes();
