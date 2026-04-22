@@ -367,6 +367,63 @@ describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
   });
 });
 
+describe("Tab reordering", () => {
+  it("reorderTab moves a tab from one index to another", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    const tabC = await h.tabs.createTab();
+
+    // Move tab C (index 2) to index 0
+    h.tabs.reorderTab(2, 0);
+
+    // Tab buttons in scroll region should be C, A, B
+    const scrollRegion = h.tabBar.querySelector(".tab-scroll-region")!;
+    const tabEls = scrollRegion.querySelectorAll(".tab");
+    expect(tabEls[0].getAttribute("data-tab-id")).toBe(String(tabC.id));
+    expect(tabEls[1].getAttribute("data-tab-id")).toBe(String(tabA.id));
+    expect(tabEls[2].getAttribute("data-tab-id")).toBe(String(tabB.id));
+  });
+
+  it("reorderTab updates Cmd+1-9 mapping (visual order)", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    const tabC = await h.tabs.createTab();
+
+    // Move tab C (index 2) to index 0
+    h.tabs.reorderTab(2, 0);
+
+    // switchToTab(0) should now activate tab C
+    h.tabs.switchToTab(0);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabC.id);
+
+    // switchToTab(2) should now activate tab B
+    h.tabs.switchToTab(2);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabB.id);
+  });
+
+  it("reorderTab is a no-op if from === to", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    await h.tabs.createTab();
+
+    h.tabs.switchTab(tabB.id);
+    h.tabs.reorderTab(1, 1);
+
+    expect(h.tabs.getActiveTab()?.id).toBe(tabB.id);
+  });
+
+  it("reorderTab with only one tab is a no-op", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+
+    h.tabs.reorderTab(0, 0);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabA.id);
+  });
+});
+
 describe("Tab bar scroll region structure", () => {
   it("renderTabBar creates scroll arrows + scroll region + new-tab button", async () => {
     const h = await mount();

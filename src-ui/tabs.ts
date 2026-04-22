@@ -173,6 +173,15 @@ export function switchToTab(n: number) {
   }
 }
 
+export function reorderTab(fromIndex: number, toIndex: number) {
+  if (fromIndex === toIndex) return;
+  if (fromIndex < 0 || fromIndex >= tabs.length) return;
+  if (toIndex < 0 || toIndex >= tabs.length) return;
+  const [tab] = tabs.splice(fromIndex, 1);
+  tabs.splice(toIndex, 0, tab);
+  renderTabBar();
+}
+
 export function getActiveTab(): Tab | undefined {
   return tabs.find((t) => t.id === activeTabId);
 }
