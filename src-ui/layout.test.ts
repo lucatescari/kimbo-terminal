@@ -100,8 +100,8 @@ describe("title bar", () => {
   it("title bar has a fixed height", () => {
     expect(titleBarRules).toMatch(/height:\s*36px/);
   });
-  it("uses --bg-titlebar", () => {
-    expect(titleBarRules).toMatch(/background:\s*var\(--bg-titlebar\)/);
+  it("uses --bg-titlebar via color-mix alpha-aware background", () => {
+    expect(titleBarRules).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--bg-titlebar\)/);
   });
 });
 
@@ -110,8 +110,8 @@ describe("tab bar (handoff design)", () => {
   const tabRule = css.match(/\.tab\s*\{([^}]*)\}/)?.[1] ?? "";
   const tabBarRule = css.match(/#tab-bar\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  it("active tab background matches terminal area (--bg)", () => {
-    expect(activeRule).toMatch(/background:\s*var\(--bg\)/);
+  it("active tab background matches terminal area (--bg) via color-mix", () => {
+    expect(activeRule).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--bg\)/);
   });
 
   it("tab bar uses monospace font", () => {

@@ -100,7 +100,7 @@ describe("window frame: body + html MUST NOT paint the corners", () => {
   });
 
   it("#app-frame is the one with the opaque background (the visible window surface)", () => {
-    expect(frameRules).toMatch(/background:\s*var\(--bg\)/);
+    expect(frameRules).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--bg\)/);
   });
 
   it("#app-frame has overflow: hidden (clips children to the radius)", () => {

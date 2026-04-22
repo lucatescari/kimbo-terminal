@@ -160,6 +160,71 @@ pub fn install_theme(
     Ok(())
 }
 
+/// Install a theme from a local `.json` file the user picked via the dialog.
+/// Validates the payload, writes it to `~/.config/kimbo/themes/{slug}.json`,
+/// and re-emits the unified list so the gallery refreshes without a manual
+/// reload. The slug is derived from the file's stem (e.g.
+/// `/Users/x/tokyo-night.json` → `tokyo-night`) with only ASCII letters,
+/// digits, and `-`/`_` kept. Refuses to overwrite a built-in slug.
+#[tauri::command]
+pub fn install_theme_from_file(
+    app: AppHandle,
+    state: State<'_, ThemeState>,
+    file_path: String,
+    active_slug: Option<String>,
+) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&file_path);
+    let body = std::fs::read_to_string(&src)
+        .map_err(|e| format!("read '{}': {}", src.display(), e))?;
+    let _validated: JsonTheme =
+        serde_json::from_str(&body).map_err(|e| format!("invalid theme: {}", e))?;
+
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "file has no stem".to_string())?;
+    let slug = sanitize_slug(stem);
+    if slug.is_empty() {
+        return Err(format!(
+            "could not derive a slug from filename '{}'",
+            src.display()
+        ));
+    }
+    if BUILTIN_JSON_NAMES.iter().any(|b| *b == slug) {
+        return Err(format!(
+            "'{}' collides with a built-in theme — rename the file and try again",
+            slug
+        ));
+    }
+
+    let dir = kimbo_config::AppConfig::config_dir().join("themes");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir failed: {}", e))?;
+    let dst = dir.join(format!("{}.json", slug));
+    std::fs::write(&dst, &body).map_err(|e| format!("write failed: {}", e))?;
+
+    log::info!(
+        "install_theme_from_file: wrote '{}' from {}",
+        slug,
+        src.display()
+    );
+
+    let active = active_slug.unwrap_or_default();
+    let cache = state.cache.clone();
+    tauri::async_runtime::spawn(async move {
+        emit_full_list(app, cache, active);
+    });
+    Ok(slug)
+}
+
+/// Keep lowercase ASCII letters/digits/`-`/`_`, drop everything else. Used
+/// to turn an arbitrary filename stem into a safe theme slug.
+fn sanitize_slug(stem: &str) -> String {
+    stem.chars()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect()
+}
+
 /// Delete an installed community theme. Refuses Builtin and the active theme.
 #[tauri::command]
 pub fn delete_theme(

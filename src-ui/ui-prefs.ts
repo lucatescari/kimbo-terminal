@@ -25,7 +25,8 @@ export interface UiPrefs {
   confirmQuit: boolean;
   /** General → New window position. Coming soon. */
   newWindowPosition: NewWindowPosition;
-  /** General → Background opacity (60–100). Coming soon. */
+  /** General → Background opacity (0–100). Settings slider is enabled on
+   *  macOS only; value is always written to --app-alpha by applyRoot(). */
   backgroundOpacity: number;
   /** Advanced → GPU rendering. Coming soon (xterm already uses WebGL). */
   gpuRendering: boolean;
@@ -39,6 +40,10 @@ export interface UiPrefs {
   fontSmoothing: FontSmoothing;
   /** General → Open on launch. "last" — restore, "home" — home dir, "workspace" — last workspace. */
   startup: "last" | "home" | "workspace";
+  /** Appearance → Treat ANSI black bg as default (transparent).
+   *  When on, CLI tools that emit green-on-black labels (vite/tauri/chalk)
+   *  render with the window's translucent bg instead of an opaque rectangle. */
+  transparentBlackBg: boolean;
 }
 
 const DEFAULTS: UiPrefs = {
@@ -55,6 +60,7 @@ const DEFAULTS: UiPrefs = {
   releaseChannel: "stable",
   fontSmoothing: "subpixel",
   startup: "last",
+  transparentBlackBg: true,
 };
 
 let cache: UiPrefs | null = null;
@@ -103,6 +109,12 @@ export function applyRoot(): void {
   // Tab-style attribute on tab bar.
   const bar = document.getElementById("tab-bar");
   if (bar) bar.dataset.style = prefs.tabStyle;
+
+  // Window translucency alpha. At 100 → "1" (fully opaque; the vibrancy
+  // layer mounted on the Rust side is hidden). Below 100 scales the
+  // chrome fill so the blur shows through. Single source of truth for
+  // all chrome surfaces; see style.css #app-frame, #title-bar, tab fills.
+  root.style.setProperty("--app-alpha", String(prefs.backgroundOpacity / 100));
 }
 
 type Listener = (p: UiPrefs) => void;

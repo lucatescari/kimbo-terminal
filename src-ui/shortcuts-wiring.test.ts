@@ -68,8 +68,8 @@ describe("keys.ts: every shortcut binds to a real dispatch target", () => {
     expectShortcut({ key: "t", handler: "createTab" });
   });
 
-  it("Cmd+Shift+W → closeTab (by id, via getActiveTab)", () => {
-    expectShortcut({ key: "w", shift: true, handler: "closeTab" });
+  it("Cmd+Shift+W → confirmAndCloseActiveTab (routes through the busy-check arbiter)", () => {
+    expectShortcut({ key: "w", shift: true, handler: "confirmAndCloseActiveTab" });
   });
 
   it("Cmd+] → nextTab", () => {
@@ -105,11 +105,16 @@ describe("keys.ts: every shortcut binds to a real dispatch target", () => {
    * including a single-pane tab. `closeActive` alone is NOT enough —
    * it silently bails out on a leaf tree.
    */
-  it("Cmd+W → closeActiveOrTab (NOT closeActive — that was the v0.3.0 bug)", () => {
-    expectShortcut({ key: "w", handler: "closeActiveOrTab" });
-    // Guard: the old bail-out-silently target is never directly wired to Cmd+W.
+  it("Cmd+W → confirmAndCloseActive (routes through the busy-check arbiter)", () => {
+    expectShortcut({ key: "w", handler: "confirmAndCloseActive" });
+    // Guard: the old v0.3.0 bail-out-silently target is never directly wired.
     const bad = /\{\s*key:\s*"w"[^}]*meta:\s*true[^}]*action:\s*\(\)\s*=>\s*closeActive\(\)\s*\}/;
     expect(keysSource).not.toMatch(bad);
+    // And the pre-confirm direct-close wiring is gone too — the whole point
+    // of this refactor was to put a dialog between Cmd+W and pane destruction
+    // when a child process is running.
+    const oldDirect = /\{\s*key:\s*"w"[^}]*meta:\s*true[^}]*action:\s*\(\)\s*=>\s*closeActiveOrTab\(\)\s*\}/;
+    expect(keysSource).not.toMatch(oldDirect);
   });
 
   // --- Pane focus ---
@@ -134,17 +139,20 @@ describe("keys.ts: every shortcut binds to a real dispatch target", () => {
   });
 
   // --- App-level ---
-  it("Cmd+Q → invoke quit_app", () => {
-    const re = /\{\s*key:\s*"q"[^}]*action:[^}]*invoke\("quit_app"\)/;
-    expect(keysSource).toMatch(re);
+  it("Cmd+Q → confirmAndQuit (routes through the pref-aware arbiter)", () => {
+    expectShortcut({ key: "q", handler: "confirmAndQuit" });
   });
 
   it("Cmd+, → toggleSettings", () => {
     expectShortcut({ key: ",", handler: "toggleSettings" });
   });
 
-  it("Cmd+O → toggleLauncher", () => {
-    expectShortcut({ key: "o", handler: "toggleLauncher" });
+  it("Cmd+O is NOT a shortcut any more (merged into ⌘K → Open project…)", () => {
+    // Guards against anyone re-adding the launcher keybinding. Project
+    // picking now lives as a mode inside the command palette.
+    // A regex like /key:\s*"o"/ would be tricked by comments; match the
+    // full property-pair shape so only a real registration fails this.
+    expect(keysSource).not.toMatch(/\{\s*key:\s*"o"[^}]*meta:\s*true/);
   });
 
   it("Cmd+F → toggleFindBar", () => {
@@ -174,13 +182,14 @@ function extractMenuIdsEmitted(): string[] {
 
 function extractMenuIdsHandledInRust(): string[] {
   // main.rs handler: `"id1" | "id2" | "id3" => emit("menu-action", id)`.
-  // We pick IDs from the on_menu_event match arms.
+  // We pick IDs from the on_menu_event match arms. "quit" used to have a
+  // direct `=> app_handle.exit(0)` arm but is now forwarded like every
+  // other interactive menu item, so it naturally falls out of this regex.
   const section = mainRsSource.slice(mainRsSource.indexOf("on_menu_event"));
   const re = /"([a-z_]+)"(?=\s*(?:=>|[|]))/g;
   const ids = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(section))) ids.add(m[1]);
-  // Filter to plausible menu ids (skip noise like "quit" which we handle directly).
   return [...ids];
 }
 
@@ -190,20 +199,28 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
     expect(mainRsSource).toContain('emit("menu-action", id)');
   });
 
-  it("every MenuItem id in main.rs is either handled directly (quit) or forwarded to frontend", () => {
+  it("every MenuItem id in main.rs is forwarded to the frontend (including 'quit')", () => {
     const ids = extractMenuIdsEmitted();
     expect(ids.length).toBeGreaterThan(0);
     const handled = extractMenuIdsHandledInRust();
-    // Union of direct-handled (quit) and frontend-forwarded.
     for (const id of ids) {
       expect(handled, `menu id "${id}" has no handler in main.rs on_menu_event`).toContain(id);
     }
   });
 
-  it("main.ts switch has a case for every menu-action id the frontend cares about", () => {
-    // These are the ids main.rs forwards to the frontend. Keep in sync if you
-    // add a new menu item that should trigger frontend behavior.
-    const forwarded = ["settings", "new_tab", "close_pane", "close_tab", "split_vertical", "split_horizontal"];
+  it("main.ts switch has a case for every menu-action id main.rs forwards", () => {
+    // Keep in sync if you add a new menu item that should trigger frontend
+    // behavior. "quit" is in here because we now arbitrate the quit flow
+    // from JS — the case calls confirmAndQuit() so the pref is honored.
+    const forwarded = [
+      "settings",
+      "new_tab",
+      "close_pane",
+      "close_tab",
+      "split_vertical",
+      "split_horizontal",
+      "quit",
+    ];
     for (const id of forwarded) {
       expect(mainTsSource, `main.ts has no switch case for menu-action "${id}"`).toContain(`case "${id}"`);
     }
@@ -212,13 +229,15 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
   // Per-case contract: verify each menu-action dispatches to the *right* handler.
   // Same regression-guard style as Cmd+W: catches "someone rewired close_pane
   // to a silent-on-leaf function" without visual inspection.
-  it("close_pane → closeActiveOrTab (NOT closeActive — matches the Cmd+W keyboard path)", () => {
-    expect(mainTsSource).toMatch(/case\s+"close_pane":\s*closeActiveOrTab\(\)/);
+  it("close_pane → confirmAndCloseActive (goes through busy-check dialog)", () => {
+    expect(mainTsSource).toMatch(/case\s+"close_pane":[^}]*confirmAndCloseActive\s*\(/);
+    // And the raw direct-close wiring is gone.
+    expect(mainTsSource).not.toMatch(/case\s+"close_pane":\s*closeActiveOrTab\(\)/);
     expect(mainTsSource).not.toMatch(/case\s+"close_pane":\s*closeActive\(\)/);
   });
 
-  it("close_tab → closeTab(activeTab.id)", () => {
-    expect(mainTsSource).toMatch(/case\s+"close_tab":[^}]*closeTab\(/);
+  it("close_tab → confirmAndCloseActiveTab (goes through busy-check dialog)", () => {
+    expect(mainTsSource).toMatch(/case\s+"close_tab":[^}]*confirmAndCloseActiveTab\s*\(/);
   });
 
   it("new_tab → createTab", () => {

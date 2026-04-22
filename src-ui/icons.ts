@@ -11,6 +11,7 @@ export type IconName =
   | "terminal"
   | "copy"
   | "chevron-d"
+  | "chevron-u"
   | "check"
   | "info"
   | "palette"
@@ -98,6 +99,8 @@ function paths(name: IconName): SVGElement[] {
       ];
     case "chevron-d":
       return [el("polyline", { points: "6 9 12 15 18 9" })];
+    case "chevron-u":
+      return [el("polyline", { points: "6 15 12 9 18 15" })];
     case "check":
       return [el("polyline", { points: "20 6 9 17 4 12" })];
     case "info":

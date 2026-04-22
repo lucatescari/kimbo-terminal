@@ -9,6 +9,28 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
+/* Nerd Font glyph fallback. Shell prompts (starship, spaceship, p10k) emit
+   Nerd Font icons in the Private Use Area (U+E000–F8FF, U+F0000–FFFFF).
+   Plain monospace fonts like JetBrains Mono have no glyphs there, so xterm
+   falls back to a random system font that renders with wrong cell metrics
+   — icons appear squished.
+
+   We bundle "JetBrainsMono Nerd Font Mono" (the patched JetBrains Mono with
+   all Nerd Font glyphs forced to single-cell width) rather than the skinnier
+   SymbolsNerdFontMono: the "Symbols" variant's advance widths don't match a
+   generic reference mono font, so its glyphs arrive wider than the terminal
+   cell and get visually squished anyway. Using the patched JBM guarantees
+   every PUA glyph has the exact same advance width as the Latin cells it
+   sits between. No unicode-range so the browser can fall through the whole
+   font for any missing codepoint the primary family doesn't cover. */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   /* Legacy theme tokens (written by theme.ts). Defaults shown for FOUC. */
   --bg: #1e1e2e;
@@ -133,7 +155,10 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  /* Chrome surface. --app-alpha (written by ui-prefs.applyRoot) scales
+     the fill so the macOS NSVisualEffectView mounted in main.rs shows
+     through below 100% opacity. At 100% this is identical to var(--bg). */
+  background: color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent);
   /* macOS window corner radius. macOS 26 (Tahoe) uses ~14px; previous
      Ventura/Sonoma used ~11px. */
   border-radius: 14px;
@@ -178,7 +203,7 @@ body {
 #title-bar {
   height: 36px;
   flex-shrink: 0;
-  background: var(--bg-titlebar);
+  background: color-mix(in srgb, var(--bg-titlebar) calc(var(--app-alpha, 1) * 100%), transparent);
   display: flex;
   align-items: center;
   padding: 0 12px;
@@ -294,7 +319,10 @@ body {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  background: var(--bg-tabs);
+  /* Chrome surface — transparent so #app-frame's --app-alpha fill shows
+     through. --bg-tabs == --bg at this layer, so at opacity=100 this is
+     visually identical to the pre-feature opaque fill. */
+  background: transparent;
   border-bottom: 1px solid var(--divider);
   height: 38px;
   flex-shrink: 0;
@@ -331,7 +359,7 @@ body {
 }
 .tab.active {
   color: var(--fg-strong);
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent);
 }
 .tab-label {
   max-width: 24ch;
@@ -400,7 +428,7 @@ body {
 }
 #tab-bar[data-style="pill"] .tab.active::after { display: none; }
 #tab-bar[data-style="pill"] .tab.active {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
@@ -469,7 +497,12 @@ body {
   position: relative;
   border: 1px solid transparent;
   overflow: hidden;
-  background: var(--bg-pane);
+  /* Chrome surface — transparent so #app-frame's --app-alpha fill shows
+     through. --bg-pane == --bg at this layer; at opacity=100 visually
+     identical to the pre-feature opaque fill. The xterm canvas is also
+     transparent (allowTransparency + rgba(0,0,0,0) theme background) so
+     vibrancy reaches the terminal viewport. */
+  background: transparent;
 }
 
 .pane.active {
@@ -549,7 +582,17 @@ body {
   font-size: 10.5px;
   color: var(--fg-muted);
   border-bottom: 1px solid var(--divider);
-  background: color-mix(in oklab, var(--bg-pane) 70%, var(--bg-titlebar));
+  /* Chrome surface — alpha-aware. The inner color-mix preserves the
+     pane-head's slight tint toward --bg-titlebar; the outer color-mix
+     scales it by --app-alpha so the whole pane head participates in the
+     window-level translucency. At opacity=100 this is identical to the
+     original blend. */
+  background: color-mix(
+    in srgb,
+    color-mix(in oklab, var(--bg-pane) 70%, var(--bg-titlebar))
+      calc(var(--app-alpha, 1) * 100%),
+    transparent
+  );
   user-select: none;
   -webkit-user-select: none;
 }
@@ -558,6 +601,18 @@ body {
 .pane-head .cwd { color: var(--fg); }
 .pane-head .branch { color: var(--accent); }
 .pane-head .actions { margin-left: auto; display: flex; gap: 2px; }
+
+/* Override xterm.js defaults that paint opaque #000 over the terminal
+   viewport and composition view, masking #app-frame's --app-alpha fill.
+   See node_modules/@xterm/xterm/css/xterm.css lines 81 and 95.
+   We bump specificity with #app-frame> to beat xterm's (0,2,0) rules
+   without needing !important. */
+#app-frame .xterm .xterm-viewport {
+  background-color: transparent;
+}
+#app-frame .xterm .composition-view {
+  background: transparent;
+}
 
 /* xterm scrollbar */
 .xterm .xterm-viewport { scrollbar-width: none; }
@@ -587,7 +642,10 @@ body {
 #status-bar {
   height: 22px;
   flex-shrink: 0;
-  background: var(--bg-titlebar);
+  /* Chrome surface — alpha-aware. Preserves the darker "titlebar" tint
+     at opacity=100, scales by --app-alpha below that so the strip
+     participates in the window-level translucency. */
+  background: color-mix(in srgb, var(--bg-titlebar) calc(var(--app-alpha, 1) * 100%), transparent);
   border-top: 1px solid var(--divider);
   display: flex;
   align-items: center;
@@ -971,7 +1029,11 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 160px;
+  /* Fixed (not min-) width so every select in the settings column lines up
+     vertically regardless of label length. Long labels truncate with the
+     ellipsis rule on .dd-label; the dropdown menu itself still grows to
+     fit its options (see menuMinWidth fallback in dropdown.ts). */
+  width: 200px;
   justify-content: space-between;
   transition: background 0.12s, border-color 0.12s;
 }
@@ -1380,13 +1442,38 @@ body {
 .ws-list { display: grid; gap: 8px; }
 .ws-row {
   display: grid;
-  grid-template-columns: 28px 1fr auto auto;
+  grid-template-columns: 28px 1fr auto;
   align-items: center;
   gap: 12px;
   padding: var(--density-pad) 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+.ws-row .ws-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Path row can overflow a narrow settings pane; keep it one line and
+   ellipsize, the full path lives in the tooltip. */
+.ws-row .path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.btn.icon-only {
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn.icon-only[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .ws-row .icon {
   width: 24px;
@@ -1436,7 +1523,6 @@ body {
   background-size: cover;
   background-position: center;
   background-image: url("/app-icon.png");
-  box-shadow: 0 8px 24px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 .about-identity .meta {
   display: flex;
@@ -1503,16 +1589,45 @@ body {
   display: flex;
   flex-direction: column;
 }
+.palette .p-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--divider);
+  min-height: 48px;
+}
+.palette .p-mode-badge {
+  border: 1px solid var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.palette .p-mode-badge::before {
+  content: "←";
+  font-size: 11px;
+  color: var(--accent);
+}
+.palette .p-mode-badge.hidden { display: none; }
 .palette .p-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 48px;
   border: 0;
   background: transparent;
   color: var(--fg);
   font-family: var(--font-ui);
   font-size: 14px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--divider);
+  padding: 0;
 }
 .palette .p-input:focus { outline: none; }
 .palette .p-list {
@@ -1726,3 +1841,91 @@ body {
 *::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================
+   Quit confirmation dialog
+   ============================================================ */
+
+/* Modal overlay — mirrors .palette-backdrop but centers the panel
+   vertically since the dialog is small and shouldn't be top-anchored
+   like the command palette. Higher z-index than settings (modal-root
+   z=200) and the palette (z=300) because the quit prompt must always
+   sit on top — it's the exit door. */
+.quit-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, #000 45%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 700;
+  animation: modal-fade 0.14s ease-out;
+}
+.quit-confirm-panel {
+  width: min(440px, 80%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: rise-in 0.18s ease-out;
+  font-family: var(--font-ui);
+  color: var(--fg);
+}
+.quit-confirm-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.quit-confirm-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+.quit-confirm-nag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  user-select: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.quit-confirm-nag input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-input);
+  margin: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  color: var(--accent);
+}
+.quit-confirm-nag input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.quit-confirm-nag input[type="checkbox"]:checked::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--bg-elevated);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%);
+}
+.quit-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

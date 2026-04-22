@@ -14,7 +14,6 @@ const KEYBINDS: ReadonlyArray<{ keys: string[]; label: string }> = [
   { keys: ["⌘", "D"],       label: "Split pane right" },
   { keys: ["⌘", "⇧", "D"],  label: "Split pane down" },
   { keys: ["⌘", "W"],       label: "Close pane" },
-  { keys: ["⌘", "O"],       label: "Project launcher" },
   { keys: ["⌘", ","],       label: "Settings" },
   { keys: ["⌘", "Q"],       label: "Quit" },
 ];
@@ -151,11 +150,6 @@ function buildPopup(): HTMLElement {
     keys.appendChild(v);
   }
   card.appendChild(keys);
-
-  const foot = document.createElement("div");
-  foot.className = "w-foot";
-  foot.textContent = "You can customize these in Settings → Keybinds.";
-  card.appendChild(foot);
 
   const actions = document.createElement("div");
   actions.className = "w-actions";

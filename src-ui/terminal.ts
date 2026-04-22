@@ -22,6 +22,8 @@ export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
 import { attachOsc1337Renderer } from "./osc1337-renderer";
 import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
+import { stripAnsiBlackBg } from "./ansi-bg-transparent";
+import { getPrefs } from "./ui-prefs";
 
 export interface TerminalSession {
   id: number;
@@ -61,6 +63,12 @@ export async function createTerminalSession(
     lineHeight: opts.lineHeight,
     scrollback: opts.scrollback,
     theme: {},
+    // Let the terminal background show through so the alpha on #app-frame
+    // (driven by --app-alpha) and the macOS NSVisualEffectView behind the
+    // webview are visible inside the terminal viewport. Without this, xterm's
+    // WebGL renderer paints an opaque fill using theme.background and masks
+    // the window-level translucency.
+    allowTransparency: true,
     // Unicode11Addon and registerLinkProvider (OSC 8) both touch proposed
     // xterm.js APIs, which refuse to activate without this opt-in flag.
     allowProposedApi: true,
@@ -107,7 +115,30 @@ export async function createTerminalSession(
   }
 
   registerTerminal(term);
+  // NOTE: the element passed to us by createLeaf is still detached from the
+  // document at this point, and only gets appended once createLeaf returns
+  // (see panes.ts:createRootPane and splitActive). A sync fit.fit() here
+  // runs on a 0×0 container and wedges xterm at the 80×24 default, which
+  // then goes straight to the PTY and locks TUIs like Claude Code at that
+  // size until the next window resize. The ResizeObserver below fires as
+  // soon as the container is attached AND laid out — that's the first
+  // moment fit.fit() has real dimensions to work with. We still call fit
+  // sync so xterm has SOME size before the PTY is created; the RO will
+  // correct it on first real layout.
   fit.fit();
+  const fitObserver = new ResizeObserver((entries) => {
+    // Ignore spurious 0×0 ticks (detached → attached transitions emit one
+    // before layout lands in some browsers). Only fit when we have real
+    // dimensions to work with.
+    for (const e of entries) {
+      const r = e.contentRect;
+      if (r.width > 0 && r.height > 0) {
+        fit.fit();
+        break;
+      }
+    }
+  });
+  fitObserver.observe(container);
 
   // Kimbo shell integration — OSC 133 command-start/end (only when enabled).
   if (isKimboShellIntegrationEnabled()) {
@@ -185,14 +216,14 @@ export async function createTerminalSession(
   // osc1337-preprocess.ts for why this can't be done from inside the OSC
   // handler (term.write there is queued after the current parser chunk).
   const osc1337Advancer = new Osc1337CursorAdvancer();
-  // PTY bytes are UTF-8. The preprocessor scans for ASCII-only OSC markers,
-  // so we decode to a string first — without this, `this.pending + chunk`
-  // coerces the Uint8Array to its comma-separated decimal form and xterm
-  // renders "27,91,52,..." instead of the escape sequence. `stream: true`
-  // preserves partial UTF-8 code points across chunk boundaries.
+  // PTY bytes are UTF-8. We may first filter ANSI dark-background sequences
+  // when the transparency preference is enabled, then decode to text and run
+  // the OSC 1337 preprocessor on that text stream.
   const ptyDecoder = new TextDecoder("utf-8");
   const unlistenOutput = await onPtyOutput(ptyId, (data) => {
-    const text = ptyDecoder.decode(data, { stream: true });
+    dumpPtyChunkIfArmed(data, ptyId);
+    const filtered = getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data;
+    const text = ptyDecoder.decode(filtered, { stream: true });
     term.write(osc1337Advancer.transform(text));
   });
 
@@ -250,6 +281,7 @@ export async function createTerminalSession(
       unlistenOutput();
       unlistenExit();
       unregisterTerminal(term);
+      fitObserver.disconnect();
       viewport?.removeEventListener("scroll", onViewportScroll);
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
       term.dispose();
@@ -259,4 +291,53 @@ export async function createTerminalSession(
   };
 
   return session;
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic hex-dump of raw PTY bytes. Dormant until the user sets
+// `localStorage.kimboDiagBurst = "N"` in devtools — the next N chunks are
+// hex-dumped with an ASCII gutter. Each chunk is truncated to
+// MAX_BYTES_PER_CHUNK so a chatty dev server doesn't wipe out the console.
+// Used to diagnose rendering issues like the xterm DIM-attribute black-box
+// that motivated the `\x1b[2m`→`\x1b[22m` rewrite.
+// ---------------------------------------------------------------------------
+
+const MAX_BYTES_PER_CHUNK = 600;
+
+function dumpPtyChunkIfArmed(buf: Uint8Array, ptyId: number): void {
+  let remaining: number;
+  try {
+    remaining = parseInt(localStorage.getItem("kimboDiagBurst") || "0", 10);
+  } catch {
+    return;
+  }
+  if (!Number.isFinite(remaining) || remaining <= 0) return;
+
+  try { localStorage.setItem("kimboDiagBurst", String(remaining - 1)); } catch {}
+
+  const slice = buf.length > MAX_BYTES_PER_CHUNK ? buf.subarray(0, MAX_BYTES_PER_CHUNK) : buf;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[kimbo.diag.chunk ${remaining}] pty=${ptyId} len=${buf.length}` +
+      (buf.length > MAX_BYTES_PER_CHUNK ? ` (truncated to ${MAX_BYTES_PER_CHUNK})` : "") +
+      `\n` +
+      formatHexDump(slice),
+  );
+}
+
+/** 16-byte-per-row hex dump with an ASCII gutter. ESC is rendered as `.ESC`
+ *  to make CSI sequences jump out; other non-printables as `.`. */
+function formatHexDump(buf: Uint8Array): string {
+  const rows: string[] = [];
+  for (let i = 0; i < buf.length; i += 16) {
+    const chunk = buf.subarray(i, Math.min(i + 16, buf.length));
+    const hex = Array.from(chunk, (b) => b.toString(16).padStart(2, "0")).join(" ");
+    const ascii = Array.from(chunk, (b) => {
+      if (b === 0x1b) return "␛";
+      if (b >= 0x20 && b <= 0x7e) return String.fromCharCode(b);
+      return ".";
+    }).join("");
+    rows.push(`${i.toString(16).padStart(4, "0")}  ${hex.padEnd(47)}  ${ascii}`);
+  }
+  return rows.join("\n");
 }

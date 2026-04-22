@@ -14,6 +14,26 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Pin the NSWindow's appearance to the active Kimbo theme so the
+/// NSVisualEffectView (mounted in setup) picks up a matching light/dark
+/// vibrancy material regardless of the system-wide appearance.
+///
+/// Without this, a user running macOS in dark mode but using the Kimbo
+/// light theme sees a dark blur behind the translucent chrome — the
+/// window ends up grayer, not lighter, as the opacity slider goes down.
+#[tauri::command]
+fn set_window_theme(app: tauri::AppHandle, theme_type: String) {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("main") {
+        let t = match theme_type.as_str() {
+            "light" => Some(tauri::Theme::Light),
+            "dark" => Some(tauri::Theme::Dark),
+            _ => None, // high-contrast, custom, or unknown: follow system.
+        };
+        let _ = win.set_theme(t);
+    }
+}
+
 fn main() {
     env_logger::init();
 
@@ -22,6 +42,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(PtyManager::new())
         .manage(ThemeState::default())
         .manage(UpdateState::default())
@@ -34,6 +55,27 @@ fn main() {
             // workaround tracked in tauri-apps/wry#981.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+
+                // Mount NSVisualEffectView behind the (transparent) webview so
+                // the Background-opacity slider (src-ui/settings.ts, --app-alpha
+                // in style.css) has something to show through. Tooltip is the
+                // thinnest adaptive material — it shows significantly more of
+                // what's behind the window than the heavier WindowBackground /
+                // UnderWindowBackground materials, which matches the "real
+                // translucent terminal" aesthetic the user wanted at low
+                // slider values. Adapts to light/dark via set_window_theme.
+                #[cfg(target_os = "macos")]
+                {
+                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                    if let Err(e) = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::Tooltip,
+                        None,
+                        Some(14.0),
+                    ) {
+                        log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
+                    }
+                }
             }
 
             // Build native macOS menu bar.
@@ -94,18 +136,37 @@ fn main() {
 
             app.set_menu(menu)?;
 
-            // Handle menu item clicks → emit events to frontend.
+            // Handle menu item clicks → emit events to frontend. "quit" is
+            // forwarded like every other menu-action (it used to call
+            // app_handle.exit(0) directly, which bypassed the JS
+            // confirm-on-quit flow); the frontend's menu-action listener
+            // now routes it through confirmAndQuit() so the pref is
+            // respected no matter which quit affordance was used.
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
-                    "quit" => app_handle.exit(0),
                     "settings" | "new_tab" | "close_pane" | "close_tab"
-                    | "split_vertical" | "split_horizontal" => {
+                    | "split_vertical" | "split_horizontal" | "quit" => {
                         let _ = app_handle.emit("menu-action", id);
                     }
                     _ => {}
                 }
             });
+
+            // Intercept the window's close request (red-x button, Cmd+W on
+            // the window, OS-level close) so the same JS confirm flow can
+            // run. We prevent the default close and emit `quit-requested`;
+            // the frontend then either calls invoke("quit_app") to really
+            // exit or swallows the request when the user cancels.
+            if let Some(win) = app.get_webview_window("main") {
+                let handle_for_close = app.handle().clone();
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = handle_for_close.emit("quit-requested", ());
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -115,9 +176,11 @@ fn main() {
             commands::pty::resize_pty,
             commands::pty::close_pty,
             commands::pty::get_cwd,
+            commands::pty::pty_is_busy,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,
+            commands::theme::install_theme_from_file,
             commands::theme::delete_theme,
             commands::config::get_config,
             commands::config::save_config,
@@ -125,6 +188,7 @@ fn main() {
             commands::workspace::list_projects,
             commands::update::check_for_updates,
             quit_app,
+            set_window_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri application");
