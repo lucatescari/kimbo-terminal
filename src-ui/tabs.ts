@@ -14,6 +14,7 @@ import {
 import { kimboBus } from "./kimbo-bus";
 import { icon } from "./icons";
 import { renderTitle } from "./title-bar";
+import { initTabDrag, cancelDrag, wasJustDragging } from "./tab-drag";
 
 // ---------------------------------------------------------------------------
 // Tab types
@@ -53,6 +54,8 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
     const ro = new ResizeObserver(() => updateScrollArrows());
     ro.observe(tabBarEl);
   }
+
+  initTabDrag(tabBarEl);
 }
 
 export async function createTab(cwd?: string): Promise<Tab> {
@@ -134,6 +137,7 @@ export function switchTab(id: number) {
 }
 
 export function closeTab(id: number) {
+  cancelDrag();
   if (tabs.length <= 1) return;
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx === -1) return;
@@ -371,7 +375,9 @@ function renderTabBar() {
       el.appendChild(close);
     }
 
-    el.addEventListener("click", () => switchTab(tab.id));
+    el.addEventListener("click", () => {
+      if (!wasJustDragging()) switchTab(tab.id);
+    });
     scrollRegion.appendChild(el);
   });
 
