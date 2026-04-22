@@ -41,9 +41,7 @@ export function cancelDrag() {
   drag = null;
 }
 
-export function isDragging(): boolean {
-  return drag !== null && drag.active;
-}
+
 
 export function wasJustDragging(): boolean {
   return justFinishedDrag;

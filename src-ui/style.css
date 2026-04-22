@@ -456,8 +456,6 @@ body {
 }
 
 /* Pill style */
-#tab-bar[data-style="pill"] {
-}
 #tab-bar[data-style="pill"] .tab-scroll-region {
   padding: 6px 6px 4px;
   gap: 4px;
@@ -475,8 +473,6 @@ body {
 }
 
 /* Chevron style */
-#tab-bar[data-style="chevron"] {
-}
 #tab-bar[data-style="chevron"] .tab-scroll-region {
   padding: 0;
   gap: 0;

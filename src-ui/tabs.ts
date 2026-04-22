@@ -327,6 +327,7 @@ function hideAllContainers() {
 }
 
 function renderTabBar() {
+  cancelDrag();
   tabBarEl.innerHTML = "";
 
   // Left scroll arrow
