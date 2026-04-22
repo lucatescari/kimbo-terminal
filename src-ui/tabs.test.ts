@@ -366,3 +366,31 @@ describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
     expect(h.panes.getTree()?.type).toBe("leaf");
   });
 });
+
+describe("Tab bar scroll region structure", () => {
+  it("renderTabBar creates scroll arrows + scroll region + new-tab button", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    const tabBar = h.tabBar;
+    const leftArrow = tabBar.querySelector(".tab-scroll-arrow.left");
+    const rightArrow = tabBar.querySelector(".tab-scroll-arrow.right");
+    const scrollRegion = tabBar.querySelector(".tab-scroll-region");
+    const newBtn = tabBar.querySelector(".tab-new");
+
+    expect(leftArrow, "left scroll arrow should exist").toBeTruthy();
+    expect(rightArrow, "right scroll arrow should exist").toBeTruthy();
+    expect(scrollRegion, "scroll region should exist").toBeTruthy();
+    expect(newBtn, "new tab button should exist").toBeTruthy();
+
+    // Tab buttons live inside the scroll region
+    const tabsInRegion = scrollRegion!.querySelectorAll(".tab");
+    expect(tabsInRegion.length).toBe(1);
+
+    // Structural order: left arrow, scroll region, right arrow, new button
+    const children = Array.from(tabBar.children);
+    expect(children.indexOf(leftArrow!)).toBeLessThan(children.indexOf(scrollRegion!));
+    expect(children.indexOf(scrollRegion!)).toBeLessThan(children.indexOf(rightArrow!));
+    expect(children.indexOf(rightArrow!)).toBeLessThan(children.indexOf(newBtn!));
+  });
+});

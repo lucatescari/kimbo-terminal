@@ -34,6 +34,9 @@ let activeTabId = -1;
 let nextTabId = 1;
 let tabBarEl: HTMLElement;
 let terminalAreaEl: HTMLElement;
+let scrollRegionEl: HTMLElement | null = null;
+let leftArrowEl: HTMLElement | null = null;
+let rightArrowEl: HTMLElement | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -306,10 +309,27 @@ function hideAllContainers() {
 function renderTabBar() {
   tabBarEl.innerHTML = "";
 
+  // Left scroll arrow
+  const leftArrow = document.createElement("button");
+  leftArrow.type = "button";
+  leftArrow.className = "tab-scroll-arrow left";
+  leftArrow.appendChild(icon("chevron-l", 12, 1.5));
+  leftArrow.addEventListener("click", () => scrollByOneTab(-1));
+  tabBarEl.appendChild(leftArrow);
+  leftArrowEl = leftArrow;
+
+  // Scroll region (holds all tab buttons)
+  const scrollRegion = document.createElement("div");
+  scrollRegion.className = "tab-scroll-region";
+  tabBarEl.appendChild(scrollRegion);
+  scrollRegionEl = scrollRegion;
+
   tabs.forEach((tab, i) => {
     const el = document.createElement("button");
     el.className = "tab" + (tab.id === activeTabId ? " active" : "");
     el.type = "button";
+    el.dataset.tabId = String(tab.id);
+    el.dataset.tabIndex = String(i);
     const displayName = tab.titleOverride ?? tab.name;
     el.title = displayName;
 
@@ -336,9 +356,19 @@ function renderTabBar() {
     }
 
     el.addEventListener("click", () => switchTab(tab.id));
-    tabBarEl.appendChild(el);
+    scrollRegion.appendChild(el);
   });
 
+  // Right scroll arrow
+  const rightArrow = document.createElement("button");
+  rightArrow.type = "button";
+  rightArrow.className = "tab-scroll-arrow right";
+  rightArrow.appendChild(icon("chevron-r", 12, 1.5));
+  rightArrow.addEventListener("click", () => scrollByOneTab(1));
+  tabBarEl.appendChild(rightArrow);
+  rightArrowEl = rightArrow;
+
+  // New tab button (pinned outside scroll region)
   const newBtn = document.createElement("button");
   newBtn.type = "button";
   newBtn.className = "tab-new";
@@ -347,7 +377,33 @@ function renderTabBar() {
   newBtn.addEventListener("click", () => createTab());
   tabBarEl.appendChild(newBtn);
 
+  updateScrollArrows();
+  scrollActiveTabIntoView();
+
   try { renderTitle(); } catch (_) { /* title-bar may not be mounted yet */ }
+}
+
+function scrollByOneTab(direction: number) {
+  if (!scrollRegionEl) return;
+  const firstTab = scrollRegionEl.querySelector(".tab") as HTMLElement | null;
+  const tabWidth = firstTab ? firstTab.offsetWidth + 2 : 200;
+  scrollRegionEl.scrollBy({ left: direction * tabWidth, behavior: "smooth" });
+}
+
+function updateScrollArrows() {
+  if (!scrollRegionEl || !leftArrowEl || !rightArrowEl) return;
+  const { scrollLeft, scrollWidth, clientWidth } = scrollRegionEl;
+  const overflows = scrollWidth > clientWidth;
+  leftArrowEl.classList.toggle("visible", overflows && scrollLeft > 0);
+  rightArrowEl.classList.toggle("visible", overflows && scrollLeft + clientWidth < scrollWidth - 1);
+}
+
+function scrollActiveTabIntoView() {
+  if (!scrollRegionEl) return;
+  const active = scrollRegionEl.querySelector(".tab.active") as HTMLElement | null;
+  if (active && typeof active.scrollIntoView === "function") {
+    active.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
+  }
 }
 
 // Periodically update active tab name from shell CWD.
