@@ -236,6 +236,17 @@ describe("terminal: OSC 8 hyperlinks", () => {
   });
 });
 
+describe("terminal: OSC 1337 inline images", () => {
+  it("imports parseOsc1337InlineImage in terminal.ts", () => {
+    expect(terminalSource).toContain('from "./osc1337"');
+    expect(terminalSource).toContain("parseOsc1337InlineImage");
+  });
+
+  it("registers OSC 1337 handler", () => {
+    expect(terminalSource).toMatch(/registerOscHandler\s*\(\s*1337\s*,/);
+  });
+});
+
 describe("terminal: Find in scrollback (Cmd+F)", () => {
   it("imports SearchAddon in terminal.ts", () => {
     expect(terminalSource).toContain('from "@xterm/addon-search"');

@@ -20,6 +20,7 @@ import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
+import { parseOsc1337InlineImage } from "./osc1337";
 
 export interface TerminalSession {
   id: number;
@@ -141,6 +142,19 @@ export async function createTerminalSession(
   attachOsc8Links(term, (event, uri) => {
     if (!event.metaKey) return;
     openUrl(uri).catch((e) => console.error("openUrl failed:", e));
+  });
+
+  // OSC 1337 iTerm inline images. First milestone: detect and consume payloads
+  // and render a textual marker so base64 control sequences don't pollute the
+  // terminal output. Full bitmap rendering comes next.
+  term.parser.registerOscHandler(1337, (data) => {
+    const image = parseOsc1337InlineImage(data);
+    if (!image) return false;
+    const fileLabel = image.name || "image";
+    const geometry = [image.width, image.height].filter(Boolean).join("x") || "auto";
+    const sizeLabel = image.size != null ? `${image.size} bytes` : "unknown size";
+    term.write(`\r\n[inline image: ${fileLabel}, ${geometry}, ${sizeLabel}]\r\n`);
+    return true;
   });
 
   // Create backend PTY.
