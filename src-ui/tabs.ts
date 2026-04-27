@@ -22,6 +22,7 @@ import {
   popClosedTab,
   shapeFromTree,
   firstLeafCwd as firstLeafCwdOfShape,
+  firstLeafScrollback,
   type ClosedTabShape,
 } from "./closed-tabs";
 
@@ -67,7 +68,10 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   initTabDrag(tabBarEl);
 }
 
-export async function createTab(cwd?: string): Promise<Tab> {
+export async function createTab(
+  cwd?: string,
+  restoredScrollback?: string,
+): Promise<Tab> {
   // If no explicit cwd, inherit from the currently active session
   // (OSC 7 first, PTY query as fallback) so Cmd+T opens "where I am".
   if (cwd === undefined) {
@@ -104,7 +108,7 @@ export async function createTab(cwd?: string): Promise<Tab> {
 
   // Re-init panes module to use this container, create root pane.
   initPanes(container);
-  const rootPane = await createRootPane(cwd);
+  const rootPane = await createRootPane(cwd, restoredScrollback);
 
   const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
@@ -211,7 +215,8 @@ export async function reopenLastClosedTab(): Promise<void> {
     if (!entry) return;
 
     const rootCwd = firstLeafCwdOfShape(entry.shape) ?? undefined;
-    const newTab = await createTab(rootCwd);
+    const rootScrollback = firstLeafScrollback(entry.shape);
+    const newTab = await createTab(rootCwd, rootScrollback);
 
     if (entry.shape.type === "split") {
       const rootLeafId = getActivePaneId();
@@ -259,7 +264,8 @@ async function replayShape(
   if (shape.type === "leaf") return;
 
   const cwd = firstLeafCwdOfShape(shape.second) ?? undefined;
-  const result = await splitLeaf(targetLeafId, shape.axis, cwd);
+  const scrollback = firstLeafScrollback(shape.second);
+  const result = await splitLeaf(targetLeafId, shape.axis, cwd, scrollback);
   if (!result) {
     console.warn("replayShape: target leaf disappeared", targetLeafId);
     return;
