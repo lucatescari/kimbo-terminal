@@ -15,6 +15,7 @@ import { kimboBus } from "./kimbo-bus";
 import { icon } from "./icons";
 import { renderTitle } from "./title-bar";
 import { initTabDrag, cancelDrag, wasJustDragging } from "./tab-drag";
+import { pushClosedTab, shapeFromTree } from "./closed-tabs";
 
 // ---------------------------------------------------------------------------
 // Tab types
@@ -143,6 +144,21 @@ export function closeTab(id: number) {
   if (idx === -1) return;
 
   const tab = tabs[idx];
+
+  // Snapshot the tab's pane-tree shape onto the closed-tab stack BEFORE
+  // we dispose anything. Powers the ⌘⇧T reopen flow. Active tab's live
+  // tree is in the panes module; inactive tabs keep a snapshot. If
+  // somehow neither exists (defensive — shouldn't happen), we skip the
+  // push so closeTab still works on a malformed tab.
+  const liveTree = tab.id === activeTabId ? getTree() : tab.treeSnapshot;
+  if (liveTree) {
+    pushClosedTab({
+      shape: shapeFromTree(liveTree),
+      name: tab.name,
+      titleOverride: tab.titleOverride,
+      originalIndex: idx,
+    });
+  }
 
   // Dispose every pane session inside this tab BEFORE detaching the DOM, so
   // closing a tab doesn't leave PTY processes dangling. The active tab's
