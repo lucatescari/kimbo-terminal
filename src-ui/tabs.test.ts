@@ -575,4 +575,28 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // before even calling popClosedTab.)
     expect(closedTabs.closedTabsCount()).toBe(1);
   });
+
+  it("reopens at the saved cwd, not the active tab's cwd", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // Mutate session.cwd to a known value so shapeFromTree captures it.
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.cwd = "/saved/path";
+
+    const tabB = await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    // Spy on createTerminalSession to verify it's called with the saved cwd.
+    const terminal = await import("./terminal");
+    const createTerminalSessionSpy = vi.spyOn(terminal, "createTerminalSession");
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The fix ensures that the saved cwd is passed through to createTerminalSession.
+    expect(createTerminalSessionSpy).toHaveBeenCalledWith(expect.anything(), "/saved/path");
+  });
 });

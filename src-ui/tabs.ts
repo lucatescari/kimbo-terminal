@@ -21,6 +21,7 @@ import {
   pushClosedTab,
   popClosedTab,
   shapeFromTree,
+  firstLeafCwd as firstLeafCwdOfShape,
   type ClosedTabShape,
 } from "./closed-tabs";
 
@@ -209,7 +210,7 @@ export async function reopenLastClosedTab(): Promise<void> {
     const entry = popClosedTab();
     if (!entry) return;
 
-    const rootCwd = firstLeafCwd(entry.shape) ?? undefined;
+    const rootCwd = firstLeafCwdOfShape(entry.shape) ?? undefined;
     const newTab = await createTab(rootCwd);
 
     if (entry.shape.type === "split") {
@@ -257,7 +258,7 @@ async function replayShape(
 ): Promise<void> {
   if (shape.type === "leaf") return;
 
-  const cwd = firstLeafCwd(shape.second) ?? undefined;
+  const cwd = firstLeafCwdOfShape(shape.second) ?? undefined;
   const result = await splitLeaf(targetLeafId, shape.axis, cwd);
   if (!result) {
     console.warn("replayShape: target leaf disappeared", targetLeafId);
