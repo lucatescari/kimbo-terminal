@@ -8,10 +8,17 @@
 // back tabs that were OPEN at quit time. Layering closed-tab history
 // over that would create two competing recovery mechanisms.
 
-/** A serializable leaf — just a cwd. No DOM, no TerminalSession. */
+/** A serializable leaf — cwd plus optional captured scrollback. The
+ *  scrollback is replayed into the reopened pane to restore on-screen
+ *  history (the "I closed Claude Code by accident" recovery path). */
 export interface ClosedLeaf {
   type: "leaf";
   cwd: string | null;
+  /** ANSI-encoded scrollback at close time. Replayed verbatim into the
+   *  reopened leaf's terminal before the fresh shell's prompt arrives.
+   *  Optional so empty panes (or future code paths that skip capture)
+   *  reopen blank without a separator. */
+  scrollback?: string;
 }
 
 /** A serializable split — axis + two children. Sizes are NOT preserved
@@ -71,7 +78,7 @@ export function clearClosedTabs(): void {
  *  only need the fields below. The runtime check on `node.type` is what
  *  actually narrows. */
 type LivePaneNode =
-  | { type: "leaf"; session: { cwd: string | null } }
+  | { type: "leaf"; session: { cwd: string | null; serialize: () => string } }
   | { type: "split"; axis: "vertical" | "horizontal"; first: LivePaneNode; second: LivePaneNode };
 
 /** Convert a live PaneTree into a serializable ClosedTabShape, dropping
@@ -82,7 +89,21 @@ type LivePaneNode =
  *  much better than reopening at a null cwd that falls back to $HOME. */
 export function shapeFromTree(node: LivePaneNode): ClosedTabShape {
   if (node.type === "leaf") {
-    return { type: "leaf", cwd: node.session.cwd ?? null };
+    let scrollback: string | undefined;
+    try {
+      const captured = node.session.serialize();
+      // Normalize "" → undefined so an empty pane reopens blank without
+      // an orphan separator. The if-check on opts.restoredScrollback in
+      // createTerminalSession (Task 4) skips both the write and the
+      // separator when this is undefined.
+      scrollback = captured.length > 0 ? captured : undefined;
+    } catch (e) {
+      console.warn(
+        "shapeFromTree: serialize failed, leaf will reopen blank:",
+        e,
+      );
+    }
+    return { type: "leaf", cwd: node.session.cwd ?? null, scrollback };
   }
   return {
     type: "split",
@@ -97,4 +118,22 @@ export function shapeFromTree(node: LivePaneNode): ClosedTabShape {
  *  replay reconstructs the rest of the layout. */
 export function firstLeafCwd(shape: ClosedTabShape): string | null {
   return shape.type === "leaf" ? shape.cwd : firstLeafCwd(shape.first);
+}
+
+/** First-leaf scrollback, walking always-left through splits. Mirrors
+ *  firstLeafCwd's purpose: seeds the root pane created by createTab
+ *  before replayShape recurses into the rest of the layout. Returns
+ *  undefined if the leftmost leaf has no captured scrollback (empty
+ *  pane at close time). */
+export function firstLeafScrollback(shape: ClosedTabShape): string | undefined {
+  return shape.type === "leaf" ? shape.scrollback : firstLeafScrollback(shape.first);
+}
+
+/** Visual separator written between restored scrollback and the fresh
+ *  shell's first prompt. Dim italic, ASCII-art horizontal rule. The
+ *  message tells the user what they're looking at without using a full
+ *  banner. \r\n on each side forces fresh lines so the separator never
+ *  appends to a partial line in the captured scrollback. */
+export function restoredSeparator(): string {
+  return "\r\n\x1b[2;3m─── reopened from closed tab ───\x1b[0m\r\n";
 }
