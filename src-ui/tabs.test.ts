@@ -463,3 +463,140 @@ describe("Tab bar scroll region structure", () => {
     expect(rightArrow!.classList.contains("visible")).toBe(false);
   });
 });
+
+describe("reopenLastClosedTab (⌘⇧T)", () => {
+  it("is a no-op when the closed-tab stack is empty", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    await h.tabs.createTab(); // need at least one tab so the harness is sane
+
+    const tabsBefore = h.tabs.getTabCount();
+    await h.tabs.reopenLastClosedTab();
+
+    expect(h.tabs.getTabCount()).toBe(tabsBefore); // no tab created
+    expect(closedTabs.closedTabsCount()).toBe(0);  // stack still empty
+  });
+
+  it("reopens a single-leaf tab so a new tab appears", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    // Create two tabs, then close the first.
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab(); // active
+
+    // Close tab A. Snapshot pushes a leaf shape onto the closed-tab stack.
+    h.tabs.closeTab(tabA.id);
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    const tabsBeforeReopen = h.tabs.getTabCount();
+    await h.tabs.reopenLastClosedTab();
+
+    expect(h.tabs.getTabCount()).toBe(tabsBeforeReopen + 1);
+    expect(closedTabs.closedTabsCount()).toBe(0); // stack popped
+  });
+
+  it("reopens a vertical-split tab and replays the split", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    await h.panes.splitActive("vertical"); // tabA now has two panes
+
+    // Need a sibling tab so closeTab is willing to fire.
+    const tabB = await h.tabs.createTab();
+
+    // Switch back to A so we close the split tab.
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    await h.tabs.reopenLastClosedTab();
+
+    // After reopen, the active tab should have TWO .pane elements
+    // (the replayed split). Use the active container to scope the query.
+    const active = h.tabs.getActiveTab();
+    expect(active).toBeDefined();
+    const paneCount = active!.container.querySelectorAll(".pane").length;
+    expect(paneCount).toBe(2);
+  });
+
+  it("reopens a nested split (V containing H) with the correct topology", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    await h.panes.splitActive("vertical");   // tabA: V split, 2 leaves
+    await h.panes.splitActive("horizontal"); // active leaf becomes H split, 3 leaves total
+    expect(h.terminalArea.querySelectorAll(".pane").length).toBe(3);
+
+    // Need a sibling tab so closeTab is willing to fire.
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    await h.tabs.reopenLastClosedTab();
+
+    const active = h.tabs.getActiveTab();
+    expect(active).toBeDefined();
+    expect(active!.container.querySelectorAll(".pane").length).toBe(3);
+  });
+
+  it("re-entrancy: two concurrent calls only execute one reopen", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    // Push two entries directly, no real closes needed.
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    h.tabs.closeTab(tabA.id);
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    // Push a second entry by closing tabB after creating a third.
+    const tabC = await h.tabs.createTab();
+    h.tabs.closeTab(tabB.id);
+    expect(closedTabs.closedTabsCount()).toBe(2);
+
+    // Fire two reopens concurrently. The second should bail on the
+    // re-entrancy guard.
+    const p1 = h.tabs.reopenLastClosedTab();
+    const p2 = h.tabs.reopenLastClosedTab();
+    await Promise.all([p1, p2]);
+
+    // Only one entry should have been popped. (The first call pops one;
+    // the second call sees `reopening=true` and returns immediately
+    // before even calling popClosedTab.)
+    expect(closedTabs.closedTabsCount()).toBe(1);
+  });
+
+  it("reopens at the saved cwd, not the active tab's cwd", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // Mutate session.cwd to a known value so shapeFromTree captures it.
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.cwd = "/saved/path";
+
+    const tabB = await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    // Spy on createTerminalSession to verify it's called with the saved cwd.
+    const terminal = await import("./terminal");
+    const createTerminalSessionSpy = vi.spyOn(terminal, "createTerminalSession");
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The fix ensures that the saved cwd is passed through to createTerminalSession.
+    expect(createTerminalSessionSpy).toHaveBeenCalledWith(expect.anything(), "/saved/path");
+  });
+});

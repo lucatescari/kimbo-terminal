@@ -44,6 +44,7 @@ describe("shortcut matching", () => {
 
   const shortcuts: Shortcut[] = [
     { key: "t", meta: true, action },
+    { key: "t", meta: true, shift: true, action },
     { key: "w", meta: true, shift: true, action },
     { key: "d", meta: true, action },
     { key: "d", meta: true, shift: true, action },
@@ -61,6 +62,16 @@ describe("shortcut matching", () => {
     expect(result).toBeDefined();
     expect(result!.key).toBe("t");
     expect(result!.meta).toBe(true);
+  });
+
+  it("matches Cmd+Shift+T (reopen closed tab)", () => {
+    const result = matchShortcut(
+      shortcuts,
+      makeEvent({ key: "t", metaKey: true, shiftKey: true }),
+    );
+    expect(result).toBeDefined();
+    expect(result!.key).toBe("t");
+    expect(result!.shift).toBe(true);
   });
 
   it("matches Cmd+D (split vertical)", () => {
@@ -137,14 +148,6 @@ describe("shortcut matching", () => {
 
   it("does NOT match Ctrl+T (wrong modifier)", () => {
     const result = matchShortcut(shortcuts, makeEvent({ key: "t", ctrlKey: true }));
-    expect(result).toBeUndefined();
-  });
-
-  it("does NOT match Cmd+Shift+T (shift not expected)", () => {
-    const result = matchShortcut(
-      shortcuts,
-      makeEvent({ key: "t", metaKey: true, shiftKey: true }),
-    );
     expect(result).toBeUndefined();
   });
 
