@@ -221,6 +221,7 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
       "new_tab",
       "close_pane",
       "close_tab",
+      "reopen_tab",
       "split_vertical",
       "split_horizontal",
       "quit",
@@ -242,6 +243,10 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
 
   it("close_tab → confirmAndCloseActiveTab (goes through busy-check dialog)", () => {
     expect(mainTsSource).toMatch(/case\s+"close_tab":[^}]*confirmAndCloseActiveTab\s*\(/);
+  });
+
+  it("reopen_tab → reopenLastClosedTab", () => {
+    expect(mainTsSource).toMatch(/case\s+"reopen_tab":[^}]*reopenLastClosedTab\s*\(/);
   });
 
   it("new_tab → createTab", () => {
@@ -274,9 +279,10 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
 describe("accelerator ↔ keyboard-shortcut consistency", () => {
   function acceleratorFor(menuVarName: string): string | null {
     // Pattern: let <var> = MenuItem::with_id(..., "...", true, Some("<accel>"))?
+    // Use [\\s\\S]* to handle multiline definitions. Include [\\s\\S]*? AFTER Some()
+    // to match remaining args before the closing paren.
     const re = new RegExp(
-      `let\\s+${menuVarName}\\s*=\\s*MenuItem::with_id\\([^)]*Some\\("([^"]+)"\\)\\)`,
-      "m",
+      `let\\s+${menuVarName}\\s*=\\s*MenuItem::with_id\\([\\s\\S]*?Some\\("([^"]+)"\\)[\\s\\S]*?\\)\\?`,
     );
     const m = mainRsSource.match(re);
     return m ? m[1] : null;
@@ -293,6 +299,12 @@ describe("accelerator ↔ keyboard-shortcut consistency", () => {
     const accel = acceleratorFor("close_tab");
     expect(accel).toBe("CmdOrCtrl+Shift+W");
     expect(keysSource).toMatch(/\{\s*key:\s*"w"[^}]*meta:\s*true[^}]*shift:\s*true[^}]*action/);
+  });
+
+  it("reopen_tab accelerator is CmdOrCtrl+Shift+T and keys.ts binds Cmd+Shift+T", () => {
+    const accel = acceleratorFor("reopen_tab");
+    expect(accel).toBe("CmdOrCtrl+Shift+T");
+    expect(keysSource).toMatch(/\{\s*key:\s*"t"[^}]*meta:\s*true[^}]*shift:\s*true[^}]*action/);
   });
 
   it("new_tab accelerator is CmdOrCtrl+T and keys.ts binds Cmd+T", () => {

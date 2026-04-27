@@ -102,12 +102,20 @@ fn main() {
             let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
             let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, Some("CmdOrCtrl+W"))?;
             let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, Some("CmdOrCtrl+Shift+W"))?;
+            let reopen_tab = MenuItem::with_id(
+                handle,
+                "reopen_tab",
+                "Reopen Closed Tab",
+                true,
+                Some("CmdOrCtrl+Shift+T"),
+            )?;
 
             let file_menu = Submenu::with_items(handle, "File", true, &[
                 &new_tab,
                 &PredefinedMenuItem::separator(handle)?,
                 &close_pane,
                 &close_tab,
+                &reopen_tab,
             ])?;
 
             let edit_menu = Submenu::with_items(handle, "Edit", true, &[
@@ -150,7 +158,7 @@ fn main() {
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
-                    "settings" | "new_tab" | "close_pane" | "close_tab"
+                    "settings" | "new_tab" | "close_pane" | "close_tab" | "reopen_tab"
                     | "split_vertical" | "split_horizontal" | "quit" => {
                         let _ = app_handle.emit("menu-action", id);
                     }
