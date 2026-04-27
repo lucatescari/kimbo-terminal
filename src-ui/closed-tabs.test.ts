@@ -4,6 +4,8 @@ import {
   popClosedTab,
   closedTabsCount,
   clearClosedTabs,
+  shapeFromTree,
+  firstLeafCwd,
   type ClosedTabEntry,
   type ClosedTabShape,
 } from "./closed-tabs";
@@ -72,5 +74,94 @@ describe("closed-tabs stack", () => {
     expect(popped?.name).toBe("myproj");
     expect(popped?.titleOverride).toBe("vim: foo.ts");
     expect(popped?.originalIndex).toBe(3);
+  });
+});
+
+describe("shapeFromTree", () => {
+  it("strips DOM and session refs from a leaf, preserving cwd", () => {
+    const fakeLeaf = {
+      type: "leaf" as const,
+      paneId: 1,
+      session: { cwd: "/home/luca/proj" } as any,
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(fakeLeaf)).toEqual({
+      type: "leaf",
+      cwd: "/home/luca/proj",
+    });
+  });
+
+  it("treats null session.cwd as null shape cwd", () => {
+    const fakeLeaf = {
+      type: "leaf" as const,
+      paneId: 1,
+      session: { cwd: null } as any,
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(fakeLeaf)).toEqual({ type: "leaf", cwd: null });
+  });
+
+  it("preserves nested split topology", () => {
+    const tree = {
+      type: "split" as const,
+      axis: "vertical" as const,
+      first: {
+        type: "split" as const,
+        axis: "horizontal" as const,
+        first: {
+          type: "leaf" as const,
+          paneId: 1,
+          session: { cwd: "/a" } as any,
+          element: document.createElement("div"),
+        },
+        second: {
+          type: "leaf" as const,
+          paneId: 2,
+          session: { cwd: "/b" } as any,
+          element: document.createElement("div"),
+        },
+        element: document.createElement("div"),
+      },
+      second: {
+        type: "leaf" as const,
+        paneId: 3,
+        session: { cwd: "/c" } as any,
+        element: document.createElement("div"),
+      },
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(tree)).toEqual({
+      type: "split",
+      axis: "vertical",
+      first: {
+        type: "split",
+        axis: "horizontal",
+        first: { type: "leaf", cwd: "/a" },
+        second: { type: "leaf", cwd: "/b" },
+      },
+      second: { type: "leaf", cwd: "/c" },
+    });
+  });
+});
+
+describe("firstLeafCwd", () => {
+  it("returns the cwd of a leaf shape directly", () => {
+    expect(firstLeafCwd({ type: "leaf", cwd: "/x" })).toBe("/x");
+    expect(firstLeafCwd({ type: "leaf", cwd: null })).toBeNull();
+  });
+
+  it("walks left through nested splits to find the first leaf", () => {
+    const shape: ClosedTabShape = {
+      type: "split",
+      axis: "vertical",
+      first: {
+        type: "split",
+        axis: "horizontal",
+        first: { type: "leaf", cwd: "/leftmost" },
+        second: { type: "leaf", cwd: "/inner-right" },
+      },
+      second: { type: "leaf", cwd: "/right" },
+    };
+    expect(firstLeafCwd(shape)).toBe("/leftmost");
   });
 });
