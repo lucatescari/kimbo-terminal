@@ -597,6 +597,14 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     await h.tabs.reopenLastClosedTab();
 
     // The fix ensures that the saved cwd is passed through to createTerminalSession.
-    expect(createTerminalSessionSpy).toHaveBeenCalledWith(expect.anything(), "/saved/path");
+    // Third arg (restoredScrollback) is undefined here — the test stub session has
+    // no serialize() method, so shapeFromTree's catch swallows the throw and stores
+    // scrollback=undefined. The per-task tests in Task 7 cover the scrollback
+    // contract specifically; here we only care about the cwd plumbing.
+    expect(createTerminalSessionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      "/saved/path",
+      undefined,
+    );
   });
 });
