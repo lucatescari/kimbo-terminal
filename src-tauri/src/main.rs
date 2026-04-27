@@ -5,12 +5,17 @@ mod pty_manager;
 
 use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, State};
 use commands::theme::ThemeState;
 use commands::update::UpdateState;
 
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
+fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
+    // app.exit(0) does NOT run Drop on managed State, so without this
+    // explicit sweep every shell would reparent to launchd on quit. Must
+    // run BEFORE app.exit; SIGHUP is synchronous, the 150ms SIGKILL
+    // escalation runs in detached threads per session.
+    manager.kill_all();
     app.exit(0);
 }
 

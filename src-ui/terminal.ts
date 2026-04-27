@@ -258,17 +258,26 @@ export async function createTerminalSession(
     container,
     cwd: null,
     dispose() {
-      onDataDisposable.dispose();
-      onResizeDisposable.dispose();
-      unlistenOutput();
-      unlistenExit();
-      unregisterTerminal(term);
-      fitObserver.disconnect();
-      viewport?.removeEventListener("scroll", onViewportScroll);
+      // Kill the backend PTY FIRST, before any UI teardown that could throw.
+      // term.dispose() (xterm + WebGL) is known to throw on GPU context loss
+      // — putting closePty after it meant a thrown teardown stranded the
+      // kill, leaving npm/node children alive. Each subsequent step is also
+      // wrapped in its own try/catch so one failure can't stop the next.
+      // closePty is fire-and-forget here: the Tauri invoke message reaches
+      // Rust whether or not the JS Promise is awaited, so dispose() stays
+      // synchronous and callers don't have to change.
+      closePty(ptyId).catch((e) => console.warn("closePty failed:", e));
+
+      try { onDataDisposable.dispose(); } catch (e) { console.warn("onDataDisposable.dispose:", e); }
+      try { onResizeDisposable.dispose(); } catch (e) { console.warn("onResizeDisposable.dispose:", e); }
+      try { unlistenOutput(); } catch (e) { console.warn("unlistenOutput:", e); }
+      try { unlistenExit(); } catch (e) { console.warn("unlistenExit:", e); }
+      try { unregisterTerminal(term); } catch (e) { console.warn("unregisterTerminal:", e); }
+      try { fitObserver.disconnect(); } catch (e) { console.warn("fitObserver.disconnect:", e); }
+      try { viewport?.removeEventListener("scroll", onViewportScroll); } catch (e) { console.warn("viewport remove scroll listener:", e); }
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
-      term.dispose();
-      closePty(ptyId);
-      container.remove();
+      try { term.dispose(); } catch (e) { console.warn("term.dispose:", e); }
+      try { container.remove(); } catch (e) { console.warn("container.remove:", e); }
     },
   };
 

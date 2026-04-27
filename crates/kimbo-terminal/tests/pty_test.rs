@@ -432,3 +432,67 @@ fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
         "shell with `sleep 10` running in foreground should report busy"
     );
 }
+
+// -----------------------------------------------------------------------
+// Explicit kill_tree() tests — verify the kill works on the real production
+// usage pattern: kill_tree first, then drop the session (which closes the
+// master fd via OwnedFd's destructor). This mirrors PtyManager::close,
+// which calls session.kill_tree() before sessions.remove() drops the
+// session.
+//
+// kill_tree alone (without dropping the session) deliberately does NOT
+// close the master fd — see the doc comment on PtySession::kill_tree.
+// In production a reader thread in PtyManager continuously drains the
+// master, so the shell never blocks on PTY-write and SIGHUP delivers
+// promptly. The test mimics that draining indirectly by closing the fd
+// (via drop), which delivers EIO to the slave.
+// -----------------------------------------------------------------------
+
+#[test]
+fn kill_tree_terminates_shell_and_backgrounded_descendant() {
+    let mut session = PtySession::new(None, None).unwrap();
+    let shell_pid = session.pid();
+
+    // sleep 60 & — `&` puts sleep in its own pgrp, distinct from the shell.
+    // This is the case the original Drop bug missed and the design fixes.
+    let output = run_and_drain(&mut session, b"sleep 60 & echo PID=$!\n", 1);
+    let sleep_pid = extract_pid_after("PID=", &output)
+        .expect("shell should have echoed the bg sleep's PID");
+
+    assert!(is_alive(shell_pid), "shell alive before kill_tree");
+    assert!(is_alive(sleep_pid), "sleep alive before kill_tree");
+
+    session.kill_tree();
+    drop(session); // closes master fd — mirrors PtyManager::close's sessions.remove
+
+    // SIGHUP fires sync, SIGKILL escalates after 150 ms. 600 ms slack for CI.
+    assert!(
+        wait_dead(shell_pid, Duration::from_millis(600)),
+        "shell still alive 600ms after kill_tree+drop"
+    );
+    assert!(
+        wait_dead(sleep_pid, Duration::from_millis(600)),
+        "bg sleep still alive 600ms after kill_tree+drop"
+    );
+}
+
+#[test]
+fn kill_tree_is_idempotent() {
+    let session = PtySession::new(None, None).unwrap();
+    // Two back-to-back calls must not panic, must not double-broadcast,
+    // must not error. The AtomicBool guard short-circuits the second one.
+    session.kill_tree();
+    session.kill_tree();
+    let _ = is_alive(session.pid()); // touch pid — silences "unused" if added later
+}
+
+#[test]
+fn drop_after_explicit_kill_tree_does_not_re_signal() {
+    // Functional check that the safety-net Drop path doesn't fire when
+    // kill_tree has already run. We can't observe the absence of a kill
+    // directly, so we verify the killed flag holds across drop by spawning,
+    // killing explicitly, dropping, and confirming no panic / no hang.
+    let session = PtySession::new(None, None).unwrap();
+    session.kill_tree();
+    drop(session); // no panic, no double-spawn of the 150 ms thread observable to the test
+}
