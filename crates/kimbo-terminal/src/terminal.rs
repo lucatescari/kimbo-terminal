@@ -307,12 +307,17 @@ impl PtySession {
         // blocked on a PTY write (e.g. zsh writing job-control output), which
         // wakes it from an otherwise uninterruptible sleep so that SIGHUP /
         // SIGKILL can be delivered. Without this, calling kill_tree() while the
-        // master fd is still open can leave the shell unkillable until the fd
-        // is eventually closed by Drop.
+        // master fd is still open can leave the shell unkillable.
         //
-        // Safety: we own this fd (it was created with OwnedFd) and we are the
-        // only ones who will close it — Kill_tree sets the `killed` flag so
-        // Drop will not call ManuallyDrop::drop a second time.
+        // Safety: we own this fd (the constructor wrapped a fresh OwnedFd in
+        // ManuallyDrop), and the AtomicBool swap above guarantees we are the
+        // only thread that reaches this close — concurrent kill_tree calls
+        // short-circuit. The ManuallyDrop wrapper ensures the inner OwnedFd's
+        // destructor never runs, so this libc::close is the sole closer of
+        // the kernel fd. Callers must NOT invoke other PtySession methods
+        // (write/resize/try_read/is_busy/master_raw_fd) concurrently with
+        // kill_tree on the same session — PtyManager serializes via Mutex,
+        // which is the only sanctioned access path.
         unsafe {
             libc::close(self.master_fd.as_raw_fd());
         }
@@ -341,20 +346,18 @@ impl Drop for PtySession {
         // a path that didn't go through the manager (tests, panics that
         // unwind across the State).
         //
-        // If kill_tree() has NOT been called yet, call it now. kill_tree()
-        // closes the master fd (via libc::close on the raw fd) and sets
-        // `killed = true`. We must NOT also call ManuallyDrop::drop on
-        // master_fd, because kill_tree already closed the underlying fd.
+        // If kill_tree() has NOT been called yet, calling it now both signals
+        // the children AND closes the master fd. If it HAS been called, both
+        // already happened. Either way, the fd is closed and `killed` is true
+        // by the end of this block.
         //
-        // If kill_tree() HAS been called already, master_fd was already closed
-        // by it — just skip ManuallyDrop::drop to avoid a double-close.
-        //
-        // Either way: after this block, `killed` is true and the fd is closed.
+        // We never invoke ManuallyDrop::drop on master_fd — kill_tree is the
+        // sole closer of the kernel fd, so running OwnedFd's destructor here
+        // would be a double-close. Leaking the OwnedFd shell is harmless: the
+        // struct itself goes out of scope on return.
         if !self.killed.load(Ordering::SeqCst) {
             self.kill_tree();
         }
-        // master_fd was closed by kill_tree — don't run its destructor.
-        // (ManuallyDrop suppresses the automatic drop of the inner OwnedFd.)
     }
 }
 
