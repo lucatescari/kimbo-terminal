@@ -316,35 +316,15 @@ impl PtySession {
 
 impl Drop for PtySession {
     fn drop(&mut self) {
-        // We kill SESSION-wide, not just PGRP-wide. Background jobs
-        // (`sleep 30 &`) live in their OWN process group — different
-        // from both the shell's PGRP and the current foreground PGRP
-        // reported by tcgetpgrp. Hitting only the fg PGRP leaves these
-        // bg children dangling, which is exactly the `npm run dev stays
-        // alive after Cmd+W` symptom the user saw.
-        //
-        // forkpty() made the shell the session leader (its PID is also
-        // its SID), so we enumerate every PID in that session and hit
-        // each one directly. Single proc_listpids call + getsid filter
-        // — microseconds, runs off the critical path.
-        //
-        // Sequence: SIGHUP now, SIGKILL after 150 ms. Polite first so
-        // well-behaved processes can flush, forceful second so anything
-        // that ignored the hangup still dies. Both passes run session-
-        // wide so newly-spawned grandchildren are caught by the
-        // escalation even if they were mid-fork during the SIGHUP.
-        let shell_pid = self.child_pid as libc::pid_t;
-
-        session_kill(shell_pid, libc::SIGHUP);
-
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            session_kill(shell_pid, libc::SIGKILL);
-            unsafe {
-                libc::waitpid(shell_pid, std::ptr::null_mut(), libc::WNOHANG);
-            }
-        });
-        log::info!("PTY session dropped: shell_pid={} (SIGHUP → SIGKILL 150ms)", self.child_pid);
+        // Safety net only — the explicit close path (close_pty / quit_app)
+        // is supposed to have called `kill_tree` already. The idempotency
+        // guard inside `kill_tree` makes this a no-op in the normal flow,
+        // but it still catches the rare case where a session is dropped via
+        // a path that didn't go through the manager (tests, panics that
+        // unwind across the State).
+        if !self.killed.load(Ordering::SeqCst) {
+            self.kill_tree();
+        }
     }
 }
 
