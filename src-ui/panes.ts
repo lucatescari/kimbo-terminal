@@ -41,9 +41,14 @@ export function initPanes(terminalArea: HTMLElement) {
   rootEl = terminalArea;
 }
 
-/** Create the initial pane (called once at startup). */
-export async function createRootPane(cwd?: string): Promise<LeafNode> {
-  const node = await createLeaf(cwd);
+/** Create the initial pane (called once at startup, and on tab open). The
+ *  optional restoredScrollback is used by the reopen-closed-tab feature
+ *  to seed the new pane's terminal with the saved buffer state. */
+export async function createRootPane(
+  cwd?: string,
+  restoredScrollback?: string,
+): Promise<LeafNode> {
+  const node = await createLeaf({ cwd, restoredScrollback });
   tree = node;
   rootEl.appendChild(node.element);
   setActivePane(node.paneId);
@@ -68,7 +73,7 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
     } catch (_) { /* ignore */ }
   }
 
-  const newLeaf = await createLeaf(cwd);
+  const newLeaf = await createLeaf({ cwd });
 
   // Build split node.
   const splitEl = document.createElement("div");
@@ -128,12 +133,13 @@ export async function splitLeaf(
   targetId: number,
   axis: SplitAxis,
   cwd?: string,
+  restoredScrollback?: string,
 ): Promise<{ firstId: number; secondId: number } | undefined> {
   if (!tree) return undefined;
   const leaf = findLeaf(tree, targetId);
   if (!leaf) return undefined;
 
-  const newLeaf = await createLeaf(cwd);
+  const newLeaf = await createLeaf({ cwd, restoredScrollback });
 
   const splitEl = document.createElement("div");
   splitEl.className = `pane-container ${axis}`;
@@ -317,7 +323,10 @@ export function setTree(newTree: PaneTree | null) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function createLeaf(cwd?: string): Promise<LeafNode> {
+async function createLeaf(opts?: {
+  cwd?: string;
+  restoredScrollback?: string;
+}): Promise<LeafNode> {
   const paneId = nextPaneId++;
   const el = document.createElement("div");
   el.className = "pane";
@@ -341,9 +350,9 @@ async function createLeaf(cwd?: string): Promise<LeafNode> {
   `;
   el.appendChild(head);
 
-  const session = await createTerminalSession(el, cwd);
+  const session = await createTerminalSession(el, opts?.cwd, opts?.restoredScrollback);
 
-  updatePaneHead(head, paneId, session.ptyId, session.cwd ?? cwd ?? null);
+  updatePaneHead(head, paneId, session.ptyId, session.cwd ?? opts?.cwd ?? null);
 
   // Refresh head when OSC 7 lands a new cwd. Poll lightly to avoid coupling
   // to the OSC 7 parser — cheap and bounded to the visible panes.
