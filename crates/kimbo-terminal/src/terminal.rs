@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::io;
+use std::mem::ManuallyDrop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,7 +56,11 @@ fn get_cwd_of_pid(_pid: u32) -> Option<PathBuf> {
 /// to the master file descriptor. Terminal emulation is handled externally
 /// (e.g., by xterm.js in the frontend).
 pub struct PtySession {
-    master_fd: OwnedFd,
+    /// Wrapped in ManuallyDrop so kill_tree() can close it early (triggering
+    /// kernel EIO on the PTY slave, which unblocks any shell stuck in an
+    /// uninterruptible PTY write) before we send SIGKILL. The Drop impl
+    /// closes it if kill_tree() hasn't already done so.
+    master_fd: ManuallyDrop<OwnedFd>,
     child_pid: u32,
     /// Idempotent guard for `kill_tree`. Set on the first call; subsequent
     /// calls — including the safety-net call in `Drop` — return immediately.
@@ -156,7 +161,7 @@ impl PtySession {
         );
 
         Ok(Self {
-            master_fd: master_owned,
+            master_fd: ManuallyDrop::new(master_owned),
             child_pid: pid as u32,
             killed: AtomicBool::new(false),
         })
@@ -298,6 +303,19 @@ impl PtySession {
         if self.killed.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Close the PTY master fd immediately. This delivers EIO to any process
+        // blocked on a PTY write (e.g. zsh writing job-control output), which
+        // wakes it from an otherwise uninterruptible sleep so that SIGHUP /
+        // SIGKILL can be delivered. Without this, calling kill_tree() while the
+        // master fd is still open can leave the shell unkillable until the fd
+        // is eventually closed by Drop.
+        //
+        // Safety: we own this fd (it was created with OwnedFd) and we are the
+        // only ones who will close it — Kill_tree sets the `killed` flag so
+        // Drop will not call ManuallyDrop::drop a second time.
+        unsafe {
+            libc::close(self.master_fd.as_raw_fd());
+        }
         let shell_pid = self.child_pid as libc::pid_t;
         session_kill(shell_pid, libc::SIGHUP);
         std::thread::spawn(move || {
@@ -308,7 +326,7 @@ impl PtySession {
             }
         });
         log::info!(
-            "kill_tree: shell_pid={} (SIGHUP → SIGKILL 150ms)",
+            "kill_tree: shell_pid={} (closed master fd, SIGHUP → SIGKILL 150ms)",
             self.child_pid
         );
     }
@@ -322,9 +340,21 @@ impl Drop for PtySession {
         // but it still catches the rare case where a session is dropped via
         // a path that didn't go through the manager (tests, panics that
         // unwind across the State).
+        //
+        // If kill_tree() has NOT been called yet, call it now. kill_tree()
+        // closes the master fd (via libc::close on the raw fd) and sets
+        // `killed = true`. We must NOT also call ManuallyDrop::drop on
+        // master_fd, because kill_tree already closed the underlying fd.
+        //
+        // If kill_tree() HAS been called already, master_fd was already closed
+        // by it — just skip ManuallyDrop::drop to avoid a double-close.
+        //
+        // Either way: after this block, `killed` is true and the fd is closed.
         if !self.killed.load(Ordering::SeqCst) {
             self.kill_tree();
         }
+        // master_fd was closed by kill_tree — don't run its destructor.
+        // (ManuallyDrop suppresses the automatic drop of the inner OwnedFd.)
     }
 }
 

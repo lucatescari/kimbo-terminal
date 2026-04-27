@@ -432,3 +432,58 @@ fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
         "shell with `sleep 10` running in foreground should report busy"
     );
 }
+
+// -----------------------------------------------------------------------
+// Explicit kill_tree() tests — verify the kill works when called directly
+// rather than via Drop. The dispose() path on the frontend now calls this
+// before any UI teardown that could throw, so we need confidence that an
+// explicit call is functionally equivalent to dropping the session.
+// -----------------------------------------------------------------------
+
+#[test]
+fn kill_tree_terminates_shell_and_backgrounded_descendant() {
+    let mut session = PtySession::new(None, None).unwrap();
+    let shell_pid = session.pid();
+
+    // sleep 60 & — `&` puts sleep in its own pgrp, distinct from the shell.
+    // This is the case the original Drop bug missed and the design fixes.
+    let output = run_and_drain(&mut session, b"sleep 60 & echo PID=$!\n", 1);
+    let sleep_pid = extract_pid_after("PID=", &output)
+        .expect("shell should have echoed the bg sleep's PID");
+
+    assert!(is_alive(shell_pid), "shell alive before kill_tree");
+    assert!(is_alive(sleep_pid), "sleep alive before kill_tree");
+
+    session.kill_tree();
+
+    // SIGHUP fires sync, SIGKILL escalates after 150 ms. 600 ms slack for CI.
+    assert!(
+        wait_dead(shell_pid, Duration::from_millis(600)),
+        "shell still alive 600ms after kill_tree"
+    );
+    assert!(
+        wait_dead(sleep_pid, Duration::from_millis(600)),
+        "bg sleep still alive 600ms after kill_tree"
+    );
+}
+
+#[test]
+fn kill_tree_is_idempotent() {
+    let session = PtySession::new(None, None).unwrap();
+    // Two back-to-back calls must not panic, must not double-broadcast,
+    // must not error. The AtomicBool guard short-circuits the second one.
+    session.kill_tree();
+    session.kill_tree();
+    let _ = is_alive(session.pid()); // touch pid — silences "unused" if added later
+}
+
+#[test]
+fn drop_after_explicit_kill_tree_does_not_re_signal() {
+    // Functional check that the safety-net Drop path doesn't fire when
+    // kill_tree has already run. We can't observe the absence of a kill
+    // directly, so we verify the killed flag holds across drop by spawning,
+    // killing explicitly, dropping, and confirming no panic / no hang.
+    let session = PtySession::new(None, None).unwrap();
+    session.kill_tree();
+    drop(session); // no panic, no double-spawn of the 150 ms thread observable to the test
+}
