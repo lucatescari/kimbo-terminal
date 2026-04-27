@@ -250,7 +250,7 @@ export async function reopenLastClosedTab(): Promise<void> {
  *  firstId === the original leaf).
  *
  *  Base case: shape is a leaf — nothing to do.
- *  Recursive case: split the target with cwd = firstLeafCwd(shape.second),
+ *  Recursive case: split the target with cwd = firstLeafCwdOfShape(shape.second),
  *  then recurse onto both children. */
 async function replayShape(
   shape: ClosedTabShape,
