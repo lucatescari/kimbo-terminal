@@ -68,6 +68,10 @@ describe("keys.ts: every shortcut binds to a real dispatch target", () => {
     expectShortcut({ key: "t", handler: "createTab" });
   });
 
+  it("Cmd+Shift+T → reopenLastClosedTab", () => {
+    expectShortcut({ key: "t", shift: true, handler: "reopenLastClosedTab" });
+  });
+
   it("Cmd+Shift+W → confirmAndCloseActiveTab (routes through the busy-check arbiter)", () => {
     expectShortcut({ key: "w", shift: true, handler: "confirmAndCloseActiveTab" });
   });
