@@ -434,10 +434,18 @@ fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
 }
 
 // -----------------------------------------------------------------------
-// Explicit kill_tree() tests — verify the kill works when called directly
-// rather than via Drop. The dispose() path on the frontend now calls this
-// before any UI teardown that could throw, so we need confidence that an
-// explicit call is functionally equivalent to dropping the session.
+// Explicit kill_tree() tests — verify the kill works on the real production
+// usage pattern: kill_tree first, then drop the session (which closes the
+// master fd via OwnedFd's destructor). This mirrors PtyManager::close,
+// which calls session.kill_tree() before sessions.remove() drops the
+// session.
+//
+// kill_tree alone (without dropping the session) deliberately does NOT
+// close the master fd — see the doc comment on PtySession::kill_tree.
+// In production a reader thread in PtyManager continuously drains the
+// master, so the shell never blocks on PTY-write and SIGHUP delivers
+// promptly. The test mimics that draining indirectly by closing the fd
+// (via drop), which delivers EIO to the slave.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -455,15 +463,16 @@ fn kill_tree_terminates_shell_and_backgrounded_descendant() {
     assert!(is_alive(sleep_pid), "sleep alive before kill_tree");
 
     session.kill_tree();
+    drop(session); // closes master fd — mirrors PtyManager::close's sessions.remove
 
     // SIGHUP fires sync, SIGKILL escalates after 150 ms. 600 ms slack for CI.
     assert!(
         wait_dead(shell_pid, Duration::from_millis(600)),
-        "shell still alive 600ms after kill_tree"
+        "shell still alive 600ms after kill_tree+drop"
     );
     assert!(
         wait_dead(sleep_pid, Duration::from_millis(600)),
-        "bg sleep still alive 600ms after kill_tree"
+        "bg sleep still alive 600ms after kill_tree+drop"
     );
 }
 
