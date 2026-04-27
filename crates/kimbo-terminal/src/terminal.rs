@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Get the current working directory of a process by PID.
 #[cfg(target_os = "macos")]
@@ -56,6 +57,11 @@ fn get_cwd_of_pid(_pid: u32) -> Option<PathBuf> {
 pub struct PtySession {
     master_fd: OwnedFd,
     child_pid: u32,
+    /// Idempotent guard for `kill_tree`. Set on the first call; subsequent
+    /// calls — including the safety-net call in `Drop` — return immediately.
+    /// Without this, `Drop` would re-broadcast SIGHUP/SIGKILL to PIDs the
+    /// kernel may have already recycled.
+    killed: AtomicBool,
 }
 
 impl PtySession {
@@ -152,6 +158,7 @@ impl PtySession {
         Ok(Self {
             master_fd: master_owned,
             child_pid: pid as u32,
+            killed: AtomicBool::new(false),
         })
     }
 
@@ -278,6 +285,32 @@ impl PtySession {
             return false;
         }
         (fg as u32) != self.child_pid
+    }
+
+    /// Send SIGHUP to the entire shell session synchronously, then escalate
+    /// to SIGKILL on a detached 150 ms timer. Idempotent — `Drop` will call
+    /// this as a safety net but it's a no-op if the explicit close path
+    /// already ran. This is the primary pane-shutdown mechanism; the frontend
+    /// invokes it through `close_pty` and `quit_app` rather than relying on
+    /// `Drop`, which would otherwise be hostage to xterm/WebGL teardown not
+    /// throwing first.
+    pub fn kill_tree(&self) {
+        if self.killed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let shell_pid = self.child_pid as libc::pid_t;
+        session_kill(shell_pid, libc::SIGHUP);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            session_kill(shell_pid, libc::SIGKILL);
+            unsafe {
+                libc::waitpid(shell_pid, std::ptr::null_mut(), libc::WNOHANG);
+            }
+        });
+        log::info!(
+            "kill_tree: shell_pid={} (SIGHUP → SIGKILL 150ms)",
+            self.child_pid
+        );
     }
 }
 
