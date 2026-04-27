@@ -107,6 +107,69 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
   requestAnimationFrame(() => fitAll(tree!));
 }
 
+/** Split a SPECIFIC leaf along an axis with an explicit cwd, returning
+ *  the resulting leaf paneIds. Unlike splitActive, this:
+ *   - Targets a leaf by id (not "the active one"), so the closed-tab
+ *     replay can split a non-focused leaf during reconstruction.
+ *   - Takes an explicit cwd (caller already knows it from the saved
+ *     shape), so we skip the OSC-7 / PTY-query inheritance dance.
+ *   - Returns { firstId, secondId } so recursive replay can walk into
+ *     both new children.
+ *
+ * Returns undefined if `targetId` doesn't exist in the current tree —
+ * defensive against a snapshot/tree mismatch. The caller logs a warn
+ * and aborts that subtree.
+ *
+ * After the split: firstId === targetId (the original leaf is reused,
+ * its paneId/session unchanged), secondId is a fresh leaf created with
+ * `createLeaf(cwd)`. The active pane is NOT changed — the caller drives
+ * focus, not us. */
+export async function splitLeaf(
+  targetId: number,
+  axis: SplitAxis,
+  cwd?: string,
+): Promise<{ firstId: number; secondId: number } | undefined> {
+  if (!tree) return undefined;
+  const leaf = findLeaf(tree, targetId);
+  if (!leaf) return undefined;
+
+  const newLeaf = await createLeaf(cwd);
+
+  const splitEl = document.createElement("div");
+  splitEl.className = `pane-container ${axis}`;
+  splitEl.style.flex = "1";
+  splitEl.style.minWidth = "0";
+  splitEl.style.minHeight = "0";
+  splitEl.style.display = "flex";
+  splitEl.style.flexDirection = axis === "vertical" ? "row" : "column";
+
+  const handle = document.createElement("div");
+  handle.className = `split-handle ${axis}`;
+
+  const parent = leaf.element.parentElement!;
+  parent.replaceChild(splitEl, leaf.element);
+  splitEl.appendChild(leaf.element);
+  splitEl.appendChild(handle);
+  splitEl.appendChild(newLeaf.element);
+
+  const splitNode: SplitNode = {
+    type: "split",
+    axis,
+    first: leaf,
+    second: newLeaf,
+    element: splitEl,
+  };
+
+  replaceInTree(leaf.paneId, splitNode);
+
+  // Re-fit so newly-mounted xterm gets correct cols/rows. Same idiom as
+  // splitActive — schedules into the next animation frame so layout has
+  // a chance to settle first.
+  requestAnimationFrame(() => fitAll(tree!));
+
+  return { firstId: leaf.paneId, secondId: newLeaf.paneId };
+}
+
 /**
  * Close the active pane.
  *
