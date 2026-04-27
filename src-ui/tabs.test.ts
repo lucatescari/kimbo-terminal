@@ -40,36 +40,50 @@ vi.mock("./terminal", () => {
   const sessions: Array<any> = [];
   let nextId = 1;
 
-  async function createTerminalSession(parentEl: HTMLElement): Promise<any> {
-    const id = nextId++;
-    const container = document.createElement("div");
-    container.className = "terminal-container";
-    container.dataset.sessionId = String(id);
-    parentEl.appendChild(container);
+  // Wrap createTerminalSession in vi.fn so per-test assertions can inspect
+  // its call args — specifically the third arg (restoredScrollback) which
+  // the reopen flow plumbs through. The body still mirrors the real
+  // contract: appends a .terminal-container to the parent and returns a
+  // session whose dispose() removes it.
+  const createTerminalSession = vi.fn(
+    async (parentEl: HTMLElement, _cwd?: string, _restoredScrollback?: string): Promise<any> => {
+      const id = nextId++;
+      const container = document.createElement("div");
+      container.className = "terminal-container";
+      container.dataset.sessionId = String(id);
+      parentEl.appendChild(container);
 
-    const session: any = {
-      id,
-      ptyId: 1000 + id,
-      cwd: null,
-      container,
-      disposed: false,
-      term: { focus() {}, buffer: { active: { viewportY: 0, baseY: 0 } }, scrollToBottom() {} },
-      fit: { fit() {} },
-      search: {},
-      dispose() {
-        session.disposed = true;
-        container.remove();
-      },
-    };
-    sessions.push(session);
-    return session;
-  }
+      const session: any = {
+        id,
+        ptyId: 1000 + id,
+        cwd: null,
+        container,
+        disposed: false,
+        term: { focus() {}, buffer: { active: { viewportY: 0, baseY: 0 } }, scrollToBottom() {} },
+        fit: { fit() {} },
+        search: {},
+        // Default empty serialize so existing tests don't accidentally
+        // capture scrollback. Per-test overrides set this to a known value.
+        serialize: vi.fn().mockReturnValue(""),
+        dispose() {
+          session.disposed = true;
+          container.remove();
+        },
+      };
+      sessions.push(session);
+      return session;
+    },
+  );
 
   return {
     createTerminalSession,
     setTabTitleHandler: vi.fn(),
     __sessions: sessions,
-    __reset: () => { sessions.length = 0; nextId = 1; },
+    __reset: () => {
+      sessions.length = 0;
+      nextId = 1;
+      createTerminalSession.mockClear();
+    },
   };
 });
 
@@ -95,6 +109,7 @@ interface Harness {
   tabs: typeof import("./tabs");
   panes: typeof import("./panes");
   sessions: Array<any>;
+  terminal: typeof import("./terminal");
 }
 
 async function mount(): Promise<Harness> {
@@ -114,7 +129,7 @@ async function mount(): Promise<Harness> {
   terminal.__reset();
 
   tabs.initTabs(tabBar, terminalArea);
-  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions };
+  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions, terminal };
 }
 
 beforeEach(() => {
@@ -606,5 +621,86 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
       "/saved/path",
       undefined,
     );
+  });
+
+  it("captures scrollback at close and replays it via createTerminalSession's third arg", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.serialize = vi.fn().mockReturnValue("captured-output");
+
+    // Need a sibling so closeTab is willing to fire (single-tab close
+    // routes to quit instead, which doesn't push to the stack).
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    // Clear the spy so we count only the reopen's createTerminalSession call.
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The reopened tab's createTerminalSession should have been called with
+    // restoredScrollback === "captured-output" (the third positional arg).
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[2]).toBe("captured-output");
+  });
+
+  it("replays scrollback for each leaf in a split-tab restoration", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // First leaf gets a known serialize.
+    const leafLeft = h.sessions[h.sessions.length - 1];
+    leafLeft.serialize = vi.fn().mockReturnValue("leaf-LEFT");
+
+    await h.panes.splitActive("vertical"); // creates the right leaf
+    const leafRight = h.sessions[h.sessions.length - 1];
+    leafRight.serialize = vi.fn().mockReturnValue("leaf-RIGHT");
+
+    // Sibling tab so closeTab is willing.
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // Two new leaves should have been created with the two distinct
+    // scrollbacks. We check both calls were made with the right scrollback.
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    const scrollbacksPassed = calls.map((c: any[]) => c[2]).filter(Boolean);
+    expect(scrollbacksPassed).toContain("leaf-LEFT");
+    expect(scrollbacksPassed).toContain("leaf-RIGHT");
+  });
+
+  it("empty scrollback: createTerminalSession is called with restoredScrollback === undefined", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // Default `serialize` returns "" — shapeFromTree should normalize to undefined.
+
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The reopen call to createTerminalSession should have its third arg
+    // as undefined — proving the normalization "" → undefined runs end-to-end.
+    const reopenCall = (h.terminal as any).createTerminalSession.mock.calls[0];
+    expect(reopenCall[2]).toBeUndefined();
   });
 });
