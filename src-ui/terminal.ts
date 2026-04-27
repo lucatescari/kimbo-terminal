@@ -4,7 +4,9 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { restoredSeparator } from "./closed-tabs";
 import {
   createPty,
   writePty,
@@ -32,6 +34,9 @@ export interface TerminalSession {
   container: HTMLElement;
   /** Last cwd reported via OSC 7. Null until the first OSC 7 arrives. */
   cwd: string | null;
+  /** Snapshot the scrollback + viewport as ANSI text (colors, cursor
+   *  position, attributes preserved). Used by closed-tab restore. */
+  serialize(): string;
   dispose(): void;
 }
 
@@ -45,6 +50,7 @@ export function setTabTitleHandler(fn: (sessionId: number, title: string | null)
 export async function createTerminalSession(
   parentEl: HTMLElement,
   cwd?: string,
+  restoredScrollback?: string,
 ): Promise<TerminalSession> {
   const id = nextTermId++;
 
@@ -76,6 +82,8 @@ export async function createTerminalSession(
   term.loadAddon(fit);
   const search = new SearchAddon();
   term.loadAddon(search);
+  const serialize = new SerializeAddon();
+  term.loadAddon(serialize);
   term.loadAddon(
     new WebLinksAddon((event, uri) => {
       if (!event.metaKey) return;
@@ -100,6 +108,19 @@ export async function createTerminalSession(
   term.unicode.activeVersion = "11";
 
   term.open(container);
+
+  // Replay closed-tab scrollback BEFORE the PTY listener attaches AND before
+  // OSC handlers register below. xterm processes term.write synchronously
+  // into its parser, so the bytes hit the buffer before any callback
+  // (PTY, OSC 7 cwd, OSC 0/2 title, OSC 133 shell-integration) can fire.
+  // Old OSC sequences embedded in the scrollback are parsed-and-ignored
+  // as visual decoration since their handlers don't exist yet — we don't
+  // want stale OSC events firing during replay. The if-check skips the
+  // separator for empty captures so a never-used pane reopens blank.
+  if (restoredScrollback) {
+    term.write(restoredScrollback);
+    term.write(restoredSeparator());
+  }
 
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
@@ -257,6 +278,9 @@ export async function createTerminalSession(
     search,
     container,
     cwd: null,
+    serialize() {
+      return serialize.serialize();
+    },
     dispose() {
       // Kill the backend PTY FIRST, before any UI teardown that could throw.
       // term.dispose() (xterm + WebGL) is known to throw on GPU context loss

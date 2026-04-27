@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   pushClosedTab,
   popClosedTab,
@@ -6,6 +6,8 @@ import {
   clearClosedTabs,
   shapeFromTree,
   firstLeafCwd,
+  firstLeafScrollback,
+  restoredSeparator,
   type ClosedTabEntry,
   type ClosedTabShape,
 } from "./closed-tabs";
@@ -163,5 +165,154 @@ describe("firstLeafCwd", () => {
       second: { type: "leaf", cwd: "/right" },
     };
     expect(firstLeafCwd(shape)).toBe("/leftmost");
+  });
+});
+
+describe("shapeFromTree scrollback capture", () => {
+  it("captures scrollback from a leaf session", () => {
+    const fakeLeaf = {
+      type: "leaf" as const,
+      paneId: 1,
+      session: {
+        cwd: "/a",
+        serialize: () => "ls\r\nfile1\r\n$ ",
+      } as any,
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(fakeLeaf)).toEqual({
+      type: "leaf",
+      cwd: "/a",
+      scrollback: "ls\r\nfile1\r\n$ ",
+    });
+  });
+
+  it("normalizes empty serialize result to undefined (skip separator)", () => {
+    const fakeLeaf = {
+      type: "leaf" as const,
+      paneId: 1,
+      session: {
+        cwd: "/a",
+        serialize: () => "",
+      } as any,
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(fakeLeaf)).toEqual({
+      type: "leaf",
+      cwd: "/a",
+      scrollback: undefined,
+    });
+  });
+
+  it("captures scrollback for each leaf in a nested split independently", () => {
+    const tree = {
+      type: "split" as const,
+      axis: "vertical" as const,
+      first: {
+        type: "leaf" as const,
+        paneId: 1,
+        session: {
+          cwd: "/a",
+          serialize: () => "leaf-A-output",
+        } as any,
+        element: document.createElement("div"),
+      },
+      second: {
+        type: "split" as const,
+        axis: "horizontal" as const,
+        first: {
+          type: "leaf" as const,
+          paneId: 2,
+          session: {
+            cwd: "/b",
+            serialize: () => "leaf-B-output",
+          } as any,
+          element: document.createElement("div"),
+        },
+        second: {
+          type: "leaf" as const,
+          paneId: 3,
+          session: {
+            cwd: "/c",
+            serialize: () => "leaf-C-output",
+          } as any,
+          element: document.createElement("div"),
+        },
+        element: document.createElement("div"),
+      },
+      element: document.createElement("div"),
+    };
+    expect(shapeFromTree(tree)).toEqual({
+      type: "split",
+      axis: "vertical",
+      first: { type: "leaf", cwd: "/a", scrollback: "leaf-A-output" },
+      second: {
+        type: "split",
+        axis: "horizontal",
+        first: { type: "leaf", cwd: "/b", scrollback: "leaf-B-output" },
+        second: { type: "leaf", cwd: "/c", scrollback: "leaf-C-output" },
+      },
+    });
+  });
+
+  it("swallows serialize() throws and stores undefined", () => {
+    const fakeLeaf = {
+      type: "leaf" as const,
+      paneId: 1,
+      session: {
+        cwd: "/a",
+        serialize: () => { throw new Error("simulated"); },
+      } as any,
+      element: document.createElement("div"),
+    };
+    // Silence the console.warn we expect.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(shapeFromTree(fakeLeaf)).toEqual({
+      type: "leaf",
+      cwd: "/a",
+      scrollback: undefined,
+    });
+    warn.mockRestore();
+  });
+});
+
+describe("firstLeafScrollback", () => {
+  it("returns the leaf's scrollback when shape is a leaf", () => {
+    expect(
+      firstLeafScrollback({ type: "leaf", cwd: "/a", scrollback: "hello" }),
+    ).toBe("hello");
+  });
+
+  it("returns undefined when leaf has no scrollback", () => {
+    expect(firstLeafScrollback({ type: "leaf", cwd: "/a" })).toBeUndefined();
+  });
+
+  it("walks left through splits to find the first leaf's scrollback", () => {
+    const shape: ClosedTabShape = {
+      type: "split",
+      axis: "vertical",
+      first: {
+        type: "split",
+        axis: "horizontal",
+        first: { type: "leaf", cwd: "/a", scrollback: "leftmost" },
+        second: { type: "leaf", cwd: "/b", scrollback: "inner-right" },
+      },
+      second: { type: "leaf", cwd: "/c", scrollback: "right" },
+    };
+    expect(firstLeafScrollback(shape)).toBe("leftmost");
+  });
+});
+
+describe("restoredSeparator", () => {
+  it("contains the human-readable label and at least one ANSI escape", () => {
+    const sep = restoredSeparator();
+    expect(sep).toContain("reopened from closed tab");
+    // \x1b[...m is the SGR escape pattern.
+    expect(sep).toMatch(/\x1b\[[\d;]+m/);
+  });
+
+  it("starts and ends with a CRLF so it never appends to a partial line", () => {
+    const sep = restoredSeparator();
+    expect(sep.startsWith("\r\n")).toBe(true);
+    expect(sep.endsWith("\r\n")).toBe(true);
   });
 });
