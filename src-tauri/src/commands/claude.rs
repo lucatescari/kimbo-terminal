@@ -1,5 +1,5 @@
 use crate::pty_manager::PtyManager;
-use kimbo_terminal::probe_claude_session_for_pid;
+use kimbo_terminal::{probe_claude_session_for_pid, ClaudeStatus, probe_claude_status_for_pid};
 use serde::Serialize;
 use tauri::State;
 
@@ -25,4 +25,17 @@ pub fn probe_claude_session(
     let cwd = manager.get_cwd(id).ok().flatten();
     let result = probe_claude_session_for_pid(pid, cwd.as_deref());
     Ok(result.map(|uuid| ClaudeResume { uuid }))
+}
+
+/// Walk the PTY's process descendants and return the live Claude Code
+/// session status (session id, model, tokens, etc.) for the running
+/// `claude` if any. Best-effort; returns `Ok(None)` for "no claude
+/// running" and "missing sessions file". Errors only on PTY id unknown.
+#[tauri::command]
+pub fn claude_status(
+    id: u32,
+    manager: State<'_, PtyManager>,
+) -> Result<Option<ClaudeStatus>, String> {
+    let pid = manager.pid_of(id)?;
+    Ok(probe_claude_status_for_pid(pid))
 }
