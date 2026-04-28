@@ -44,6 +44,16 @@ export interface UiPrefs {
    *  When on, CLI tools that emit green-on-black labels (vite/tauri/chalk)
    *  render with the window's translucent bg instead of an opaque rectangle. */
   transparentBlackBg: boolean;
+  /** Claude Code → Show the per-pane HUD (session id, model, tokens,
+   *  cost, duration) below the pane head when claude is running. */
+  claudeHudEnabled: boolean;
+  /** Claude Code → Append permission mode + message/tool counts to the
+   *  HUD line. Defaults to off; the base HUD already covers the common
+   *  case. */
+  claudeHudExtended: boolean;
+  /** Claude Code → Append the subscription tier (e.g. "max") in
+   *  parentheses after the email. Defaults to off. */
+  claudeHudShowPlan: boolean;
 }
 
 const DEFAULTS: UiPrefs = {
@@ -61,6 +71,9 @@ const DEFAULTS: UiPrefs = {
   fontSmoothing: "subpixel",
   startup: "last",
   transparentBlackBg: true,
+  claudeHudEnabled: true,
+  claudeHudExtended: false,
+  claudeHudShowPlan: false,
 };
 
 let cache: UiPrefs | null = null;
