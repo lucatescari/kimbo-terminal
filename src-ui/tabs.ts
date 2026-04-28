@@ -20,9 +20,10 @@ import { initTabDrag, cancelDrag, wasJustDragging } from "./tab-drag";
 import {
   pushClosedTab,
   popClosedTab,
-  shapeFromTree,
+  shapeFromTreeAsync,
   firstLeafCwd as firstLeafCwdOfShape,
   firstLeafScrollback,
+  firstLeafClaudeResume,
   type ClosedTabShape,
 } from "./closed-tabs";
 
@@ -71,6 +72,7 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
 export async function createTab(
   cwd?: string,
   restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
 ): Promise<Tab> {
   // If no explicit cwd, inherit from the currently active session
   // (OSC 7 first, PTY query as fallback) so Cmd+T opens "where I am".
@@ -108,7 +110,7 @@ export async function createTab(
 
   // Re-init panes module to use this container, create root pane.
   initPanes(container);
-  const rootPane = await createRootPane(cwd, restoredScrollback);
+  const rootPane = await createRootPane(cwd, restoredScrollback, restoredClaudeResume);
 
   const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
@@ -149,7 +151,7 @@ export function switchTab(id: number) {
   renderTabBar();
 }
 
-export function closeTab(id: number) {
+export async function closeTab(id: number): Promise<void> {
   cancelDrag();
   if (tabs.length <= 1) return;
   const idx = tabs.findIndex((t) => t.id === id);
@@ -158,14 +160,14 @@ export function closeTab(id: number) {
   const tab = tabs[idx];
 
   // Snapshot the tab's pane-tree shape onto the closed-tab stack BEFORE
-  // we dispose anything. Powers the ⌘⇧T reopen flow. Active tab's live
-  // tree is in the panes module; inactive tabs keep a snapshot. If
-  // somehow neither exists (defensive — shouldn't happen), we skip the
-  // push so closeTab still works on a malformed tab.
+  // we dispose anything. shapeFromTreeAsync also runs the per-leaf
+  // claude-session probe in parallel — must complete before disposeTree
+  // because the probe needs the shell's descendants to still be alive.
   const liveTree = tab.id === activeTabId ? getTree() : tab.treeSnapshot;
   if (liveTree) {
+    const shape = await shapeFromTreeAsync(liveTree);
     pushClosedTab({
-      shape: shapeFromTree(liveTree),
+      shape,
       name: tab.name,
       titleOverride: tab.titleOverride,
       originalIndex: idx,
@@ -216,7 +218,8 @@ export async function reopenLastClosedTab(): Promise<void> {
 
     const rootCwd = firstLeafCwdOfShape(entry.shape) ?? undefined;
     const rootScrollback = firstLeafScrollback(entry.shape);
-    const newTab = await createTab(rootCwd, rootScrollback);
+    const rootClaudeResume = firstLeafClaudeResume(entry.shape);
+    const newTab = await createTab(rootCwd, rootScrollback, rootClaudeResume);
 
     if (entry.shape.type === "split") {
       const rootLeafId = getActivePaneId();
@@ -265,7 +268,8 @@ async function replayShape(
 
   const cwd = firstLeafCwdOfShape(shape.second) ?? undefined;
   const scrollback = firstLeafScrollback(shape.second);
-  const result = await splitLeaf(targetLeafId, shape.axis, cwd, scrollback);
+  const claudeResume = firstLeafClaudeResume(shape.second);
+  const result = await splitLeaf(targetLeafId, shape.axis, cwd, scrollback, claudeResume);
   if (!result) {
     console.warn("replayShape: target leaf disappeared", targetLeafId);
     return;

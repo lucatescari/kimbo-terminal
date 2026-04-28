@@ -87,6 +87,12 @@ vi.mock("./terminal", () => {
   };
 });
 
+// Mock the claude-session-probe so closeTab's per-leaf probe is
+// deterministic. Per-test overrides set it to return a uuid.
+vi.mock("./claude-session-probe", () => ({
+  probeClaudeSession: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock ./pty so the command calls resolve synchronously in tests.
 vi.mock("./pty", () => ({
   createPty: vi.fn().mockResolvedValue(1),
@@ -110,6 +116,7 @@ interface Harness {
   panes: typeof import("./panes");
   sessions: Array<any>;
   terminal: typeof import("./terminal");
+  probe: typeof import("./claude-session-probe");
 }
 
 async function mount(): Promise<Harness> {
@@ -126,10 +133,13 @@ async function mount(): Promise<Harness> {
   const tabs = await import("./tabs");
   const panes = await import("./panes");
   const terminal = (await import("./terminal")) as any;
+  const probe = await import("./claude-session-probe");
   terminal.__reset();
+  (probe.probeClaudeSession as any).mockReset();
+  (probe.probeClaudeSession as any).mockResolvedValue(null);
 
   tabs.initTabs(tabBar, terminalArea);
-  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions, terminal };
+  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions, terminal, probe };
 }
 
 beforeEach(() => {
@@ -205,6 +215,7 @@ describe("Cmd+W on a single-pane tab", () => {
     expect(tabBSession.disposed).toBe(false);
 
     h.tabs.closeActiveOrTab();
+    await new Promise<void>((r) => setTimeout(r, 0));
 
     expect(tabB.container.isConnected).toBe(false);
     expect(tabA.container.isConnected).toBe(true);
@@ -348,6 +359,7 @@ describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
 
     h.tabs.closeActiveOrTab();
     h.tabs.closeActiveOrTab();
+    await new Promise<void>((r) => setTimeout(r, 0));
 
     expect(tabA.container.isConnected).toBe(true);
     expect(tabB.container.isConnected).toBe(true);
@@ -504,7 +516,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     const tabB = await h.tabs.createTab(); // active
 
     // Close tab A. Snapshot pushes a leaf shape onto the closed-tab stack.
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
     expect(closedTabs.closedTabsCount()).toBe(1);
 
     const tabsBeforeReopen = h.tabs.getTabCount();
@@ -527,7 +539,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
 
     // Switch back to A so we close the split tab.
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     expect(closedTabs.closedTabsCount()).toBe(1);
 
@@ -554,7 +566,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // Need a sibling tab so closeTab is willing to fire.
     await h.tabs.createTab();
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     await h.tabs.reopenLastClosedTab();
 
@@ -571,12 +583,12 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // Push two entries directly, no real closes needed.
     const tabA = await h.tabs.createTab();
     const tabB = await h.tabs.createTab();
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
     expect(closedTabs.closedTabsCount()).toBe(1);
 
     // Push a second entry by closing tabB after creating a third.
     const tabC = await h.tabs.createTab();
-    h.tabs.closeTab(tabB.id);
+    await h.tabs.closeTab(tabB.id);
     expect(closedTabs.closedTabsCount()).toBe(2);
 
     // Fire two reopens concurrently. The second should bail on the
@@ -603,7 +615,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
 
     const tabB = await h.tabs.createTab();
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     // Spy on createTerminalSession to verify it's called with the saved cwd.
     const terminal = await import("./terminal");
@@ -619,6 +631,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     expect(createTerminalSessionSpy).toHaveBeenCalledWith(
       expect.anything(),
       "/saved/path",
+      undefined,
       undefined,
     );
   });
@@ -636,7 +649,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // routes to quit instead, which doesn't push to the stack).
     await h.tabs.createTab();
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     // Clear the spy so we count only the reopen's createTerminalSession call.
     (h.terminal as any).createTerminalSession.mockClear();
@@ -668,7 +681,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // Sibling tab so closeTab is willing.
     await h.tabs.createTab();
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     (h.terminal as any).createTerminalSession.mockClear();
 
@@ -692,7 +705,7 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
 
     await h.tabs.createTab();
     h.tabs.switchTab(tabA.id);
-    h.tabs.closeTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
 
     (h.terminal as any).createTerminalSession.mockClear();
 
@@ -702,5 +715,97 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // as undefined — proving the normalization "" → undefined runs end-to-end.
     const reopenCall = (h.terminal as any).createTerminalSession.mock.calls[0];
     expect(reopenCall[2]).toBeUndefined();
+  });
+
+  it("threads claudeResume from probe through to createTerminalSession on reopen (single-leaf)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.serialize = vi.fn().mockReturnValue("scrollback-A");
+
+    // Make the probe report a uuid for tabA's pty.
+    (h.probe.probeClaudeSession as any).mockImplementation(async (ptyId: number) =>
+      ptyId === sessionA.ptyId
+        ? { uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d" }
+        : null,
+    );
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    const reopenCall = calls[calls.length - 1];
+    expect(reopenCall[2]).toBe("scrollback-A"); // restoredScrollback
+    expect(reopenCall[3]).toEqual({
+      uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    }); // restoredClaudeResume
+  });
+
+  it("attributes claudeResume per-leaf for a split-tab reopen (no cross-pane bleed)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const leafLeft = h.sessions[h.sessions.length - 1];
+    leafLeft.serialize = vi.fn().mockReturnValue("LEFT-out");
+
+    await h.panes.splitActive("vertical");
+    const leafRight = h.sessions[h.sessions.length - 1];
+    leafRight.serialize = vi.fn().mockReturnValue("RIGHT-out");
+
+    // LEFT pane has claude (uuid-L), RIGHT pane does not.
+    (h.probe.probeClaudeSession as any).mockImplementation(async (ptyId: number) => {
+      if (ptyId === leafLeft.ptyId) return { uuid: "leftleftleft-leftleft-leftleft-leftLefT0" };
+      return null;
+    });
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    // Find the call whose 3rd arg is "LEFT-out" and assert its 4th arg has the uuid.
+    const leftCall = calls.find((c: any[]) => c[2] === "LEFT-out");
+    const rightCall = calls.find((c: any[]) => c[2] === "RIGHT-out");
+    expect(leftCall, "left-leaf reopen call must exist").toBeDefined();
+    expect(rightCall, "right-leaf reopen call must exist").toBeDefined();
+    expect(leftCall![3]).toEqual({
+      uuid: "leftleftleft-leftleft-leftleft-leftLefT0",
+    });
+    expect(rightCall![3]).toBeUndefined();
+  });
+
+  it("when probe returns null, restoredClaudeResume is undefined (reopen unchanged)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+    (h.probe.probeClaudeSession as any).mockResolvedValue(null);
+
+    const tabA = await h.tabs.createTab();
+    h.sessions[h.sessions.length - 1].serialize = vi.fn().mockReturnValue("plain");
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const reopenCall = (h.terminal as any).createTerminalSession.mock.calls[0];
+    expect(reopenCall[3]).toBeUndefined();
   });
 });
