@@ -47,8 +47,9 @@ export function initPanes(terminalArea: HTMLElement) {
 export async function createRootPane(
   cwd?: string,
   restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
 ): Promise<LeafNode> {
-  const node = await createLeaf({ cwd, restoredScrollback });
+  const node = await createLeaf({ cwd, restoredScrollback, restoredClaudeResume });
   tree = node;
   rootEl.appendChild(node.element);
   setActivePane(node.paneId);
@@ -134,12 +135,13 @@ export async function splitLeaf(
   axis: SplitAxis,
   cwd?: string,
   restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
 ): Promise<{ firstId: number; secondId: number } | undefined> {
   if (!tree) return undefined;
   const leaf = findLeaf(tree, targetId);
   if (!leaf) return undefined;
 
-  const newLeaf = await createLeaf({ cwd, restoredScrollback });
+  const newLeaf = await createLeaf({ cwd, restoredScrollback, restoredClaudeResume });
 
   const splitEl = document.createElement("div");
   splitEl.className = `pane-container ${axis}`;
@@ -326,6 +328,7 @@ export function setTree(newTree: PaneTree | null) {
 async function createLeaf(opts?: {
   cwd?: string;
   restoredScrollback?: string;
+  restoredClaudeResume?: { uuid: string };
 }): Promise<LeafNode> {
   const paneId = nextPaneId++;
   const el = document.createElement("div");
@@ -350,7 +353,12 @@ async function createLeaf(opts?: {
   `;
   el.appendChild(head);
 
-  const session = await createTerminalSession(el, opts?.cwd, opts?.restoredScrollback);
+  const session = await createTerminalSession(
+    el,
+    opts?.cwd,
+    opts?.restoredScrollback,
+    opts?.restoredClaudeResume,
+  );
 
   updatePaneHead(head, paneId, session.ptyId, session.cwd ?? opts?.cwd ?? null);
 
