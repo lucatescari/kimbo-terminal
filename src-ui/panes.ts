@@ -41,11 +41,18 @@ export function initPanes(terminalArea: HTMLElement) {
   rootEl = terminalArea;
 }
 
-/** Create the initial pane (called once at startup). */
-export async function createRootPane(cwd?: string): Promise<LeafNode> {
-  const node = await createLeaf(cwd);
+/** Create the initial pane (called once at startup, and on tab open). The
+ *  optional restoredScrollback is used by the reopen-closed-tab feature
+ *  to seed the new pane's terminal with the saved buffer state. */
+export async function createRootPane(
+  cwd?: string,
+  restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
+): Promise<LeafNode> {
+  // createLeaf attaches the .pane element to rootEl before awaiting
+  // xterm setup so scrollback replay has correct viewport dimensions.
+  const node = await createLeaf({ parentEl: rootEl, cwd, restoredScrollback, restoredClaudeResume });
   tree = node;
-  rootEl.appendChild(node.element);
   setActivePane(node.paneId);
   return node;
 }
@@ -68,9 +75,11 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
     } catch (_) { /* ignore */ }
   }
 
-  const newLeaf = await createLeaf(cwd);
-
-  // Build split node.
+  // Build the split DOM structure FIRST so splitEl is in the document
+  // by the time createLeaf attaches the new pane into it. This ensures
+  // the new pane has real layout dimensions when xterm initializes —
+  // otherwise restored scrollback (in splitLeaf) and even fresh shell
+  // output land at xterm's default 80 cols.
   const splitEl = document.createElement("div");
   splitEl.className = `pane-container ${axis}`;
   splitEl.style.flex = "1";
@@ -88,7 +97,10 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
 
   splitEl.appendChild(leaf.element);
   splitEl.appendChild(handle);
-  splitEl.appendChild(newLeaf.element);
+
+  // createLeaf appends the new pane to splitEl (which is now in the
+  // DOM) before awaiting xterm setup.
+  const newLeaf = await createLeaf({ parentEl: splitEl, cwd });
 
   const splitNode: SplitNode = {
     type: "split",
@@ -105,6 +117,77 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
 
   // Re-fit all terminals after layout change.
   requestAnimationFrame(() => fitAll(tree!));
+}
+
+/** Split a SPECIFIC leaf along an axis with an explicit cwd, returning
+ *  the resulting leaf paneIds. Unlike splitActive, this:
+ *   - Targets a leaf by id (not "the active one"), so the closed-tab
+ *     replay can split a non-focused leaf during reconstruction.
+ *   - Takes an explicit cwd (caller already knows it from the saved
+ *     shape), so we skip the OSC-7 / PTY-query inheritance dance.
+ *   - Returns { firstId, secondId } so recursive replay can walk into
+ *     both new children.
+ *
+ * Returns undefined if `targetId` doesn't exist in the current tree —
+ * defensive against a snapshot/tree mismatch. The caller logs a warn
+ * and aborts that subtree.
+ *
+ * After the split: firstId === targetId (the original leaf is reused,
+ * its paneId/session unchanged), secondId is a fresh leaf created with
+ * `createLeaf(cwd)`. The active pane is NOT changed — the caller drives
+ * focus, not us. */
+export async function splitLeaf(
+  targetId: number,
+  axis: SplitAxis,
+  cwd?: string,
+  restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
+): Promise<{ firstId: number; secondId: number } | undefined> {
+  if (!tree) return undefined;
+  const leaf = findLeaf(tree, targetId);
+  if (!leaf) return undefined;
+
+  // Build split DOM first so splitEl is in-document before createLeaf
+  // attaches the new pane. Mirrors splitActive — see comment there.
+  const splitEl = document.createElement("div");
+  splitEl.className = `pane-container ${axis}`;
+  splitEl.style.flex = "1";
+  splitEl.style.minWidth = "0";
+  splitEl.style.minHeight = "0";
+  splitEl.style.display = "flex";
+  splitEl.style.flexDirection = axis === "vertical" ? "row" : "column";
+
+  const handle = document.createElement("div");
+  handle.className = `split-handle ${axis}`;
+
+  const parent = leaf.element.parentElement!;
+  parent.replaceChild(splitEl, leaf.element);
+  splitEl.appendChild(leaf.element);
+  splitEl.appendChild(handle);
+
+  const newLeaf = await createLeaf({
+    parentEl: splitEl,
+    cwd,
+    restoredScrollback,
+    restoredClaudeResume,
+  });
+
+  const splitNode: SplitNode = {
+    type: "split",
+    axis,
+    first: leaf,
+    second: newLeaf,
+    element: splitEl,
+  };
+
+  replaceInTree(leaf.paneId, splitNode);
+
+  // Re-fit so newly-mounted xterm gets correct cols/rows. Same idiom as
+  // splitActive — schedules into the next animation frame so layout has
+  // a chance to settle first.
+  requestAnimationFrame(() => fitAll(tree!));
+
+  return { firstId: leaf.paneId, secondId: newLeaf.paneId };
 }
 
 /**
@@ -254,7 +337,17 @@ export function setTree(newTree: PaneTree | null) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function createLeaf(cwd?: string): Promise<LeafNode> {
+async function createLeaf(opts: {
+  /** Where to attach the new .pane element BEFORE awaiting xterm setup.
+   *  Required: scrollback replay needs the container to have real
+   *  dimensions at write time, which only happens once the .pane is in
+   *  the document and laid out — see createTerminalSession's leading
+   *  fit.fit() and offsetWidth force-layout. */
+  parentEl: HTMLElement;
+  cwd?: string;
+  restoredScrollback?: string;
+  restoredClaudeResume?: { uuid: string };
+}): Promise<LeafNode> {
   const paneId = nextPaneId++;
   const el = document.createElement("div");
   el.className = "pane";
@@ -278,18 +371,31 @@ async function createLeaf(cwd?: string): Promise<LeafNode> {
   `;
   el.appendChild(head);
 
-  const session = await createTerminalSession(el, cwd);
+  // Attach to the DOM BEFORE creating the xterm session so the pane has
+  // real dimensions when fit.fit() runs. Without this, restored
+  // scrollback wraps at xterm's default 80 cols and stays wrapped after
+  // the ResizeObserver later resizes the terminal — xterm doesn't reflow
+  // already-rendered scrollback rows.
+  opts.parentEl.appendChild(el);
 
-  updatePaneHead(head, paneId, session.ptyId, session.cwd ?? cwd ?? null);
+  const session = await createTerminalSession(
+    el,
+    opts.cwd,
+    opts.restoredScrollback,
+    opts.restoredClaudeResume,
+  );
+
+  updatePaneHead(head, paneId, session.ptyId, session.cwd ?? opts?.cwd ?? null);
 
   // Refresh head when OSC 7 lands a new cwd. Poll lightly to avoid coupling
   // to the OSC 7 parser — cheap and bounded to the visible panes.
-  const poll = window.setInterval(() => {
+  const poll = window.setInterval(async () => {
     if (!document.body.contains(head)) {
       clearInterval(poll);
       return;
     }
     updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
+    await refreshClaudeHudFor(el, session.ptyId);
   }, 2000);
 
   return { type: "leaf", paneId, session, element: el };
@@ -398,5 +504,37 @@ function fitAll(node: PaneTree): void {
   } else {
     fitAll(node.first);
     fitAll(node.second);
+  }
+}
+
+async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<void> {
+  const { claudeStatus } = await import("./claude-status");
+  const { getAccountInfo } = await import("./claude-account");
+  const { renderClaudeHud } = await import("./claude-hud");
+  const { getPrefs } = await import("./ui-prefs");
+
+  const [status, account] = await Promise.all([
+    claudeStatus(ptyId),
+    getAccountInfo(),
+  ]);
+
+  const prefs = getPrefs();
+  const newHud = renderClaudeHud(status, account, {
+    hudEnabled: prefs.claudeHudEnabled,
+    extendedFields: prefs.claudeHudExtended,
+    showPlan: prefs.claudeHudShowPlan,
+  });
+
+  // Remove any existing strip.
+  const existing = paneEl.querySelector(":scope > .claude-hud");
+  if (existing) existing.remove();
+  // Insert the new strip just after .pane-head, before the terminal container.
+  if (newHud) {
+    const head = paneEl.querySelector(":scope > .pane-head");
+    if (head && head.parentNode === paneEl) {
+      paneEl.insertBefore(newHud, head.nextSibling);
+    } else {
+      paneEl.prepend(newHud);
+    }
   }
 }

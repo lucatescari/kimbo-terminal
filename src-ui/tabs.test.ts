@@ -40,38 +40,63 @@ vi.mock("./terminal", () => {
   const sessions: Array<any> = [];
   let nextId = 1;
 
-  async function createTerminalSession(parentEl: HTMLElement): Promise<any> {
-    const id = nextId++;
-    const container = document.createElement("div");
-    container.className = "terminal-container";
-    container.dataset.sessionId = String(id);
-    parentEl.appendChild(container);
+  // Wrap createTerminalSession in vi.fn so per-test assertions can inspect
+  // its call args — specifically the third arg (restoredScrollback) which
+  // the reopen flow plumbs through. The body still mirrors the real
+  // contract: appends a .terminal-container to the parent and returns a
+  // session whose dispose() removes it.
+  const createTerminalSession = vi.fn(
+    async (
+      parentEl: HTMLElement,
+      _cwd?: string,
+      _restoredScrollback?: string,
+      _restoredClaudeResume?: { uuid: string },
+    ): Promise<any> => {
+      const id = nextId++;
+      const container = document.createElement("div");
+      container.className = "terminal-container";
+      container.dataset.sessionId = String(id);
+      parentEl.appendChild(container);
 
-    const session: any = {
-      id,
-      ptyId: 1000 + id,
-      cwd: null,
-      container,
-      disposed: false,
-      term: { focus() {}, buffer: { active: { viewportY: 0, baseY: 0 } }, scrollToBottom() {} },
-      fit: { fit() {} },
-      search: {},
-      dispose() {
-        session.disposed = true;
-        container.remove();
-      },
-    };
-    sessions.push(session);
-    return session;
-  }
+      const session: any = {
+        id,
+        ptyId: 1000 + id,
+        cwd: null,
+        container,
+        disposed: false,
+        term: { focus() {}, buffer: { active: { viewportY: 0, baseY: 0 } }, scrollToBottom() {} },
+        fit: { fit() {} },
+        search: {},
+        // Default empty serialize so existing tests don't accidentally
+        // capture scrollback. Per-test overrides set this to a known value.
+        serialize: vi.fn().mockReturnValue(""),
+        dispose() {
+          session.disposed = true;
+          container.remove();
+        },
+      };
+      sessions.push(session);
+      return session;
+    },
+  );
 
   return {
     createTerminalSession,
     setTabTitleHandler: vi.fn(),
     __sessions: sessions,
-    __reset: () => { sessions.length = 0; nextId = 1; },
+    __reset: () => {
+      sessions.length = 0;
+      nextId = 1;
+      createTerminalSession.mockClear();
+    },
   };
 });
+
+// Mock the claude-session-probe so closeTab's per-leaf probe is
+// deterministic. Per-test overrides set it to return a uuid.
+vi.mock("./claude-session-probe", () => ({
+  probeClaudeSession: vi.fn().mockResolvedValue(null),
+}));
 
 // Mock ./pty so the command calls resolve synchronously in tests.
 vi.mock("./pty", () => ({
@@ -95,6 +120,8 @@ interface Harness {
   tabs: typeof import("./tabs");
   panes: typeof import("./panes");
   sessions: Array<any>;
+  terminal: typeof import("./terminal");
+  probe: typeof import("./claude-session-probe");
 }
 
 async function mount(): Promise<Harness> {
@@ -111,10 +138,13 @@ async function mount(): Promise<Harness> {
   const tabs = await import("./tabs");
   const panes = await import("./panes");
   const terminal = (await import("./terminal")) as any;
+  const probe = await import("./claude-session-probe");
   terminal.__reset();
+  (probe.probeClaudeSession as any).mockReset();
+  (probe.probeClaudeSession as any).mockResolvedValue(null);
 
   tabs.initTabs(tabBar, terminalArea);
-  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions };
+  return { tabBar, terminalArea, tabs, panes, sessions: terminal.__sessions, terminal, probe };
 }
 
 beforeEach(() => {
@@ -190,6 +220,7 @@ describe("Cmd+W on a single-pane tab", () => {
     expect(tabBSession.disposed).toBe(false);
 
     h.tabs.closeActiveOrTab();
+    await new Promise<void>((r) => setTimeout(r, 0));
 
     expect(tabB.container.isConnected).toBe(false);
     expect(tabA.container.isConnected).toBe(true);
@@ -333,6 +364,7 @@ describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
 
     h.tabs.closeActiveOrTab();
     h.tabs.closeActiveOrTab();
+    await new Promise<void>((r) => setTimeout(r, 0));
 
     expect(tabA.container.isConnected).toBe(true);
     expect(tabB.container.isConnected).toBe(true);
@@ -461,5 +493,324 @@ describe("Tab bar scroll region structure", () => {
     // In jsdom, scrollWidth === clientWidth (no real layout), so arrows should be hidden
     expect(leftArrow!.classList.contains("visible")).toBe(false);
     expect(rightArrow!.classList.contains("visible")).toBe(false);
+  });
+});
+
+describe("reopenLastClosedTab (⌘⇧T)", () => {
+  it("is a no-op when the closed-tab stack is empty", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    await h.tabs.createTab(); // need at least one tab so the harness is sane
+
+    const tabsBefore = h.tabs.getTabCount();
+    await h.tabs.reopenLastClosedTab();
+
+    expect(h.tabs.getTabCount()).toBe(tabsBefore); // no tab created
+    expect(closedTabs.closedTabsCount()).toBe(0);  // stack still empty
+  });
+
+  it("reopens a single-leaf tab so a new tab appears", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    // Create two tabs, then close the first.
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab(); // active
+
+    // Close tab A. Snapshot pushes a leaf shape onto the closed-tab stack.
+    await h.tabs.closeTab(tabA.id);
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    const tabsBeforeReopen = h.tabs.getTabCount();
+    await h.tabs.reopenLastClosedTab();
+
+    expect(h.tabs.getTabCount()).toBe(tabsBeforeReopen + 1);
+    expect(closedTabs.closedTabsCount()).toBe(0); // stack popped
+  });
+
+  it("reopens a vertical-split tab and replays the split", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    await h.panes.splitActive("vertical"); // tabA now has two panes
+
+    // Need a sibling tab so closeTab is willing to fire.
+    const tabB = await h.tabs.createTab();
+
+    // Switch back to A so we close the split tab.
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    await h.tabs.reopenLastClosedTab();
+
+    // After reopen, the active tab should have TWO .pane elements
+    // (the replayed split). Use the active container to scope the query.
+    const active = h.tabs.getActiveTab();
+    expect(active).toBeDefined();
+    const paneCount = active!.container.querySelectorAll(".pane").length;
+    expect(paneCount).toBe(2);
+  });
+
+  it("reopens a nested split (V containing H) with the correct topology", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    await h.panes.splitActive("vertical");   // tabA: V split, 2 leaves
+    await h.panes.splitActive("horizontal"); // active leaf becomes H split, 3 leaves total
+    expect(h.terminalArea.querySelectorAll(".pane").length).toBe(3);
+
+    // Need a sibling tab so closeTab is willing to fire.
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    await h.tabs.reopenLastClosedTab();
+
+    const active = h.tabs.getActiveTab();
+    expect(active).toBeDefined();
+    expect(active!.container.querySelectorAll(".pane").length).toBe(3);
+  });
+
+  it("re-entrancy: two concurrent calls only execute one reopen", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    // Push two entries directly, no real closes needed.
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    await h.tabs.closeTab(tabA.id);
+    expect(closedTabs.closedTabsCount()).toBe(1);
+
+    // Push a second entry by closing tabB after creating a third.
+    const tabC = await h.tabs.createTab();
+    await h.tabs.closeTab(tabB.id);
+    expect(closedTabs.closedTabsCount()).toBe(2);
+
+    // Fire two reopens concurrently. The second should bail on the
+    // re-entrancy guard.
+    const p1 = h.tabs.reopenLastClosedTab();
+    const p2 = h.tabs.reopenLastClosedTab();
+    await Promise.all([p1, p2]);
+
+    // Only one entry should have been popped. (The first call pops one;
+    // the second call sees `reopening=true` and returns immediately
+    // before even calling popClosedTab.)
+    expect(closedTabs.closedTabsCount()).toBe(1);
+  });
+
+  it("reopens at the saved cwd, not the active tab's cwd", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // Mutate session.cwd to a known value so shapeFromTree captures it.
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.cwd = "/saved/path";
+
+    const tabB = await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    // Spy on createTerminalSession to verify it's called with the saved cwd.
+    const terminal = await import("./terminal");
+    const createTerminalSessionSpy = vi.spyOn(terminal, "createTerminalSession");
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The fix ensures that the saved cwd is passed through to createTerminalSession.
+    // Third arg (restoredScrollback) is undefined here — the test stub session has
+    // no serialize() method, so shapeFromTree's catch swallows the throw and stores
+    // scrollback=undefined. The per-task tests in Task 7 cover the scrollback
+    // contract specifically; here we only care about the cwd plumbing.
+    expect(createTerminalSessionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      "/saved/path",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("captures scrollback at close and replays it via createTerminalSession's third arg", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.serialize = vi.fn().mockReturnValue("captured-output");
+
+    // Need a sibling so closeTab is willing to fire (single-tab close
+    // routes to quit instead, which doesn't push to the stack).
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    // Clear the spy so we count only the reopen's createTerminalSession call.
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The reopened tab's createTerminalSession should have been called with
+    // restoredScrollback === "captured-output" (the third positional arg).
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[2]).toBe("captured-output");
+  });
+
+  it("replays scrollback for each leaf in a split-tab restoration", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // First leaf gets a known serialize.
+    const leafLeft = h.sessions[h.sessions.length - 1];
+    leafLeft.serialize = vi.fn().mockReturnValue("leaf-LEFT");
+
+    await h.panes.splitActive("vertical"); // creates the right leaf
+    const leafRight = h.sessions[h.sessions.length - 1];
+    leafRight.serialize = vi.fn().mockReturnValue("leaf-RIGHT");
+
+    // Sibling tab so closeTab is willing.
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // Two new leaves should have been created with the two distinct
+    // scrollbacks. We check both calls were made with the right scrollback.
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    const scrollbacksPassed = calls.map((c: any[]) => c[2]).filter(Boolean);
+    expect(scrollbacksPassed).toContain("leaf-LEFT");
+    expect(scrollbacksPassed).toContain("leaf-RIGHT");
+  });
+
+  it("empty scrollback: createTerminalSession is called with restoredScrollback === undefined", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    // Default `serialize` returns "" — shapeFromTree should normalize to undefined.
+
+    await h.tabs.createTab();
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    // The reopen call to createTerminalSession should have its third arg
+    // as undefined — proving the normalization "" → undefined runs end-to-end.
+    const reopenCall = (h.terminal as any).createTerminalSession.mock.calls[0];
+    expect(reopenCall[2]).toBeUndefined();
+  });
+
+  it("threads claudeResume from probe through to createTerminalSession on reopen (single-leaf)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const sessionA = h.sessions[h.sessions.length - 1];
+    sessionA.serialize = vi.fn().mockReturnValue("scrollback-A");
+
+    // Make the probe report a uuid for tabA's pty.
+    (h.probe.probeClaudeSession as any).mockImplementation(async (ptyId: number) =>
+      ptyId === sessionA.ptyId
+        ? { uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d" }
+        : null,
+    );
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    const reopenCall = calls[calls.length - 1];
+    expect(reopenCall[2]).toBe("scrollback-A"); // restoredScrollback
+    expect(reopenCall[3]).toEqual({
+      uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    }); // restoredClaudeResume
+  });
+
+  it("attributes claudeResume per-leaf for a split-tab reopen (no cross-pane bleed)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+
+    const tabA = await h.tabs.createTab();
+    const leafLeft = h.sessions[h.sessions.length - 1];
+    leafLeft.serialize = vi.fn().mockReturnValue("LEFT-out");
+
+    await h.panes.splitActive("vertical");
+    const leafRight = h.sessions[h.sessions.length - 1];
+    leafRight.serialize = vi.fn().mockReturnValue("RIGHT-out");
+
+    // LEFT pane has claude (uuid-L), RIGHT pane does not.
+    (h.probe.probeClaudeSession as any).mockImplementation(async (ptyId: number) => {
+      if (ptyId === leafLeft.ptyId) return { uuid: "leftleftleft-leftleft-leftleft-leftLefT0" };
+      return null;
+    });
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const calls = (h.terminal as any).createTerminalSession.mock.calls;
+    // Find the call whose 3rd arg is "LEFT-out" and assert its 4th arg has the uuid.
+    const leftCall = calls.find((c: any[]) => c[2] === "LEFT-out");
+    const rightCall = calls.find((c: any[]) => c[2] === "RIGHT-out");
+    expect(leftCall, "left-leaf reopen call must exist").toBeDefined();
+    expect(rightCall, "right-leaf reopen call must exist").toBeDefined();
+    expect(leftCall![3]).toEqual({
+      uuid: "leftleftleft-leftleft-leftleft-leftLefT0",
+    });
+    expect(rightCall![3]).toBeUndefined();
+  });
+
+  it("when probe returns null, restoredClaudeResume is undefined (reopen unchanged)", async () => {
+    const h = await mount();
+    const closedTabs = await import("./closed-tabs");
+    closedTabs.clearClosedTabs();
+    (h.probe.probeClaudeSession as any).mockResolvedValue(null);
+
+    const tabA = await h.tabs.createTab();
+    h.sessions[h.sessions.length - 1].serialize = vi.fn().mockReturnValue("plain");
+
+    await h.tabs.createTab(); // sibling
+    h.tabs.switchTab(tabA.id);
+    await h.tabs.closeTab(tabA.id);
+
+    (h.terminal as any).createTerminalSession.mockClear();
+
+    await h.tabs.reopenLastClosedTab();
+
+    const reopenCall = (h.terminal as any).createTerminalSession.mock.calls[0];
+    expect(reopenCall[3]).toBeUndefined();
   });
 });

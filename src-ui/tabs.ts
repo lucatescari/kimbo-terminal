@@ -10,11 +10,22 @@ import {
   getTree,
   setTree,
   disposeTree,
+  getActivePaneId,
+  splitLeaf,
 } from "./panes";
 import { kimboBus } from "./kimbo-bus";
 import { icon } from "./icons";
 import { renderTitle } from "./title-bar";
 import { initTabDrag, cancelDrag, wasJustDragging } from "./tab-drag";
+import {
+  pushClosedTab,
+  popClosedTab,
+  shapeFromTreeAsync,
+  firstLeafCwd as firstLeafCwdOfShape,
+  firstLeafScrollback,
+  firstLeafClaudeResume,
+  type ClosedTabShape,
+} from "./closed-tabs";
 
 // ---------------------------------------------------------------------------
 // Tab types
@@ -58,7 +69,11 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   initTabDrag(tabBarEl);
 }
 
-export async function createTab(cwd?: string): Promise<Tab> {
+export async function createTab(
+  cwd?: string,
+  restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
+): Promise<Tab> {
   // If no explicit cwd, inherit from the currently active session
   // (OSC 7 first, PTY query as fallback) so Cmd+T opens "where I am".
   if (cwd === undefined) {
@@ -95,7 +110,7 @@ export async function createTab(cwd?: string): Promise<Tab> {
 
   // Re-init panes module to use this container, create root pane.
   initPanes(container);
-  const rootPane = await createRootPane(cwd);
+  const rootPane = await createRootPane(cwd, restoredScrollback, restoredClaudeResume);
 
   const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
@@ -136,7 +151,7 @@ export function switchTab(id: number) {
   renderTabBar();
 }
 
-export function closeTab(id: number) {
+export async function closeTab(id: number): Promise<void> {
   cancelDrag();
   if (tabs.length <= 1) return;
   const idx = tabs.findIndex((t) => t.id === id);
@@ -144,10 +159,28 @@ export function closeTab(id: number) {
 
   const tab = tabs[idx];
 
+  // Snapshot the tab's pane-tree shape onto the closed-tab stack BEFORE
+  // we dispose anything. shapeFromTreeAsync also runs the per-leaf
+  // claude-session probe in parallel — must complete before disposeTree
+  // because the probe needs the shell's descendants to still be alive.
+  const liveTree = tab.id === activeTabId ? getTree() : tab.treeSnapshot;
+  if (liveTree) {
+    const shape = await shapeFromTreeAsync(liveTree);
+    pushClosedTab({
+      shape,
+      name: tab.name,
+      titleOverride: tab.titleOverride,
+      originalIndex: idx,
+    });
+  }
+
   // Dispose every pane session inside this tab BEFORE detaching the DOM, so
-  // closing a tab doesn't leave PTY processes dangling. The active tab's
-  // live tree is in the panes module; inactive tabs keep a snapshot.
-  disposeTree(tab.id === activeTabId ? getTree() : tab.treeSnapshot);
+  // closing a tab doesn't leave PTY processes dangling. Reuse the captured
+  // `liveTree` instead of re-evaluating `tab.id === activeTabId` here:
+  // shapeFromTreeAsync awaits ~100ms, during which a tab switch could flip
+  // the active id and mutate the panes module's tree, leaving us disposing
+  // the wrong subtree.
+  disposeTree(liveTree);
 
   tab.container.remove();
   tabs.splice(idx, 1);
@@ -157,6 +190,96 @@ export function closeTab(id: number) {
     switchTab(newActive.id);
   }
   renderTabBar();
+}
+
+// ---------------------------------------------------------------------------
+// Reopen recently closed tab (⌘⇧T)
+// ---------------------------------------------------------------------------
+
+/** Re-entrancy guard. createTab + splitLeaf are async, so a user spamming
+ *  ⌘⇧T could trigger overlapping reopens. The flag is cleared in `finally`
+ *  so a sync re-press after the previous one settles works as expected. */
+let reopening = false;
+
+/** Pop the top closed-tab entry and reconstruct it. No-op on empty stack
+ *  or if a previous reopen is still in flight.
+ *
+ *  Reconstruction shape:
+ *   1. createTab(rootCwd) — spawns a fresh tab with one leaf at the saved
+ *      first-leaf cwd. createTab handles all the existing tab-creation
+ *      machinery (DOM container, panes init, default name).
+ *   2. If the saved shape is a split, walk it recursively, calling
+ *      splitLeaf at each split node to materialize the layout.
+ *   3. Slide the tab back to its original index if there's room.
+ *   4. Restore titleOverride if the closed tab had a shell-set title. */
+export async function reopenLastClosedTab(): Promise<void> {
+  if (reopening) return;
+  reopening = true;
+  try {
+    const entry = popClosedTab();
+    if (!entry) return;
+
+    const rootCwd = firstLeafCwdOfShape(entry.shape) ?? undefined;
+    const rootScrollback = firstLeafScrollback(entry.shape);
+    const rootClaudeResume = firstLeafClaudeResume(entry.shape);
+    const newTab = await createTab(rootCwd, rootScrollback, rootClaudeResume);
+
+    if (entry.shape.type === "split") {
+      const rootLeafId = getActivePaneId();
+      await replayShape(entry.shape, rootLeafId);
+    }
+
+    // Slide the just-created tab (currently last) to the original slot
+    // if it's still in range. reorderTab handles the DOM and array
+    // reorder. If originalIndex is out of range, we leave it at the end —
+    // strictly less convenient than perfect placement but never wrong.
+    const currentIdx = tabs.findIndex((t) => t.id === newTab.id);
+    if (
+      currentIdx !== -1 &&
+      entry.originalIndex >= 0 &&
+      entry.originalIndex < currentIdx
+    ) {
+      reorderTab(currentIdx, entry.originalIndex);
+    }
+
+    // Restore shell-set title last. After reorderTab, newTab is still the
+    // same object reference even if its array index changed.
+    if (entry.titleOverride) {
+      newTab.titleOverride = entry.titleOverride;
+      renderTabBar();
+    }
+  } finally {
+    reopening = false;
+  }
+}
+
+/** Recursively materialize a saved shape onto a target leaf in the
+ *  CURRENT tab's tree. The contract: when called with `(shape,
+ *  targetLeafId)`, the leaf identified by targetLeafId already has the
+ *  correct cwd for shape's leftmost leaf (createTab seeded it for the
+ *  root call; splitLeaf seeds it for inner calls because it returns
+ *  firstId === the original leaf).
+ *
+ *  Base case: shape is a leaf — nothing to do.
+ *  Recursive case: split the target with cwd = firstLeafCwdOfShape(shape.second),
+ *  then recurse onto both children. */
+async function replayShape(
+  shape: ClosedTabShape,
+  targetLeafId: number,
+): Promise<void> {
+  if (shape.type === "leaf") return;
+
+  const cwd = firstLeafCwdOfShape(shape.second) ?? undefined;
+  const scrollback = firstLeafScrollback(shape.second);
+  const claudeResume = firstLeafClaudeResume(shape.second);
+  const result = await splitLeaf(targetLeafId, shape.axis, cwd, scrollback, claudeResume);
+  if (!result) {
+    console.warn("replayShape: target leaf disappeared", targetLeafId);
+    return;
+  }
+
+  await replayShape(shape.first, result.firstId);
+  await replayShape(shape.second, result.secondId);
 }
 
 export function nextTab() {

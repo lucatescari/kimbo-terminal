@@ -75,7 +75,14 @@ impl PtyManager {
     }
 
     pub fn close(&self, id: u32) -> Result<(), String> {
-        self.sessions.lock().unwrap().remove(&id);
+        let mut sessions = self.sessions.lock().unwrap();
+        // Kill BEFORE removing so the kill is observable from this command
+        // result and not coupled to Drop firing. Drop still runs on remove,
+        // but kill_tree's idempotency guard makes it a no-op the second time.
+        if let Some(session) = sessions.get(&id) {
+            session.kill_tree();
+        }
+        sessions.remove(&id);
         Ok(())
     }
 
@@ -89,5 +96,26 @@ impl PtyManager {
         let sessions = self.sessions.lock().unwrap();
         let pty = sessions.get(&id).ok_or("PTY not found")?;
         Ok(pty.is_busy())
+    }
+
+    /// Read the shell pid for a session, used by the claude-resume probe.
+    pub fn pid_of(&self, id: u32) -> Result<u32, String> {
+        let sessions = self.sessions.lock().unwrap();
+        let pty = sessions.get(&id).ok_or("PTY not found")?;
+        Ok(pty.pid())
+    }
+
+    /// Synchronously kill every live PTY session's process tree. Called by
+    /// `quit_app` immediately before `app.exit(0)` — Tauri's `app.exit` does
+    /// not run `Drop` on managed `State`, so without this every shell would
+    /// orphan to launchd on quit. SIGHUP is synchronous; the SIGKILL
+    /// escalation runs on detached 150 ms timers per session, which is fine
+    /// because the kimbo process itself takes longer than that to actually
+    /// exit and the well-behaved processes have already gone.
+    pub fn kill_all(&self) {
+        let sessions = self.sessions.lock().unwrap();
+        for session in sessions.values() {
+            session.kill_tree();
+        }
     }
 }

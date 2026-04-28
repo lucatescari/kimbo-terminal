@@ -5,7 +5,9 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { restoredSeparator } from "./closed-tabs";
 import {
   createPty,
   writePty,
@@ -26,6 +28,22 @@ import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
 import { getPrefs } from "./ui-prefs";
 
+/** Compose the auxiliary "claude was running here · resume: …" line
+ *  written beneath the existing restoredSeparator() on tab reopen.
+ *  Exported so the contract can be unit-tested without bringing up xterm.
+ *
+ *  Foreground-only gray (256-color 245). Avoids `\x1b[2m` (DIM) and
+ *  `\x1b[3m` (italic) — both set bits in xterm.js's BG word, which
+ *  triggers the WebGL renderer to paint an opaque rectangle behind the
+ *  cell. On a translucent terminal that reads as a solid black bar
+ *  through the otherwise-transparent viewport. See ansi-bg-transparent.ts
+ *  for the DIM half of the same bug; italic has the same shape but no
+ *  app-wide filter (stripping italic would regress every CLI that uses
+ *  it for emphasis). FG-only color sidesteps the renderer path entirely. */
+export function restoredClaudeResumeLine(resume: { uuid: string }): string {
+  return `\x1b[38;5;245m   \u21B3 claude was running here \u00B7 resume: claude --resume ${resume.uuid}\x1b[0m\r\n`;
+}
+
 export interface TerminalSession {
   id: number;
   ptyId: number;
@@ -35,6 +53,9 @@ export interface TerminalSession {
   container: HTMLElement;
   /** Last cwd reported via OSC 7. Null until the first OSC 7 arrives. */
   cwd: string | null;
+  /** Snapshot the scrollback + viewport as ANSI text (colors, cursor
+   *  position, attributes preserved). Used by closed-tab restore. */
+  serialize(): string;
   dispose(): void;
 }
 
@@ -48,6 +69,8 @@ export function setTabTitleHandler(fn: (sessionId: number, title: string | null)
 export async function createTerminalSession(
   parentEl: HTMLElement,
   cwd?: string,
+  restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
 ): Promise<TerminalSession> {
   const id = nextTermId++;
 
@@ -79,6 +102,8 @@ export async function createTerminalSession(
   term.loadAddon(fit);
   const search = new SearchAddon();
   term.loadAddon(search);
+  const serialize = new SerializeAddon();
+  term.loadAddon(serialize);
   term.loadAddon(
     new WebLinksAddon((event, uri) => {
       if (!event.metaKey) return;
@@ -103,6 +128,33 @@ export async function createTerminalSession(
   term.unicode.activeVersion = "11";
 
   term.open(container);
+
+  // Force a synchronous layout pass so fit.fit() below sees the real
+  // viewport size BEFORE we write scrollback. createLeaf is responsible
+  // for attaching parentEl to the DOM before calling us (see panes.ts);
+  // appendChild alone doesn't compute layout — reading a layout-trigger
+  // property does. Without this, fit.fit() runs against the
+  // not-yet-laid-out container and falls back to xterm's default 80x24,
+  // which would make the scrollback replay below wrap at 80 cols and
+  // stay wrapped (xterm doesn't reflow rendered scrollback on resize).
+  void container.offsetWidth;
+  try { fit.fit(); } catch (e) { console.warn("initial fit before replay:", e); }
+
+  // Replay closed-tab scrollback BEFORE the PTY listener attaches AND before
+  // OSC handlers register below. xterm processes term.write synchronously
+  // into its parser, so the bytes hit the buffer before any callback
+  // (PTY, OSC 7 cwd, OSC 0/2 title, OSC 133 shell-integration) can fire.
+  // Old OSC sequences embedded in the scrollback are parsed-and-ignored
+  // as visual decoration since their handlers don't exist yet — we don't
+  // want stale OSC events firing during replay. The if-check skips the
+  // separator for empty captures so a never-used pane reopens blank.
+  if (restoredScrollback) {
+    term.write(restoredScrollback);
+    term.write(restoredSeparator());
+    if (restoredClaudeResume) {
+      term.write(restoredClaudeResumeLine(restoredClaudeResume));
+    }
+  }
 
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
@@ -162,16 +214,12 @@ export async function createTerminalSession(
     });
 
   registerTerminal(term);
-  // NOTE: the element passed to us by createLeaf is still detached from the
-  // document at this point, and only gets appended once createLeaf returns
-  // (see panes.ts:createRootPane and splitActive). A sync fit.fit() here
-  // runs on a 0×0 container and wedges xterm at the 80×24 default, which
-  // then goes straight to the PTY and locks TUIs like Claude Code at that
-  // size until the next window resize. The ResizeObserver below fires as
-  // soon as the container is attached AND laid out — that's the first
-  // moment fit.fit() has real dimensions to work with. We still call fit
-  // sync so xterm has SOME size before the PTY is created; the RO will
-  // correct it on first real layout.
+  // The .pane element is already in the document (panes.ts:createLeaf
+  // attaches it before awaiting us) and we forced layout above with
+  // offsetWidth, so this fit.fit() now lands at the real viewport size
+  // — the previous behaviour of falling back to xterm's 80x24 default
+  // is gone. The ResizeObserver below still catches subsequent window
+  // resizes / split-handle drags.
   fit.fit();
   const fitObserver = new ResizeObserver((entries) => {
     // Ignore spurious 0×0 ticks (detached → attached transitions emit one
@@ -321,22 +369,34 @@ export async function createTerminalSession(
     search,
     container,
     cwd: null,
+    serialize() {
+      return serialize.serialize();
+    },
     dispose() {
-      disposeInlineImages();
-      window.removeEventListener("focus", restoreWebglAfterContextLoss);
-      document.removeEventListener("visibilitychange", restoreWebglAfterContextLoss);
-      unlistenTauriFocus?.();
-      onDataDisposable.dispose();
-      onResizeDisposable.dispose();
-      unlistenOutput();
-      unlistenExit();
-      unregisterTerminal(term);
-      fitObserver.disconnect();
-      viewport?.removeEventListener("scroll", onViewportScroll);
+      // Kill the backend PTY FIRST, before any UI teardown that could throw.
+      // term.dispose() (xterm + WebGL) is known to throw on GPU context loss
+      // — putting closePty after it meant a thrown teardown stranded the
+      // kill, leaving npm/node children alive. Each subsequent step is also
+      // wrapped in its own try/catch so one failure can't stop the next.
+      // closePty is fire-and-forget here: the Tauri invoke message reaches
+      // Rust whether or not the JS Promise is awaited, so dispose() stays
+      // synchronous and callers don't have to change.
+      closePty(ptyId).catch((e) => console.warn("closePty failed:", e));
+
+      try { disposeInlineImages(); } catch (e) { console.warn("disposeInlineImages:", e); }
+      try { window.removeEventListener("focus", restoreWebglAfterContextLoss); } catch (e) { console.warn("window remove focus listener:", e); }
+      try { document.removeEventListener("visibilitychange", restoreWebglAfterContextLoss); } catch (e) { console.warn("document remove visibilitychange listener:", e); }
+      try { unlistenTauriFocus?.(); } catch (e) { console.warn("unlistenTauriFocus:", e); }
+      try { onDataDisposable.dispose(); } catch (e) { console.warn("onDataDisposable.dispose:", e); }
+      try { onResizeDisposable.dispose(); } catch (e) { console.warn("onResizeDisposable.dispose:", e); }
+      try { unlistenOutput(); } catch (e) { console.warn("unlistenOutput:", e); }
+      try { unlistenExit(); } catch (e) { console.warn("unlistenExit:", e); }
+      try { unregisterTerminal(term); } catch (e) { console.warn("unregisterTerminal:", e); }
+      try { fitObserver.disconnect(); } catch (e) { console.warn("fitObserver.disconnect:", e); }
+      try { viewport?.removeEventListener("scroll", onViewportScroll); } catch (e) { console.warn("viewport remove scroll listener:", e); }
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
-      term.dispose();
-      closePty(ptyId);
-      container.remove();
+      try { term.dispose(); } catch (e) { console.warn("term.dispose:", e); }
+      try { container.remove(); } catch (e) { console.warn("container.remove:", e); }
     },
   };
 

@@ -296,3 +296,31 @@ describe("terminal: Find in scrollback (Cmd+F)", () => {
     expect(keysSource).toContain("hideFindBar");
   });
 });
+
+import { restoredClaudeResumeLine } from "./terminal";
+
+describe("restoredClaudeResumeLine", () => {
+  it("contains the resume command with the uuid", () => {
+    const line = restoredClaudeResumeLine({
+      uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    });
+    expect(line).toContain(
+      "claude --resume d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    );
+    expect(line).toContain("claude was running here");
+  });
+
+  it("uses a fg-only SGR (no DIM, no italic) and ends with CRLF", () => {
+    const line = restoredClaudeResumeLine({ uuid: "uuid" });
+    // Must contain SOME SGR escape and end with a reset.
+    expect(line).toMatch(/\x1b\[[\d;]+m/);
+    expect(line).toMatch(/\x1b\[0m/);
+    // Must NOT use DIM (\e[2m) or italic (\e[3m) standalone — both set
+    // BG-word bits in xterm.js, which the WebGL renderer paints as an
+    // opaque rectangle on a translucent terminal.
+    expect(line).not.toMatch(/\x1b\[2m/);
+    expect(line).not.toMatch(/\x1b\[3m/);
+    expect(line).not.toMatch(/\x1b\[2;3m/);
+    expect(line.endsWith("\r\n")).toBe(true);
+  });
+});

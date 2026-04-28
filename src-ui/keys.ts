@@ -8,6 +8,7 @@ import {
   splitActive,
   closeActiveOrTab,
   focusDirection,
+  reopenLastClosedTab,
 } from "./tabs";
 import { toggleSettings, isSettingsVisible, hideSettings } from "./settings";
 import { toggleFindBar, isFindBarVisible, hideFindBar } from "./find-bar";
@@ -30,6 +31,7 @@ const shortcuts: Shortcut[] = [
 
   // Tabs
   { key: "t", meta: true, action: () => createTab() },
+  { key: "t", meta: true, shift: true, action: () => { void reopenLastClosedTab(); } },
   { key: "w", meta: true, shift: true, action: () => { void confirmAndCloseActiveTab(); } },
   { key: "]", meta: true, action: () => nextTab() },
   { key: "[", meta: true, action: () => prevTab() },

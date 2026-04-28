@@ -642,6 +642,88 @@ body {
 .pane-head .branch { color: var(--accent); }
 .pane-head .actions { margin-left: auto; display: flex; gap: 2px; }
 
+/* ---------------------------------------------------------------------
+   Claude Code HUD — per-pane status strip below the pane head.
+   Visual contract: reads as a "second row" of the pane chrome. Same
+   typography (mono 10.5px), same translucency-aware bg, slightly
+   shorter than .pane-head to suggest hierarchy. Colors carry meaning:
+   accent-blue for actionable, accent-yellow for value/attention,
+   --fg-muted for secondary, --fg-dim for tertiary.
+   --------------------------------------------------------------------- */
+.claude-hud {
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  /* Same chrome surface as .pane-head — slightly more pane-tinted so
+     the two strips read as a continuous block when the bottom border
+     is hidden by :has() below. */
+  background: color-mix(
+    in srgb,
+    color-mix(in oklab, var(--bg-pane) 78%, var(--bg-titlebar))
+      calc(var(--app-alpha, 1) * 100%),
+    transparent
+  );
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* The HUD owns both its borders. Drop the pane-head's bottom border
+   when a HUD sits below it so we don't end up with a doubled line
+   between the two strips. */
+.pane:has(> .claude-hud) > .pane-head {
+  border-bottom: none;
+}
+
+.claude-hud__badge {
+  color: var(--accent-blue);
+  font-size: 9px;
+  line-height: 1;
+  margin-right: 1px;
+}
+.claude-hud__sep {
+  color: var(--fg-dim);
+  opacity: 0.55;
+}
+
+/* Per-field colors — the design language carries information through
+   color rather than icons or borders. */
+.claude-hud__email     { color: var(--fg); }
+.claude-hud__session   { color: var(--accent-blue); }
+.claude-hud__model     { color: var(--fg-muted); }
+.claude-hud__tokens    { color: var(--fg); }
+.claude-hud__arrow     { color: var(--fg-dim); margin-right: 1px; }
+.claude-hud__cost      { color: var(--accent-yellow); }
+.claude-hud__duration  { color: var(--fg-dim); }
+.claude-hud__perm      { color: var(--accent-yellow); }
+.claude-hud__msgs,
+.claude-hud__tools     { color: var(--fg-muted); }
+
+/* Click affordance — subtle hover bg + active press, no underline. */
+.claude-hud__copyable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0 3px;
+  margin: 0 -3px;
+  transition: background 0.1s ease, color 0.15s ease;
+}
+.claude-hud__copyable:hover {
+  background: var(--bg-hover);
+}
+.claude-hud__copyable:active {
+  background: var(--bg-active);
+}
+/* Copy feedback now lives in the global toast component (toast.ts +
+   #toast-host below). The HUD itself doesn't change on click. */
+
 /* Override xterm.js defaults that paint opaque #000 over the terminal
    viewport and composition view, masking #app-frame's --app-alpha fill.
    See node_modules/@xterm/xterm/css/xterm.css lines 81 and 95.
@@ -1968,4 +2050,78 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------------
+   Toast — global, app-level. Slides up from above the status bar,
+   stacks newest-on-top, click to dismiss. See toast.ts for the API.
+   --------------------------------------------------------------------- */
+#toast-host {
+  position: fixed;
+  bottom: 30px;          /* clears the 22px #status-bar + 8px breathing */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;  /* newest at bottom of stack = closest to viewport edge = visually on top of the older ones above */
+  gap: 8px;
+  pointer-events: none;  /* the host itself; toasts re-enable below */
+  z-index: 1000;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 480px;
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--fg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  animation: toast-in 200ms ease-out;
+}
+.toast__icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+.toast--success .toast__icon { color: var(--accent-green); }
+.toast--info    .toast__icon { color: var(--accent-blue); }
+.toast--error   .toast__icon { color: var(--accent-red); }
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+.toast__message { color: var(--fg); }
+.toast__detail {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+.toast--leaving {
+  animation: toast-out 200ms ease-in forwards;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(8px);  opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast--leaving { animation-duration: 1ms; }
 }

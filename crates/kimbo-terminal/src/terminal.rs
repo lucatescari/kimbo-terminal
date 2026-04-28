@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Get the current working directory of a process by PID.
 #[cfg(target_os = "macos")]
@@ -56,6 +57,11 @@ fn get_cwd_of_pid(_pid: u32) -> Option<PathBuf> {
 pub struct PtySession {
     master_fd: OwnedFd,
     child_pid: u32,
+    /// Idempotent guard for `kill_tree`. Set on the first call; subsequent
+    /// calls — including the safety-net call in `Drop` — return immediately.
+    /// Without this, `Drop` would re-broadcast SIGHUP/SIGKILL to PIDs the
+    /// kernel may have already recycled.
+    killed: AtomicBool,
 }
 
 impl PtySession {
@@ -158,6 +164,7 @@ impl PtySession {
         Ok(Self {
             master_fd: master_owned,
             child_pid: pid as u32,
+            killed: AtomicBool::new(false),
         })
     }
 
@@ -285,31 +292,32 @@ impl PtySession {
         }
         (fg as u32) != self.child_pid
     }
-}
 
-impl Drop for PtySession {
-    fn drop(&mut self) {
-        // We kill SESSION-wide, not just PGRP-wide. Background jobs
-        // (`sleep 30 &`) live in their OWN process group — different
-        // from both the shell's PGRP and the current foreground PGRP
-        // reported by tcgetpgrp. Hitting only the fg PGRP leaves these
-        // bg children dangling, which is exactly the `npm run dev stays
-        // alive after Cmd+W` symptom the user saw.
-        //
-        // forkpty() made the shell the session leader (its PID is also
-        // its SID), so we enumerate every PID in that session and hit
-        // each one directly. Single proc_listpids call + getsid filter
-        // — microseconds, runs off the critical path.
-        //
-        // Sequence: SIGHUP now, SIGKILL after 150 ms. Polite first so
-        // well-behaved processes can flush, forceful second so anything
-        // that ignored the hangup still dies. Both passes run session-
-        // wide so newly-spawned grandchildren are caught by the
-        // escalation even if they were mid-fork during the SIGHUP.
+    /// Send SIGHUP to the entire shell session synchronously, then escalate
+    /// to SIGKILL on a detached 150 ms timer. Idempotent — `Drop` will call
+    /// this as a safety net but it's a no-op if the explicit close path
+    /// already ran. This is the primary pane-shutdown mechanism; the frontend
+    /// invokes it through `close_pty` and `quit_app` rather than relying on
+    /// `Drop`, which would otherwise be hostage to xterm/WebGL teardown not
+    /// throwing first.
+    ///
+    /// Does NOT close the master fd — that happens via the OwnedFd destructor
+    /// when the session is dropped. Closing the master fd here used to seem
+    /// helpful (EIO to slave can unwedge a shell stuck in a PTY write), but
+    /// in production a reader thread in PtyManager is constantly draining the
+    /// master, so the shell never blocks on PTY-write in the first place. And
+    /// libc::close from this thread doesn't actually free the kernel fd while
+    /// the reader thread is mid-`read` — it just decrements the refcount —
+    /// which on macOS combines with PTY-master close semantics to wedge the
+    /// app. The kill works fine without it: SIGHUP/SIGKILL → shell exits →
+    /// slave closes → reader's read returns 0 → reader thread exits → master
+    /// fd is finally closed when the session is dropped.
+    pub fn kill_tree(&self) {
+        if self.killed.swap(true, Ordering::SeqCst) {
+            return;
+        }
         let shell_pid = self.child_pid as libc::pid_t;
-
         session_kill(shell_pid, libc::SIGHUP);
-
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(150));
             session_kill(shell_pid, libc::SIGKILL);
@@ -317,7 +325,28 @@ impl Drop for PtySession {
                 libc::waitpid(shell_pid, std::ptr::null_mut(), libc::WNOHANG);
             }
         });
-        log::info!("PTY session dropped: shell_pid={} (SIGHUP → SIGKILL 150ms)", self.child_pid);
+        log::info!(
+            "kill_tree: shell_pid={} (SIGHUP → SIGKILL 150ms)",
+            self.child_pid
+        );
+    }
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        // Safety net — the explicit close path (close_pty / quit_app) is
+        // supposed to have called kill_tree already. The idempotency guard
+        // inside kill_tree makes this a no-op in the normal flow, but it
+        // still catches sessions dropped via a path that didn't go through
+        // the manager (tests, panics that unwind across the State).
+        //
+        // master_fd's OwnedFd destructor runs after this body returns and
+        // closes the kernel fd — which is what unwedges a reader thread
+        // still blocked in libc::read once kill_tree has driven the shell
+        // to exit.
+        if !self.killed.load(Ordering::SeqCst) {
+            self.kill_tree();
+        }
     }
 }
 

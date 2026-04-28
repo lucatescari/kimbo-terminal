@@ -5,12 +5,17 @@ mod pty_manager;
 
 use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, State};
 use commands::theme::ThemeState;
 use commands::update::UpdateState;
 
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
+fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
+    // app.exit(0) does NOT run Drop on managed State, so without this
+    // explicit sweep every shell would reparent to launchd on quit. Must
+    // run BEFORE app.exit; SIGHUP is synchronous, the 150ms SIGKILL
+    // escalation runs in detached threads per session.
+    manager.kill_all();
     app.exit(0);
 }
 
@@ -44,6 +49,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(PtyManager::new())
+        .manage(commands::claude::ClaudeAccountCache::default())
         .manage(ThemeState::default())
         .manage(UpdateState::default())
         .setup(|app| {
@@ -107,12 +113,20 @@ fn main() {
             let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
             let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, Some("CmdOrCtrl+W"))?;
             let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, Some("CmdOrCtrl+Shift+W"))?;
+            let reopen_tab = MenuItem::with_id(
+                handle,
+                "reopen_tab",
+                "Reopen Closed Tab",
+                true,
+                Some("CmdOrCtrl+Shift+T"),
+            )?;
 
             let file_menu = Submenu::with_items(handle, "File", true, &[
                 &new_tab,
                 &PredefinedMenuItem::separator(handle)?,
                 &close_pane,
                 &close_tab,
+                &reopen_tab,
             ])?;
 
             let edit_menu = Submenu::with_items(handle, "Edit", true, &[
@@ -155,7 +169,7 @@ fn main() {
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
-                    "settings" | "new_tab" | "close_pane" | "close_tab"
+                    "settings" | "new_tab" | "close_pane" | "close_tab" | "reopen_tab"
                     | "split_vertical" | "split_horizontal" | "quit" => {
                         let _ = app_handle.emit("menu-action", id);
                     }
@@ -199,6 +213,9 @@ fn main() {
             commands::pty::close_pty,
             commands::pty::get_cwd,
             commands::pty::pty_is_busy,
+            commands::claude::probe_claude_session,
+            commands::claude::claude_status,
+            commands::claude::claude_account_info,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,
