@@ -49,9 +49,10 @@ export async function createRootPane(
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
 ): Promise<LeafNode> {
-  const node = await createLeaf({ cwd, restoredScrollback, restoredClaudeResume });
+  // createLeaf attaches the .pane element to rootEl before awaiting
+  // xterm setup so scrollback replay has correct viewport dimensions.
+  const node = await createLeaf({ parentEl: rootEl, cwd, restoredScrollback, restoredClaudeResume });
   tree = node;
-  rootEl.appendChild(node.element);
   setActivePane(node.paneId);
   return node;
 }
@@ -74,9 +75,11 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
     } catch (_) { /* ignore */ }
   }
 
-  const newLeaf = await createLeaf({ cwd });
-
-  // Build split node.
+  // Build the split DOM structure FIRST so splitEl is in the document
+  // by the time createLeaf attaches the new pane into it. This ensures
+  // the new pane has real layout dimensions when xterm initializes —
+  // otherwise restored scrollback (in splitLeaf) and even fresh shell
+  // output land at xterm's default 80 cols.
   const splitEl = document.createElement("div");
   splitEl.className = `pane-container ${axis}`;
   splitEl.style.flex = "1";
@@ -94,7 +97,10 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
 
   splitEl.appendChild(leaf.element);
   splitEl.appendChild(handle);
-  splitEl.appendChild(newLeaf.element);
+
+  // createLeaf appends the new pane to splitEl (which is now in the
+  // DOM) before awaiting xterm setup.
+  const newLeaf = await createLeaf({ parentEl: splitEl, cwd });
 
   const splitNode: SplitNode = {
     type: "split",
@@ -141,8 +147,8 @@ export async function splitLeaf(
   const leaf = findLeaf(tree, targetId);
   if (!leaf) return undefined;
 
-  const newLeaf = await createLeaf({ cwd, restoredScrollback, restoredClaudeResume });
-
+  // Build split DOM first so splitEl is in-document before createLeaf
+  // attaches the new pane. Mirrors splitActive — see comment there.
   const splitEl = document.createElement("div");
   splitEl.className = `pane-container ${axis}`;
   splitEl.style.flex = "1";
@@ -158,7 +164,13 @@ export async function splitLeaf(
   parent.replaceChild(splitEl, leaf.element);
   splitEl.appendChild(leaf.element);
   splitEl.appendChild(handle);
-  splitEl.appendChild(newLeaf.element);
+
+  const newLeaf = await createLeaf({
+    parentEl: splitEl,
+    cwd,
+    restoredScrollback,
+    restoredClaudeResume,
+  });
 
   const splitNode: SplitNode = {
     type: "split",
@@ -325,7 +337,13 @@ export function setTree(newTree: PaneTree | null) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function createLeaf(opts?: {
+async function createLeaf(opts: {
+  /** Where to attach the new .pane element BEFORE awaiting xterm setup.
+   *  Required: scrollback replay needs the container to have real
+   *  dimensions at write time, which only happens once the .pane is in
+   *  the document and laid out — see createTerminalSession's leading
+   *  fit.fit() and offsetWidth force-layout. */
+  parentEl: HTMLElement;
   cwd?: string;
   restoredScrollback?: string;
   restoredClaudeResume?: { uuid: string };
@@ -353,11 +371,18 @@ async function createLeaf(opts?: {
   `;
   el.appendChild(head);
 
+  // Attach to the DOM BEFORE creating the xterm session so the pane has
+  // real dimensions when fit.fit() runs. Without this, restored
+  // scrollback wraps at xterm's default 80 cols and stays wrapped after
+  // the ResizeObserver later resizes the terminal — xterm doesn't reflow
+  // already-rendered scrollback rows.
+  opts.parentEl.appendChild(el);
+
   const session = await createTerminalSession(
     el,
-    opts?.cwd,
-    opts?.restoredScrollback,
-    opts?.restoredClaudeResume,
+    opts.cwd,
+    opts.restoredScrollback,
+    opts.restoredClaudeResume,
   );
 
   updatePaneHead(head, paneId, session.ptyId, session.cwd ?? opts?.cwd ?? null);

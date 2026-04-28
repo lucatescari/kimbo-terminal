@@ -117,57 +117,33 @@ export async function createTerminalSession(
 
   term.open(container);
 
-  // Replay closed-tab scrollback once the container has real dimensions.
-  //
-  // At this point parentEl (the .pane div) is still detached from the
-  // document — createLeaf appends us to its parent only AFTER awaiting
-  // this function. Writing scrollback now would lay it out at xterm's
-  // default 80×24 and stay wrapped at 80 cols even after the
-  // ResizeObserver below resizes the terminal to the real viewport,
-  // because xterm doesn't reflow already-rendered scrollback rows on
-  // resize. Defer the write until the first time we observe a non-zero
-  // layout, fit() to the real size first, then write — this keeps
-  // historical content aligned with the new pane width.
-  //
-  // We also gate the PTY-output listener on this Promise (see below) so
-  // shell output can never land ahead of the historical scrollback.
-  const scrollbackReplay: Promise<void> = restoredScrollback
-    ? new Promise<void>((resolve) => {
-        let done = false;
-        const replay = () => {
-          if (done) return;
-          done = true;
-          ro.disconnect();
-          clearTimeout(safety);
-          try { fit.fit(); } catch (e) { console.warn("scrollback replay fit:", e); }
-          try {
-            term.write(restoredScrollback);
-            term.write(restoredSeparator());
-            if (restoredClaudeResume) {
-              term.write(restoredClaudeResumeLine(restoredClaudeResume));
-            }
-          } catch (e) {
-            console.warn("scrollback replay write:", e);
-          }
-          resolve();
-        };
-        const ro = new ResizeObserver((entries) => {
-          for (const e of entries) {
-            const r = e.contentRect;
-            if (r.width > 0 && r.height > 0) {
-              replay();
-              break;
-            }
-          }
-        });
-        ro.observe(container);
-        // Defensive: if RO never reports a non-zero size (shouldn't
-        // happen in practice — the pane is always attached after
-        // createLeaf returns), give up and replay at default size after
-        // 1s rather than wedging the PTY-output listener forever.
-        const safety = setTimeout(replay, 1000);
-      })
-    : Promise.resolve();
+  // Force a synchronous layout pass so fit.fit() below sees the real
+  // viewport size BEFORE we write scrollback. createLeaf is responsible
+  // for attaching parentEl to the DOM before calling us (see panes.ts);
+  // appendChild alone doesn't compute layout — reading a layout-trigger
+  // property does. Without this, fit.fit() runs against the
+  // not-yet-laid-out container and falls back to xterm's default 80x24,
+  // which would make the scrollback replay below wrap at 80 cols and
+  // stay wrapped (xterm doesn't reflow rendered scrollback on resize).
+  void container.offsetWidth;
+  try { fit.fit(); } catch (e) { console.warn("initial fit before replay:", e); }
+
+  // Replay closed-tab scrollback BEFORE the PTY listener attaches AND
+  // before OSC handlers register below. xterm processes term.write
+  // synchronously into its parser, so the bytes hit the buffer before
+  // any callback (PTY, OSC 7 cwd, OSC 0/2 title, OSC 133
+  // shell-integration) can fire. Old OSC sequences embedded in the
+  // scrollback are parsed-and-ignored as visual decoration since their
+  // handlers don't exist yet — we don't want stale OSC events firing
+  // during replay. The if-check skips the separator for empty captures
+  // so a never-used pane reopens blank.
+  if (restoredScrollback) {
+    term.write(restoredScrollback);
+    term.write(restoredSeparator());
+    if (restoredClaudeResume) {
+      term.write(restoredClaudeResumeLine(restoredClaudeResume));
+    }
+  }
 
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
@@ -181,16 +157,12 @@ export async function createTerminalSession(
   }
 
   registerTerminal(term);
-  // NOTE: the element passed to us by createLeaf is still detached from the
-  // document at this point, and only gets appended once createLeaf returns
-  // (see panes.ts:createRootPane and splitActive). A sync fit.fit() here
-  // runs on a 0×0 container and wedges xterm at the 80×24 default, which
-  // then goes straight to the PTY and locks TUIs like Claude Code at that
-  // size until the next window resize. The ResizeObserver below fires as
-  // soon as the container is attached AND laid out — that's the first
-  // moment fit.fit() has real dimensions to work with. We still call fit
-  // sync so xterm has SOME size before the PTY is created; the RO will
-  // correct it on first real layout.
+  // The .pane element is already in the document (panes.ts:createLeaf
+  // attaches it before awaiting us) and we forced layout above with
+  // offsetWidth, so this fit.fit() now lands at the real viewport size
+  // — the previous behaviour of falling back to xterm's 80x24 default
+  // is gone. The ResizeObserver below still catches subsequent window
+  // resizes / split-handle drags.
   fit.fit();
   const fitObserver = new ResizeObserver((entries) => {
     // Ignore spurious 0×0 ticks (detached → attached transitions emit one
@@ -266,12 +238,6 @@ export async function createTerminalSession(
     }
     return true;
   });
-
-  // Wait for the deferred scrollback replay (if any) to finish before
-  // we start streaming live PTY bytes — otherwise the shell's first
-  // prompt could land in the buffer ahead of the historical content
-  // we're trying to restore.
-  await scrollbackReplay;
 
   // Wire output: PTY -> xterm.js. We run the bytes through a cheap ANSI
   // filter that maps "set bg to black" SGR codes (40 / 100 / 48;5;0 /
