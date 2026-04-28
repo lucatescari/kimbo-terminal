@@ -8,6 +8,8 @@
 // back tabs that were OPEN at quit time. Layering closed-tab history
 // over that would create two competing recovery mechanisms.
 
+import { probeClaudeSession } from "./claude-session-probe";
+
 /** A serializable leaf — cwd plus optional captured scrollback. The
  *  scrollback is replayed into the reopened pane to restore on-screen
  *  history (the "I closed Claude Code by accident" recovery path). */
@@ -83,39 +85,62 @@ export function clearClosedTabs(): void {
  *  only need the fields below. The runtime check on `node.type` is what
  *  actually narrows. */
 type LivePaneNode =
-  | { type: "leaf"; session: { cwd: string | null; serialize: () => string } }
-  | { type: "split"; axis: "vertical" | "horizontal"; first: LivePaneNode; second: LivePaneNode };
+  | {
+      type: "leaf";
+      session: {
+        cwd: string | null;
+        ptyId: number;
+        serialize: () => string;
+      };
+    }
+  | {
+      type: "split";
+      axis: "vertical" | "horizontal";
+      first: LivePaneNode;
+      second: LivePaneNode;
+    };
 
 /** Convert a live PaneTree into a serializable ClosedTabShape, dropping
  *  paneId/element/session refs. The cwd we capture is the shell's last
  *  OSC 7 report (session.cwd) — we deliberately don't query the PTY for
  *  a fresh value at close time because a newly idle prompt might not
  *  have re-emitted OSC 7 yet, and reopening at a stale-by-one-cd cwd is
- *  much better than reopening at a null cwd that falls back to $HOME. */
-export function shapeFromTree(node: LivePaneNode): ClosedTabShape {
+ *  much better than reopening at a null cwd that falls back to $HOME.
+ *
+ *  Per-leaf, we ALSO probe for a running Claude Code descendant (see
+ *  claude-session-probe.ts) and stash its session UUID. Probes run in
+ *  parallel across all leaves; each call is internally budgeted so the
+ *  overall close-flow latency is capped at ~100ms regardless of tree
+ *  size.
+ */
+export async function shapeFromTreeAsync(
+  node: LivePaneNode,
+): Promise<ClosedTabShape> {
   if (node.type === "leaf") {
     let scrollback: string | undefined;
     try {
       const captured = node.session.serialize();
-      // Normalize "" → undefined so an empty pane reopens blank without
-      // an orphan separator. The if-check on opts.restoredScrollback in
-      // createTerminalSession (Task 4) skips both the write and the
-      // separator when this is undefined.
       scrollback = captured.length > 0 ? captured : undefined;
     } catch (e) {
       console.warn(
-        "shapeFromTree: serialize failed, leaf will reopen blank:",
+        "shapeFromTreeAsync: serialize failed, leaf will reopen blank:",
         e,
       );
     }
-    return { type: "leaf", cwd: node.session.cwd ?? null, scrollback };
+    const claudeResume = (await probeClaudeSession(node.session.ptyId)) ?? undefined;
+    const leaf: ClosedLeaf = {
+      type: "leaf",
+      cwd: node.session.cwd ?? null,
+      scrollback,
+    };
+    if (claudeResume) leaf.claudeResume = claudeResume;
+    return leaf;
   }
-  return {
-    type: "split",
-    axis: node.axis,
-    first: shapeFromTree(node.first),
-    second: shapeFromTree(node.second),
-  };
+  const [first, second] = await Promise.all([
+    shapeFromTreeAsync(node.first),
+    shapeFromTreeAsync(node.second),
+  ]);
+  return { type: "split", axis: node.axis, first, second };
 }
 
 /** First-leaf cwd, walking always left through splits. Used to seed the
