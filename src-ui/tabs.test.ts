@@ -46,7 +46,12 @@ vi.mock("./terminal", () => {
   // contract: appends a .terminal-container to the parent and returns a
   // session whose dispose() removes it.
   const createTerminalSession = vi.fn(
-    async (parentEl: HTMLElement, _cwd?: string, _restoredScrollback?: string): Promise<any> => {
+    async (
+      parentEl: HTMLElement,
+      _cwd?: string,
+      _restoredScrollback?: string,
+      _restoredClaudeResume?: { uuid: string },
+    ): Promise<any> => {
       const id = nextId++;
       const container = document.createElement("div");
       container.className = "terminal-container";

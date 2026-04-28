@@ -175,9 +175,12 @@ export async function closeTab(id: number): Promise<void> {
   }
 
   // Dispose every pane session inside this tab BEFORE detaching the DOM, so
-  // closing a tab doesn't leave PTY processes dangling. The active tab's
-  // live tree is in the panes module; inactive tabs keep a snapshot.
-  disposeTree(tab.id === activeTabId ? getTree() : tab.treeSnapshot);
+  // closing a tab doesn't leave PTY processes dangling. Reuse the captured
+  // `liveTree` instead of re-evaluating `tab.id === activeTabId` here:
+  // shapeFromTreeAsync awaits ~100ms, during which a tab switch could flip
+  // the active id and mutate the panes module's tree, leaving us disposing
+  // the wrong subtree.
+  disposeTree(liveTree);
 
   tab.container.remove();
   tabs.splice(idx, 1);
