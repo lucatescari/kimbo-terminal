@@ -24,9 +24,17 @@ export function renderClaudeHud(
   const sep = () => {
     const s = document.createElement("span");
     s.className = "claude-hud__sep";
-    s.textContent = " \u00b7 ";
+    s.textContent = "\u00b7";
     return s;
   };
+
+  // Leading "this is claude" mark — small accent-blue glyph anchoring the
+  // strip so it reads as a feature surface rather than another pane-head row.
+  const badge = document.createElement("span");
+  badge.className = "claude-hud__badge";
+  badge.textContent = "\u25C9"; // ◉ — solid circle with inner dot
+  badge.title = "Claude Code session";
+  root.appendChild(badge);
 
   // Email (with optional plan)
   const emailSpan = document.createElement("span");
@@ -57,11 +65,23 @@ export function renderClaudeHud(
     root.appendChild(modelSpan);
   }
 
-  // Tokens
+  // Tokens — arrows in dim color, numbers in regular fg.
   root.appendChild(sep());
   const tokSpan = document.createElement("span");
   tokSpan.className = "claude-hud__tokens";
-  tokSpan.textContent = `\u2191${formatTokens(status.input_tokens)} \u2193${formatTokens(status.output_tokens)}`;
+  const upArrow = document.createElement("span");
+  upArrow.className = "claude-hud__arrow";
+  upArrow.textContent = "\u2191";
+  const upNum = document.createTextNode(formatTokens(status.input_tokens));
+  const downArrow = document.createElement("span");
+  downArrow.className = "claude-hud__arrow";
+  downArrow.textContent = "\u2193";
+  const downNum = document.createTextNode(formatTokens(status.output_tokens));
+  tokSpan.appendChild(upArrow);
+  tokSpan.appendChild(upNum);
+  tokSpan.appendChild(document.createTextNode(" "));
+  tokSpan.appendChild(downArrow);
+  tokSpan.appendChild(downNum);
   root.appendChild(tokSpan);
 
   // Cost (skip if model unknown)

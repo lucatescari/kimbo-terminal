@@ -643,33 +643,83 @@ body {
 
 /* ---------------------------------------------------------------------
    Claude Code HUD — per-pane status strip below the pane head.
+   Visual contract: reads as a "second row" of the pane chrome. Same
+   typography (mono 10.5px), same translucency-aware bg, slightly
+   shorter than .pane-head to suggest hierarchy. Colors carry meaning:
+   accent-blue for actionable, accent-yellow for value/attention,
+   --fg-muted for secondary, --fg-dim for tertiary.
    --------------------------------------------------------------------- */
 .claude-hud {
+  height: 22px;
+  flex-shrink: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0;
   align-items: center;
-  font-size: 11px;
-  font-family: var(--font-family-mono, monospace);
-  color: var(--accent-muted, #8a8a8a);
-  padding: 2px 8px 3px;
-  border-top: 1px solid var(--pane-head-border, rgba(255, 255, 255, 0.05));
+  gap: 6px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  /* Same chrome surface as .pane-head — slightly more pane-tinted so
+     the two strips read as a continuous block when the bottom border
+     is hidden by :has() below. */
+  background: color-mix(
+    in srgb,
+    color-mix(in oklab, var(--bg-pane) 78%, var(--bg-titlebar))
+      calc(var(--app-alpha, 1) * 100%),
+    transparent
+  );
+  border-bottom: 1px solid var(--divider);
   user-select: none;
+  -webkit-user-select: none;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+/* When the HUD is present, drop the pane-head's bottom border so the
+   two strips merge visually into a single chrome block. */
+.pane:has(> .claude-hud) > .pane-head {
+  border-bottom: none;
+}
+
+.claude-hud__badge {
+  color: var(--accent-blue);
+  font-size: 9px;
+  line-height: 1;
+  margin-right: 1px;
 }
 .claude-hud__sep {
-  opacity: 0.5;
+  color: var(--fg-dim);
+  opacity: 0.55;
 }
+
+/* Per-field colors — the design language carries information through
+   color rather than icons or borders. */
+.claude-hud__email     { color: var(--fg); }
+.claude-hud__session   { color: var(--accent-blue); }
+.claude-hud__model     { color: var(--fg-muted); }
+.claude-hud__tokens    { color: var(--fg); }
+.claude-hud__arrow     { color: var(--fg-dim); margin-right: 1px; }
+.claude-hud__cost      { color: var(--accent-yellow); }
+.claude-hud__duration  { color: var(--fg-dim); }
+.claude-hud__perm      { color: var(--accent-yellow); }
+.claude-hud__msgs,
+.claude-hud__tools     { color: var(--fg-muted); }
+
+/* Click affordance — subtle hover bg + active press, no underline. */
 .claude-hud__copyable {
   cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0 3px;
+  margin: 0 -3px;
+  transition: background 0.1s ease, color 0.15s ease;
 }
 .claude-hud__copyable:hover {
-  border-bottom: 1px dotted currentColor;
+  background: var(--bg-hover);
+}
+.claude-hud__copyable:active {
+  background: var(--bg-active);
 }
 .claude-hud__copied {
-  color: var(--accent-success, #4caf50);
+  color: var(--accent-green);
 }
 
 /* Override xterm.js defaults that paint opaque #000 over the terminal
