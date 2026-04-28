@@ -366,3 +366,100 @@ describe("Cmd+W double-dispatch (menu accelerator + webview keydown)", () => {
     expect(h.panes.getTree()?.type).toBe("leaf");
   });
 });
+
+describe("Tab reordering", () => {
+  it("reorderTab moves a tab from one index to another", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    const tabC = await h.tabs.createTab();
+
+    // Move tab C (index 2) to index 0
+    h.tabs.reorderTab(2, 0);
+
+    // Tab buttons in scroll region should be C, A, B
+    const scrollRegion = h.tabBar.querySelector(".tab-scroll-region")!;
+    const tabEls = scrollRegion.querySelectorAll(".tab");
+    expect(tabEls[0].getAttribute("data-tab-id")).toBe(String(tabC.id));
+    expect(tabEls[1].getAttribute("data-tab-id")).toBe(String(tabA.id));
+    expect(tabEls[2].getAttribute("data-tab-id")).toBe(String(tabB.id));
+  });
+
+  it("reorderTab updates Cmd+1-9 mapping (visual order)", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    const tabC = await h.tabs.createTab();
+
+    // Move tab C (index 2) to index 0
+    h.tabs.reorderTab(2, 0);
+
+    // switchToTab(0) should now activate tab C
+    h.tabs.switchToTab(0);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabC.id);
+
+    // switchToTab(2) should now activate tab B
+    h.tabs.switchToTab(2);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabB.id);
+  });
+
+  it("reorderTab is a no-op if from === to", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabB = await h.tabs.createTab();
+    await h.tabs.createTab();
+
+    h.tabs.switchTab(tabB.id);
+    h.tabs.reorderTab(1, 1);
+
+    expect(h.tabs.getActiveTab()?.id).toBe(tabB.id);
+  });
+
+  it("reorderTab with only one tab is a no-op", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+
+    h.tabs.reorderTab(0, 0);
+    expect(h.tabs.getActiveTab()?.id).toBe(tabA.id);
+  });
+});
+
+describe("Tab bar scroll region structure", () => {
+  it("renderTabBar creates scroll arrows + scroll region + new-tab button", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    const tabBar = h.tabBar;
+    const leftArrow = tabBar.querySelector(".tab-scroll-arrow.left");
+    const rightArrow = tabBar.querySelector(".tab-scroll-arrow.right");
+    const scrollRegion = tabBar.querySelector(".tab-scroll-region");
+    const newBtn = tabBar.querySelector(".tab-new");
+
+    expect(leftArrow, "left scroll arrow should exist").toBeTruthy();
+    expect(rightArrow, "right scroll arrow should exist").toBeTruthy();
+    expect(scrollRegion, "scroll region should exist").toBeTruthy();
+    expect(newBtn, "new tab button should exist").toBeTruthy();
+
+    // Tab buttons live inside the scroll region
+    const tabsInRegion = scrollRegion!.querySelectorAll(".tab");
+    expect(tabsInRegion.length).toBe(1);
+
+    // Structural order: left arrow, scroll region, right arrow, new button
+    const children = Array.from(tabBar.children);
+    expect(children.indexOf(leftArrow!)).toBeLessThan(children.indexOf(scrollRegion!));
+    expect(children.indexOf(scrollRegion!)).toBeLessThan(children.indexOf(rightArrow!));
+    expect(children.indexOf(rightArrow!)).toBeLessThan(children.indexOf(newBtn!));
+  });
+
+  it("scroll arrows are hidden when all tabs fit (no overflow)", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    const leftArrow = h.tabBar.querySelector(".tab-scroll-arrow.left");
+    const rightArrow = h.tabBar.querySelector(".tab-scroll-arrow.right");
+
+    // In jsdom, scrollWidth === clientWidth (no real layout), so arrows should be hidden
+    expect(leftArrow!.classList.contains("visible")).toBe(false);
+    expect(rightArrow!.classList.contains("visible")).toBe(false);
+  });
+});

@@ -1,22 +1,38 @@
 # Kimbo
 
-A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layouts, tabbed windows, and a project launcher for developer workflows.
+A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layouts, tabbed windows, and a command palette for developer workflows.
 
-![Kimbo Terminal](src-ui/public/kimbo_normal.png)
+<p align="center">
+  <img src="src-ui/public/kimbo_normal.png" alt="Kimbo Terminal" width="128" />
+</p>
 
 > **Beta** — Kimbo is in active development. Expect rough edges. Feedback and contributions welcome.
+
+<p align="center">
+  <img src="assets/kimbo-general.gif" alt="Kimbo general features demo" width="720" />
+</p>
 
 ## Features
 
 - **Multi-pane layouts** — split vertically (Cmd+D) or horizontally (Cmd+Shift+D), nest arbitrarily
-- **Tabbed windows** — each tab has its own independent pane layout
-- **Project launcher** — scans your project directories, jump to any project with Cmd+O
+- **Tabbed windows** — each tab has its own independent pane layout, drag-and-drop to reorder
+- **Command palette** — unified launcher for commands and projects (Cmd+K)
+- **Find in scrollback** — search terminal output with regex and case-sensitive modes (Cmd+F)
 - **Themeable** — JSON themes (VS Code format), 3 built-in + community theme repo
 - **True color (24-bit)** — full color support for modern CLI tools
 - **Settings UI** — built-in settings panel (Cmd+,) for theme, font, keybindings, workspaces
 - **Configurable keybindings** — all shortcuts customizable via settings or config file
+- **Session restore** — tabs and working directories persist across app restarts
 - **Clickable URLs** — Cmd+click to open links in your browser
+- **Window opacity** — adjustable window transparency
+- **Quit confirmation** — optional prompt before closing active panes
+- **Drag and drop** — drop files and folders directly into the terminal
+- **Welcome screen** — keyboard shortcut intro for first-time users
 - **Native macOS menu bar** — standard app menu with all actions
+
+<p align="center">
+  <img src="assets/kimbo-cmd-k.gif" alt="Kimbo command palette demo" width="720" />
+</p>
 
 ## What's New in `feat/osc1337-inline-images`
 
@@ -116,6 +132,7 @@ Or use the built-in settings UI (Cmd+,).
 
 | Shortcut | Action |
 |---|---|
+| Cmd+K | Command palette |
 | Cmd+T | New tab |
 | Cmd+Shift+W | Close tab |
 | Cmd+D | Split vertically |
@@ -124,7 +141,7 @@ Or use the built-in settings UI (Cmd+,).
 | Cmd+Arrow | Navigate between panes |
 | Cmd+] / Cmd+[ | Next / previous tab |
 | Cmd+1-9 | Switch to tab by number |
-| Cmd+O | Project launcher |
+| Cmd+F | Find in scrollback |
 | Cmd+, | Settings |
 | Cmd+Q | Quit |
 
