@@ -641,6 +641,37 @@ body {
 .pane-head .branch { color: var(--accent); }
 .pane-head .actions { margin-left: auto; display: flex; gap: 2px; }
 
+/* ---------------------------------------------------------------------
+   Claude Code HUD — per-pane status strip below the pane head.
+   --------------------------------------------------------------------- */
+.claude-hud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: center;
+  font-size: 11px;
+  font-family: var(--font-family-mono, monospace);
+  color: var(--accent-muted, #8a8a8a);
+  padding: 2px 8px 3px;
+  border-top: 1px solid var(--pane-head-border, rgba(255, 255, 255, 0.05));
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-hud__sep {
+  opacity: 0.5;
+}
+.claude-hud__copyable {
+  cursor: pointer;
+}
+.claude-hud__copyable:hover {
+  border-bottom: 1px dotted currentColor;
+}
+.claude-hud__copied {
+  color: var(--accent-success, #4caf50);
+}
+
 /* Override xterm.js defaults that paint opaque #000 over the terminal
    viewport and composition view, masking #app-frame's --app-alpha fill.
    See node_modules/@xterm/xterm/css/xterm.css lines 81 and 95.
