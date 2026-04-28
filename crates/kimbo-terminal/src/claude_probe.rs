@@ -243,9 +243,16 @@ pub fn probe_claude_session_for_pid(root: u32, cwd: Option<&str>) -> Option<Stri
 
 /// Shell out and capture stdout, abandoning if the deadline is reached.
 /// Errors and timeouts both return None — the probe is best-effort.
+///
+/// A background reader thread drains stdout in parallel with the
+/// deadline poll. Without this, large outputs (`ps -axo args=` on a
+/// machine with many processes) can fill the pipe buffer, blocking the
+/// child on write while `try_wait` keeps reporting "still running" —
+/// we'd hit the deadline and kill a process that was actually fine.
 fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<String> {
     use std::io::Read;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc;
 
     if Instant::now() >= deadline {
         return None;
@@ -257,21 +264,35 @@ fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<Str
         .spawn()
         .ok()?;
 
+    // Move stdout into a reader thread that buffers everything until
+    // EOF. EOF arrives either when the child exits cleanly or when we
+    // kill it on deadline (closing the pipe).
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = stdout.read_to_string(&mut buf);
+        let _ = tx.send(buf);
+    });
+
     loop {
         match child.try_wait().ok()? {
-            Some(_status) => break,
+            Some(_status) => {
+                // Child finished — reader will see EOF and send within
+                // a couple ms. Cap the receive so a wedged reader can't
+                // hang us past the budget.
+                return rx.recv_timeout(Duration::from_millis(50)).ok();
+            }
             None => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
+                    let _ = child.wait();
                     return None;
                 }
-                std::thread::sleep(Duration::from_millis(2));
+                std::thread::sleep(Duration::from_millis(5));
             }
         }
     }
-    let mut buf = String::new();
-    child.stdout.as_mut()?.read_to_string(&mut buf).ok()?;
-    Some(buf)
 }
 
 #[cfg(test)]
