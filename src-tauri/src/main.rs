@@ -190,6 +190,7 @@ fn main() {
             commands::pty::close_pty,
             commands::pty::get_cwd,
             commands::pty::pty_is_busy,
+            commands::claude::probe_claude_session,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,

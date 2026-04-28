@@ -98,6 +98,13 @@ impl PtyManager {
         Ok(pty.is_busy())
     }
 
+    /// Read the shell pid for a session, used by the claude-resume probe.
+    pub fn pid_of(&self, id: u32) -> Result<u32, String> {
+        let sessions = self.sessions.lock().unwrap();
+        let pty = sessions.get(&id).ok_or("PTY not found")?;
+        Ok(pty.pid())
+    }
+
     /// Synchronously kill every live PTY session's process tree. Called by
     /// `quit_app` immediately before `app.exit(0)` — Tauri's `app.exit` does
     /// not run `Drop` on managed `State`, so without this every shell would
