@@ -389,12 +389,13 @@ async function createLeaf(opts: {
 
   // Refresh head when OSC 7 lands a new cwd. Poll lightly to avoid coupling
   // to the OSC 7 parser — cheap and bounded to the visible panes.
-  const poll = window.setInterval(() => {
+  const poll = window.setInterval(async () => {
     if (!document.body.contains(head)) {
       clearInterval(poll);
       return;
     }
     updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
+    await refreshClaudeHudFor(el, session.ptyId);
   }, 2000);
 
   return { type: "leaf", paneId, session, element: el };
@@ -503,5 +504,37 @@ function fitAll(node: PaneTree): void {
   } else {
     fitAll(node.first);
     fitAll(node.second);
+  }
+}
+
+async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<void> {
+  const { claudeStatus } = await import("./claude-status");
+  const { getAccountInfo } = await import("./claude-account");
+  const { renderClaudeHud } = await import("./claude-hud");
+  const { getPrefs } = await import("./ui-prefs");
+
+  const [status, account] = await Promise.all([
+    claudeStatus(ptyId),
+    getAccountInfo(),
+  ]);
+
+  const prefs = getPrefs();
+  const newHud = renderClaudeHud(status, account, {
+    hudEnabled: prefs.claudeHudEnabled,
+    extendedFields: prefs.claudeHudExtended,
+    showPlan: prefs.claudeHudShowPlan,
+  });
+
+  // Remove any existing strip.
+  const existing = paneEl.querySelector(":scope > .claude-hud");
+  if (existing) existing.remove();
+  // Insert the new strip just after .pane-head, before the terminal container.
+  if (newHud) {
+    const head = paneEl.querySelector(":scope > .pane-head");
+    if (head && head.parentNode === paneEl) {
+      paneEl.insertBefore(newHud, head.nextSibling);
+    } else {
+      paneEl.prepend(newHud);
+    }
   }
 }
