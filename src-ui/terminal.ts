@@ -137,11 +137,25 @@ export async function createTerminalSession(
   // handlers don't exist yet — we don't want stale OSC events firing
   // during replay. The if-check skips the separator for empty captures
   // so a never-used pane reopens blank.
+  //
+  // We also push the scrollback bytes through stripAnsiBlackBg when
+  // transparentBlackBg is on — same filter the PTY-output path uses —
+  // so DIM-attribute SGRs (used by our restored separator and the
+  // claude-resume line, plus any DIM in the captured scrollback) don't
+  // render as opaque black rectangles on a translucent terminal. See
+  // ansi-bg-transparent.ts for the WebGL-renderer reasoning.
   if (restoredScrollback) {
-    term.write(restoredScrollback);
-    term.write(restoredSeparator());
+    const writeReplay = (s: string): void => {
+      if (getPrefs().transparentBlackBg) {
+        term.write(stripAnsiBlackBg(new TextEncoder().encode(s)));
+      } else {
+        term.write(s);
+      }
+    };
+    writeReplay(restoredScrollback);
+    writeReplay(restoredSeparator());
     if (restoredClaudeResume) {
-      term.write(restoredClaudeResumeLine(restoredClaudeResume));
+      writeReplay(restoredClaudeResumeLine(restoredClaudeResume));
     }
   }
 

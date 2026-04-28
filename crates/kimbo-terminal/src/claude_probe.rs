@@ -168,22 +168,9 @@ fn newest_jsonl_uuid_in_dir(dir: &Path) -> Option<String> {
 /// exhaustion, or no recoverable UUID. Never panics.
 pub fn probe_claude_session_for_pid(root: u32, cwd: Option<&str>) -> Option<String> {
     let deadline = Instant::now() + PROBE_BUDGET;
-    let started = Instant::now();
-    eprintln!("[claude-probe] start root_pid={} cwd={:?}", root, cwd);
 
-    let ps_out = match run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline) {
-        Some(s) => s,
-        None => {
-            eprintln!("[claude-probe] ps failed/timed out");
-            return None;
-        }
-    };
+    let ps_out = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline)?;
     let descendants = parse_descendants_with_args(&ps_out, root);
-    eprintln!(
-        "[claude-probe] descendants of {}: {} entries",
-        root,
-        descendants.len()
-    );
     if descendants.is_empty() {
         return None;
     }
@@ -192,27 +179,13 @@ pub fn probe_claude_session_for_pid(root: u32, cwd: Option<&str>) -> Option<Stri
         .iter()
         .filter(|(_, args)| is_claude_command(args))
         .collect();
-    eprintln!("[claude-probe] claude descendants: {}", claude_procs.len());
-    for (pid, args) in &claude_procs {
-        eprintln!("[claude-probe]   pid={} args={}", pid, args);
-    }
     if claude_procs.is_empty() {
-        eprintln!(
-            "[claude-probe] no claude descendant (elapsed {:?})",
-            started.elapsed()
-        );
         return None;
     }
 
     // Tier 1: explicit `--resume <uuid>` in args.
-    for (pid, args) in &claude_procs {
+    for (_pid, args) in &claude_procs {
         if let Some(uuid) = extract_resume_uuid(args) {
-            eprintln!(
-                "[claude-probe] HIT tier-1 pid={} uuid={} (elapsed {:?})",
-                pid,
-                uuid,
-                started.elapsed()
-            );
             return Some(uuid);
         }
     }
@@ -222,22 +195,12 @@ pub fn probe_claude_session_for_pid(root: u32, cwd: Option<&str>) -> Option<Stri
         let encoded = encode_claude_cwd(cwd);
         if let Ok(home) = std::env::var("HOME") {
             let dir = PathBuf::from(home).join(".claude/projects").join(&encoded);
-            eprintln!("[claude-probe] tier-2 scanning dir={}", dir.display());
             if let Some(uuid) = newest_jsonl_uuid_in_dir(&dir) {
-                eprintln!(
-                    "[claude-probe] HIT tier-2 uuid={} (elapsed {:?})",
-                    uuid,
-                    started.elapsed()
-                );
                 return Some(uuid);
             }
         }
     }
 
-    eprintln!(
-        "[claude-probe] no match (elapsed {:?})",
-        started.elapsed()
-    );
     None
 }
 
