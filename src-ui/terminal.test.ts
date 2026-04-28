@@ -265,3 +265,24 @@ describe("terminal: Find in scrollback (Cmd+F)", () => {
     expect(keysSource).toContain("hideFindBar");
   });
 });
+
+import { restoredClaudeResumeLine } from "./terminal";
+
+describe("restoredClaudeResumeLine", () => {
+  it("contains the resume command with the uuid", () => {
+    const line = restoredClaudeResumeLine({
+      uuid: "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    });
+    expect(line).toContain(
+      "claude --resume d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d",
+    );
+    expect(line).toContain("claude was running here");
+  });
+
+  it("uses dim italic SGR and ends with CRLF", () => {
+    const line = restoredClaudeResumeLine({ uuid: "uuid" });
+    expect(line).toMatch(/\x1b\[2;3m/);
+    expect(line).toMatch(/\x1b\[0m/);
+    expect(line.endsWith("\r\n")).toBe(true);
+  });
+});

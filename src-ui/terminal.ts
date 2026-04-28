@@ -25,6 +25,13 @@ import { attachOsc8Links } from "./osc8";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
 import { getPrefs } from "./ui-prefs";
 
+/** Compose the dim "claude was running here · resume: …" line written
+ *  beneath the existing restoredSeparator() on tab reopen. Exported so
+ *  the contract can be unit-tested without bringing up xterm. */
+export function restoredClaudeResumeLine(resume: { uuid: string }): string {
+  return `\x1b[2;3m   ↳ claude was running here · resume: claude --resume ${resume.uuid}\x1b[0m\r\n`;
+}
+
 export interface TerminalSession {
   id: number;
   ptyId: number;
@@ -51,6 +58,7 @@ export async function createTerminalSession(
   parentEl: HTMLElement,
   cwd?: string,
   restoredScrollback?: string,
+  restoredClaudeResume?: { uuid: string },
 ): Promise<TerminalSession> {
   const id = nextTermId++;
 
@@ -120,6 +128,9 @@ export async function createTerminalSession(
   if (restoredScrollback) {
     term.write(restoredScrollback);
     term.write(restoredSeparator());
+    if (restoredClaudeResume) {
+      term.write(restoredClaudeResumeLine(restoredClaudeResume));
+    }
   }
 
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
