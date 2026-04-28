@@ -133,6 +133,74 @@ pub(crate) fn accumulate_jsonl_stats(body: &str) -> JsonlStats {
     stats
 }
 
+/// What the JS HUD renders. JSON-serializable so the Tauri command
+/// can return this directly to the frontend.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClaudeStatus {
+    pub session_id: String,
+    pub model: Option<String>,
+    pub started_at_ms: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub permission_mode: Option<String>,
+    pub message_count: u32,
+    pub tool_count: u32,
+}
+
+/// Inner helper: given a specific pid, attempt to read a live claude
+/// session for that pid. Returns `None` when there is no
+/// `~/.claude/sessions/<pid>.json` for that pid.
+pub(crate) fn read_status_for_pid(pid: u32) -> Option<ClaudeStatus> {
+    let home = std::env::var("HOME").ok()?;
+    let sessions_path = std::path::PathBuf::from(&home)
+        .join(".claude/sessions")
+        .join(format!("{}.json", pid));
+    let body = std::fs::read_to_string(&sessions_path).ok()?;
+    let pid_session = parse_pid_json(&body)?;
+
+    let stats = pid_session
+        .cwd
+        .as_deref()
+        .map(|cwd| {
+            let encoded = encode_claude_cwd(cwd);
+            let jsonl_path = std::path::PathBuf::from(&home)
+                .join(".claude/projects")
+                .join(&encoded)
+                .join(format!("{}.jsonl", pid_session.session_id));
+            std::fs::read_to_string(&jsonl_path)
+                .map(|body| accumulate_jsonl_stats(&body))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+
+    Some(ClaudeStatus {
+        session_id: pid_session.session_id,
+        model: stats.model,
+        started_at_ms: pid_session.started_at_ms,
+        input_tokens: stats.input_tokens,
+        output_tokens: stats.output_tokens,
+        permission_mode: stats.permission_mode,
+        message_count: stats.message_count,
+        tool_count: stats.tool_count,
+    })
+}
+
+/// Public probe: walk descendants of `root` and return the first
+/// descendant that has a `~/.claude/sessions/<pid>.json` we can read.
+/// Returns `None` if no descendant matches, the budget is exhausted,
+/// or filesystem access fails.
+pub fn probe_claude_status_for_pid(root: u32) -> Option<ClaudeStatus> {
+    let deadline = Instant::now() + PROBE_BUDGET;
+    let ps_out = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline)?;
+    let descendants = parse_descendants_with_args(&ps_out, root);
+    for (pid, _args) in descendants {
+        if let Some(status) = read_status_for_pid(pid) {
+            return Some(status);
+        }
+    }
+    None
+}
+
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
 /// `args` may contain spaces (it's the rest of the line).
 fn parse_ps_line(line: &str) -> Option<(u32, u32, &str)> {
@@ -721,5 +789,62 @@ not-json-at-all\n\
 {\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n";
         let s = accumulate_jsonl_stats(jsonl);
         assert_eq!(s.message_count, 2);
+    }
+
+    // -----------------------------------------------------------------
+    // probe_claude_status_for_pid (filesystem integration)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn probe_claude_status_for_pid_happy_path() {
+        let dir = unique_temp_subdir("status-happy");
+        let sessions = dir.join(".claude").join("sessions");
+        let projects = dir.join(".claude").join("projects").join("-tmp-x");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::create_dir_all(&projects).unwrap();
+
+        // Pretend our own pid is the claude descendant.
+        let our_pid = std::process::id();
+        std::fs::write(
+            sessions.join(format!("{}.json", our_pid)),
+            format!(
+                r#"{{"pid":{p},"sessionId":"abc-123","cwd":"/tmp/x","startedAt":42}}"#,
+                p = our_pid
+            ),
+        ).unwrap();
+        std::fs::write(
+            projects.join("abc-123.jsonl"),
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":10,\"output_tokens\":4},\"content\":[]}}\n",
+        ).unwrap();
+
+        let saved = std::env::var_os("HOME");
+        unsafe { std::env::set_var("HOME", &dir); }
+
+        let status = read_status_for_pid(our_pid)
+            .expect("synthetic sessions/<pid>.json should be picked up");
+        assert_eq!(status.session_id, "abc-123");
+        assert_eq!(status.input_tokens, 10);
+        assert_eq!(status.output_tokens, 4);
+        assert_eq!(status.model.as_deref(), Some("claude-opus-4-7"));
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn probe_claude_status_for_pid_missing_sessions_file() {
+        let dir = unique_temp_subdir("status-missing");
+        let saved = std::env::var_os("HOME");
+        unsafe { std::env::set_var("HOME", &dir); }
+        // No sessions/ directory at all.
+        assert!(read_status_for_pid(99999).is_none());
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
