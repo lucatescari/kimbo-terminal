@@ -3,42 +3,65 @@
 //! was killed mid-`claude` surfaces a `claude --resume <uuid>` hint when
 //! reopened (Cmd+Shift+T).
 //!
-//! The detection signature is "process holds an open fd under
-//! ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl" — not a process-name
-//! match — so wrappers like `npx claude` are caught too.
+//! Detection signature, in priority order:
+//!
+//!   1. `--resume <uuid>` parsed from a `claude` descendant's command-line
+//!      args. Definitive — the user explicitly named the session.
+//!   2. Newest-mtime `<uuid>.jsonl` in `~/.claude/projects/<encoded-cwd>/`.
+//!      Heuristic — works for the common single-claude-per-cwd case.
+//!      Two simultaneous fresh `claude` invocations in the same cwd will
+//!      both resolve to whichever wrote most recently; this is documented
+//!      as a known limitation in the design spec.
+//!
+//! The earlier open-fd-based signature (lsof scanning for an open
+//! `<uuid>.jsonl` descriptor) was abandoned after live testing showed
+//! claude open-writes-closes its session log per message rather than
+//! holding the fd, so the probe never caught it.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
-/// Hard cap on the entire probe (descendant collection + the combined
-/// lsof call). Tab-close UX cost is bounded by this. macOS `lsof` is
-/// 50-100ms per invocation regardless of pid count, so collapsing all
-/// descendants into a single `lsof -p N1,N2,…` call lets us stay well
-/// under this cap in the typical case (one shell with one or two
-/// claude/node descendants) while leaving headroom for slower hardware.
+/// Hard cap on the entire probe (ps + descendant walk + filesystem
+/// scan). Tab-close UX cost is bounded by this. The args-and-mtime
+/// approach finishes in well under 100 ms on typical hardware; 500 ms
+/// is generous headroom for slow disks or a deep process tree.
 pub const PROBE_BUDGET: Duration = Duration::from_millis(500);
 
-/// Parse `ps -axo pid=,ppid=` output and return the transitive descendants
-/// of `root` (excluding root itself), in DFS order (deepest-first via a
-/// stack). Order is not load-bearing — `probe_claude_session_for_pid`
-/// uses first-match semantics and any traversal would yield the same
-/// answer when a single descendant holds the JSONL fd. Lines that don't
-/// parse as two integers are skipped.
-pub(crate) fn parse_descendants(ps_output: &str, root: u32) -> Vec<u32> {
+// ---------------------------------------------------------------------------
+// Pure parsers
+// ---------------------------------------------------------------------------
+
+/// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
+/// `args` may contain spaces (it's the rest of the line).
+fn parse_ps_line(line: &str) -> Option<(u32, u32, &str)> {
+    let line = line.trim_start();
+    let (pid_s, rest) = line.split_once(|c: char| c.is_whitespace())?;
+    let pid: u32 = pid_s.parse().ok()?;
+    let rest = rest.trim_start();
+    let (ppid_s, rest) = rest.split_once(|c: char| c.is_whitespace())?;
+    let ppid: u32 = ppid_s.parse().ok()?;
+    Some((pid, ppid, rest.trim_start()))
+}
+
+/// From a `ps -axo pid=,ppid=,args=` snapshot, walk all transitive
+/// descendants of `root` (excluding `root` itself) and return their
+/// `(pid, args)` pairs. Walk order is DFS via a stack — order is not
+/// load-bearing because the probe filters by command before iterating.
+pub(crate) fn parse_descendants_with_args(ps_output: &str, root: u32) -> Vec<(u32, String)> {
     let mut children_of: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut args_of: HashMap<u32, String> = HashMap::new();
     for line in ps_output.lines() {
-        let mut it = line.split_whitespace();
-        let pid: Option<u32> = it.next().and_then(|s| s.parse().ok());
-        let ppid: Option<u32> = it.next().and_then(|s| s.parse().ok());
-        if let (Some(pid), Some(ppid)) = (pid, ppid) {
+        if let Some((pid, ppid, args)) = parse_ps_line(line) {
             children_of.entry(ppid).or_default().push(pid);
+            args_of.insert(pid, args.to_string());
         }
     }
-
-    let mut out: Vec<u32> = Vec::new();
+    let mut out: Vec<(u32, String)> = Vec::new();
     let mut queue: Vec<u32> = children_of.get(&root).cloned().unwrap_or_default();
     while let Some(pid) = queue.pop() {
-        out.push(pid);
+        let args = args_of.get(&pid).cloned().unwrap_or_default();
+        out.push((pid, args));
         if let Some(kids) = children_of.get(&pid) {
             queue.extend_from_slice(kids);
         }
@@ -46,34 +69,46 @@ pub(crate) fn parse_descendants(ps_output: &str, root: u32) -> Vec<u32> {
     out
 }
 
-/// Parse `lsof -p <pid> -Fn` output and extract the first `~/.claude/projects/.../<uuid>.jsonl`
-/// session-log path's UUID. Each `n`-prefixed line is one filename; we look
-/// for one ending in `/<36-char-uuid>.jsonl` somewhere under `.claude/projects/`.
-/// Returns `None` if no match.
-pub(crate) fn parse_claude_jsonl_fd(lsof_output: &str) -> Option<String> {
-    for line in lsof_output.lines() {
-        // Lines we care about start with 'n' (name field). Strip the prefix.
-        let path = match line.strip_prefix('n') {
-            Some(p) => p,
-            None => continue,
-        };
-        if !path.contains("/.claude/projects/") {
-            continue;
-        }
-        let basename = path.rsplit('/').next().unwrap_or("");
-        let stem = match basename.strip_suffix(".jsonl") {
-            Some(s) => s,
-            None => continue,
-        };
-        if is_uuid_v4_shape(stem) {
-            return Some(stem.to_string());
+/// True if the first whitespace-separated token of `args` has the
+/// basename `claude` exactly. Filters out related-but-different binaries
+/// like `claude-cowork` (matched as `npm exec claude-cowork`, where the
+/// first token is `npm`) and shell wrappers that don't exec to claude.
+pub(crate) fn is_claude_command(args: &str) -> bool {
+    let first = args.split_whitespace().next().unwrap_or("");
+    let basename = first.rsplit('/').next().unwrap_or("");
+    basename == "claude"
+}
+
+/// Find a UUID following `--resume` (or `--resume=<uuid>`) anywhere in
+/// the args. Returns `None` if no match or the value isn't a UUID.
+pub(crate) fn extract_resume_uuid(args: &str) -> Option<String> {
+    let mut it = args.split_whitespace();
+    while let Some(tok) = it.next() {
+        if tok == "--resume" {
+            if let Some(next) = it.next() {
+                if is_uuid_v4_shape(next) {
+                    return Some(next.to_string());
+                }
+            }
+        } else if let Some(rest) = tok.strip_prefix("--resume=") {
+            if is_uuid_v4_shape(rest) {
+                return Some(rest.to_string());
+            }
         }
     }
     None
 }
 
-/// Loose UUID shape check (8-4-4-4-12 hex). Avoids pulling a UUID crate
-/// just for one validation.
+/// Encode a cwd path to claude's project-dir name. Claude Code stores
+/// per-project session logs under `~/.claude/projects/<encoded>/` where
+/// `<encoded>` is the cwd with every `/` replaced by `-` (so a leading
+/// `/` becomes a leading `-`).
+pub(crate) fn encode_claude_cwd(cwd: &str) -> String {
+    cwd.replace('/', "-")
+}
+
+/// Loose UUID shape check (8-4-4-4-12 hex). Accepts both lowercase and
+/// uppercase hex; in practice Claude Code only emits lowercase.
 fn is_uuid_v4_shape(s: &str) -> bool {
     if s.len() != 36 {
         return false;
@@ -92,69 +127,115 @@ fn is_uuid_v4_shape(s: &str) -> bool {
     true
 }
 
-/// Best-effort probe: shell `ps -axo pid=,ppid=` once, then `lsof -p <pid> -Fn`
-/// per descendant. First match wins. Returns `None` on missing tools, no
-/// match, or budget exhaustion. Never panics.
-pub fn probe_claude_session_for_pid(root: u32) -> Option<String> {
+/// Scan a directory and return the UUID stem of the most-recently-
+/// modified `<uuid>.jsonl` file. Returns `None` on missing/unreadable
+/// directory, no matching files, or any per-entry IO error.
+fn newest_jsonl_uuid_in_dir(dir: &Path) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut best: Option<(SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        let stem = match name_str.strip_suffix(".jsonl") {
+            Some(s) => s,
+            None => continue,
+        };
+        if !is_uuid_v4_shape(stem) {
+            continue;
+        }
+        let mtime = match entry.metadata().ok().and_then(|m| m.modified().ok()) {
+            Some(t) => t,
+            None => continue,
+        };
+        match &best {
+            Some((bt, _)) if *bt >= mtime => {}
+            _ => best = Some((mtime, stem.to_string())),
+        }
+    }
+    best.map(|(_, uuid)| uuid)
+}
+
+// ---------------------------------------------------------------------------
+// Probe entry point
+// ---------------------------------------------------------------------------
+
+/// Best-effort probe: walk descendants of `root`, look for a `claude`
+/// process, return its session UUID via tier-1 (args) or tier-2 (newest
+/// JSONL on disk). `cwd` is the kimbo tab's last-known working
+/// directory — required for tier-2; tier-1 works without it.
+///
+/// Returns `None` on missing `ps`, no claude descendants, budget
+/// exhaustion, or no recoverable UUID. Never panics.
+pub fn probe_claude_session_for_pid(root: u32, cwd: Option<&str>) -> Option<String> {
     let deadline = Instant::now() + PROBE_BUDGET;
     let started = Instant::now();
-    eprintln!("[claude-probe] start root_pid={}", root);
-    let ps_out = match run_with_deadline("ps", &["-axo", "pid=,ppid="], deadline) {
+    eprintln!("[claude-probe] start root_pid={} cwd={:?}", root, cwd);
+
+    let ps_out = match run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline) {
         Some(s) => s,
         None => {
             eprintln!("[claude-probe] ps failed/timed out");
             return None;
         }
     };
-    let descendants = parse_descendants(&ps_out, root);
+    let descendants = parse_descendants_with_args(&ps_out, root);
     eprintln!(
-        "[claude-probe] descendants of {}: {:?}",
-        root, descendants
+        "[claude-probe] descendants of {}: {} entries",
+        root,
+        descendants.len()
     );
     if descendants.is_empty() {
-        eprintln!("[claude-probe] no descendants — returning None");
         return None;
     }
-    // Combine all descendant pids into a single `lsof -p N1,N2,…` call.
-    // macOS lsof is ~50-100ms per invocation regardless of pid count, so
-    // one call across the whole tree is dramatically faster than one per
-    // descendant — and lets us stay inside PROBE_BUDGET even on slow disks.
-    let pid_list = descendants
+
+    let claude_procs: Vec<&(u32, String)> = descendants
         .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    let lsof_out = match run_with_deadline("lsof", &["-p", &pid_list, "-Fn"], deadline) {
-        Some(s) => s,
-        None => {
-            eprintln!("[claude-probe] lsof failed/timed out for pids {}", pid_list);
-            return None;
+        .filter(|(_, args)| is_claude_command(args))
+        .collect();
+    eprintln!("[claude-probe] claude descendants: {}", claude_procs.len());
+    for (pid, args) in &claude_procs {
+        eprintln!("[claude-probe]   pid={} args={}", pid, args);
+    }
+    if claude_procs.is_empty() {
+        eprintln!(
+            "[claude-probe] no claude descendant (elapsed {:?})",
+            started.elapsed()
+        );
+        return None;
+    }
+
+    // Tier 1: explicit `--resume <uuid>` in args.
+    for (pid, args) in &claude_procs {
+        if let Some(uuid) = extract_resume_uuid(args) {
+            eprintln!(
+                "[claude-probe] HIT tier-1 pid={} uuid={} (elapsed {:?})",
+                pid,
+                uuid,
+                started.elapsed()
+            );
+            return Some(uuid);
         }
-    };
-    let lines = lsof_out.lines().count();
-    let has_claude_dir = lsof_out.contains("/.claude/projects/");
-    eprintln!(
-        "[claude-probe] lsof pids={} lines={} has_claude_dir={}",
-        pid_list, lines, has_claude_dir
-    );
-    if has_claude_dir {
-        for line in lsof_out.lines() {
-            if line.contains("/.claude/projects/") {
-                eprintln!("[claude-probe]   match-line: {}", line);
+    }
+
+    // Tier 2: newest `<uuid>.jsonl` in the encoded-cwd projects dir.
+    if let Some(cwd) = cwd {
+        let encoded = encode_claude_cwd(cwd);
+        if let Ok(home) = std::env::var("HOME") {
+            let dir = PathBuf::from(home).join(".claude/projects").join(&encoded);
+            eprintln!("[claude-probe] tier-2 scanning dir={}", dir.display());
+            if let Some(uuid) = newest_jsonl_uuid_in_dir(&dir) {
+                eprintln!(
+                    "[claude-probe] HIT tier-2 uuid={} (elapsed {:?})",
+                    uuid,
+                    started.elapsed()
+                );
+                return Some(uuid);
             }
         }
     }
-    if let Some(uuid) = parse_claude_jsonl_fd(&lsof_out) {
-        eprintln!(
-            "[claude-probe] HIT uuid={} (elapsed {:?})",
-            uuid,
-            started.elapsed()
-        );
-        return Some(uuid);
-    }
+
     eprintln!(
-        "[claude-probe] no match across {} descendants (elapsed {:?})",
-        descendants.len(),
+        "[claude-probe] no match (elapsed {:?})",
         started.elapsed()
     );
     None
@@ -163,6 +244,7 @@ pub fn probe_claude_session_for_pid(root: u32) -> Option<String> {
 /// Shell out and capture stdout, abandoning if the deadline is reached.
 /// Errors and timeouts both return None — the probe is best-effort.
 fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<String> {
+    use std::io::Read;
     use std::process::{Command, Stdio};
 
     if Instant::now() >= deadline {
@@ -175,7 +257,6 @@ fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<Str
         .spawn()
         .ok()?;
 
-    // Polling wait: avoids pulling a dependency for a one-shot timeout.
     loop {
         match child.try_wait().ok()? {
             Some(_status) => break,
@@ -189,7 +270,6 @@ fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<Str
         }
     }
     let mut buf = String::new();
-    use std::io::Read;
     child.stdout.as_mut()?.read_to_string(&mut buf).ok()?;
     Some(buf)
 }
@@ -198,110 +278,234 @@ fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<Str
 mod tests {
     use super::*;
 
+    // -----------------------------------------------------------------
+    // parse_descendants_with_args
+    // -----------------------------------------------------------------
+
     #[test]
-    fn parse_descendants_finds_direct_children() {
+    fn parse_descendants_with_args_finds_direct_children() {
         let ps = "\
-1 0
-100 1
-200 1
-101 100
-201 200
+1 0 init
+100 1 zsh
+200 1 other
+101 100 claude --resume aaa
 ";
-        let mut got = parse_descendants(ps, 100);
-        got.sort();
-        assert_eq!(got, vec![101]);
+        let mut got = parse_descendants_with_args(ps, 100);
+        got.sort_by_key(|(pid, _)| *pid);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, 101);
+        assert_eq!(got[0].1, "claude --resume aaa");
     }
 
     #[test]
-    fn parse_descendants_walks_transitively() {
+    fn parse_descendants_with_args_walks_transitively() {
         let ps = "\
-1 0
-500 1
-501 500
-502 501
-503 502
-600 1
+1 0 init
+500 1 zsh
+501 500 claude
+502 501 node
+503 502 worker --thing
+600 1 unrelated
 ";
-        let mut got = parse_descendants(ps, 500);
+        let mut got: Vec<u32> = parse_descendants_with_args(ps, 500)
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
         got.sort();
         assert_eq!(got, vec![501, 502, 503]);
     }
 
     #[test]
-    fn parse_descendants_no_match_returns_empty() {
-        let ps = "1 0\n2 1\n3 2\n";
-        assert!(parse_descendants(ps, 9999).is_empty());
+    fn parse_descendants_with_args_no_match_returns_empty() {
+        let ps = "1 0 init\n2 1 a\n3 2 b\n";
+        assert!(parse_descendants_with_args(ps, 9999).is_empty());
     }
 
     #[test]
-    fn parse_descendants_skips_garbage_lines() {
+    fn parse_descendants_with_args_handles_multispace_alignment() {
+        // macOS ps right-aligns numeric columns with leading spaces.
+        let ps = "    1     0 init\n  100     1 zsh\n  101   100 claude --resume xyz\n";
+        let got = parse_descendants_with_args(ps, 100);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, 101);
+        assert_eq!(got[0].1, "claude --resume xyz");
+    }
+
+    #[test]
+    fn parse_descendants_with_args_skips_garbage_lines() {
         let ps = "\
 not a number here
-1 0
-100 1
+1 0 init
+100 1 zsh
 junk junk
-101 100
+101 100 claude
 ";
-        let mut got = parse_descendants(ps, 1);
+        let mut got: Vec<u32> = parse_descendants_with_args(ps, 1)
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
         got.sort();
         assert_eq!(got, vec![100, 101]);
     }
 
+    // -----------------------------------------------------------------
+    // is_claude_command
+    // -----------------------------------------------------------------
+
     #[test]
-    fn parse_claude_jsonl_fd_finds_match() {
-        let lsof = "\
-p12345
-ftxt
-n/Users/luca/Library/Caches/foo
-ftxt
-n/Users/luca/.claude/projects/-Users-luca-proj/d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d.jsonl
-ftxt
-n/dev/ttys001
-";
+    fn is_claude_command_accepts_bare_claude() {
+        assert!(is_claude_command("claude"));
+        assert!(is_claude_command("claude --resume abc"));
+    }
+
+    #[test]
+    fn is_claude_command_accepts_full_path() {
+        assert!(is_claude_command(
+            "/opt/homebrew/Caskroom/claude-code@latest/2.1.112/claude"
+        ));
+        assert!(is_claude_command(
+            "/opt/homebrew/Caskroom/claude-code@latest/2.1.112/claude --resume abc"
+        ));
+    }
+
+    #[test]
+    fn is_claude_command_rejects_node_or_npm_wrappers() {
+        assert!(!is_claude_command("node /Users/u/.../claude-cowork"));
+        assert!(!is_claude_command("npm exec claude-cowork"));
+        assert!(!is_claude_command("zsh"));
+        assert!(!is_claude_command(""));
+    }
+
+    #[test]
+    fn is_claude_command_rejects_similar_names() {
+        // We want exactly `claude`, not `claude-cowork`, `claude-code`, etc.
+        assert!(!is_claude_command("claude-cowork"));
+        assert!(!is_claude_command("/usr/local/bin/claude-cowork"));
+    }
+
+    // -----------------------------------------------------------------
+    // extract_resume_uuid
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn extract_resume_uuid_handles_separated_form() {
         assert_eq!(
-            parse_claude_jsonl_fd(lsof).as_deref(),
-            Some("d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d"),
+            extract_resume_uuid("claude --resume 5a7f9805-2543-4dd9-94ce-9563047d2c26")
+                .as_deref(),
+            Some("5a7f9805-2543-4dd9-94ce-9563047d2c26")
         );
     }
 
     #[test]
-    fn parse_claude_jsonl_fd_returns_none_when_no_jsonl() {
-        let lsof = "\
-p12345
-n/Users/luca/.claude/settings.json
-n/dev/ttys001
-n/private/tmp/foo
-";
-        assert!(parse_claude_jsonl_fd(lsof).is_none());
-    }
-
-    #[test]
-    fn parse_claude_jsonl_fd_ignores_jsonl_outside_projects_dir() {
-        let lsof = "\
-n/Users/luca/somewhere-else/d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d.jsonl
-";
-        assert!(parse_claude_jsonl_fd(lsof).is_none());
-    }
-
-    #[test]
-    fn parse_claude_jsonl_fd_ignores_non_uuid_basename() {
-        let lsof = "\
-n/Users/luca/.claude/projects/-foo/not-a-uuid.jsonl
-";
-        assert!(parse_claude_jsonl_fd(lsof).is_none());
-    }
-
-    #[test]
-    fn parse_claude_jsonl_fd_first_match_wins() {
-        let lsof = "\
-n/Users/luca/.claude/projects/-a/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl
-n/Users/luca/.claude/projects/-b/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl
-";
+    fn extract_resume_uuid_handles_equals_form() {
         assert_eq!(
-            parse_claude_jsonl_fd(lsof).as_deref(),
-            Some("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            extract_resume_uuid("claude --resume=5a7f9805-2543-4dd9-94ce-9563047d2c26")
+                .as_deref(),
+            Some("5a7f9805-2543-4dd9-94ce-9563047d2c26")
         );
     }
+
+    #[test]
+    fn extract_resume_uuid_returns_none_when_missing() {
+        assert!(extract_resume_uuid("claude").is_none());
+        assert!(extract_resume_uuid("claude --some-other-flag").is_none());
+    }
+
+    #[test]
+    fn extract_resume_uuid_returns_none_when_value_not_uuid() {
+        assert!(extract_resume_uuid("claude --resume notauuid").is_none());
+        assert!(extract_resume_uuid("claude --resume=notauuid").is_none());
+    }
+
+    #[test]
+    fn extract_resume_uuid_ignores_arg_after_flag_consumed() {
+        // After consuming the value, --resume must not match a later token.
+        assert_eq!(
+            extract_resume_uuid(
+                "claude --resume aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --other bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+            )
+            .as_deref(),
+            Some("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // encode_claude_cwd
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn encode_claude_cwd_replaces_slashes_with_dashes() {
+        assert_eq!(
+            encode_claude_cwd("/Users/luca/Projects/Private/kimbo-terminal"),
+            "-Users-luca-Projects-Private-kimbo-terminal"
+        );
+    }
+
+    #[test]
+    fn encode_claude_cwd_handles_root_and_empty() {
+        assert_eq!(encode_claude_cwd("/"), "-");
+        assert_eq!(encode_claude_cwd(""), "");
+    }
+
+    // -----------------------------------------------------------------
+    // newest_jsonl_uuid_in_dir
+    // -----------------------------------------------------------------
+
+    fn unique_temp_subdir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "kimbo-claude-probe-{}-{}-{}",
+            tag,
+            std::process::id(),
+            nanos
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn newest_jsonl_uuid_in_dir_returns_none_for_missing_dir() {
+        let dir = std::env::temp_dir().join("kimbo-claude-probe-does-not-exist-xyz");
+        assert!(newest_jsonl_uuid_in_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn newest_jsonl_uuid_in_dir_returns_none_when_empty() {
+        let dir = unique_temp_subdir("empty");
+        assert!(newest_jsonl_uuid_in_dir(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn newest_jsonl_uuid_in_dir_skips_non_jsonl_and_invalid_basenames() {
+        let dir = unique_temp_subdir("filtered");
+        std::fs::write(dir.join("config.json"), "{}").unwrap();
+        std::fs::write(dir.join("not-a-uuid.jsonl"), "{}").unwrap();
+        std::fs::write(dir.join("README.md"), "x").unwrap();
+        assert!(newest_jsonl_uuid_in_dir(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn newest_jsonl_uuid_in_dir_picks_latest_by_mtime() {
+        let dir = unique_temp_subdir("mtime");
+        let old_uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        std::fs::write(dir.join(format!("{}.jsonl", old_uuid)), "old").unwrap();
+        // Sleep long enough to guarantee a distinct mtime on macOS HFS+/APFS.
+        std::thread::sleep(Duration::from_millis(20));
+        let new_uuid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        std::fs::write(dir.join(format!("{}.jsonl", new_uuid)), "new").unwrap();
+        let got = newest_jsonl_uuid_in_dir(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(got.as_deref(), Some(new_uuid));
+    }
+
+    // -----------------------------------------------------------------
+    // is_uuid_v4_shape
+    // -----------------------------------------------------------------
 
     #[test]
     fn is_uuid_v4_shape_accepts_canonical_form() {
@@ -310,8 +514,8 @@ n/Users/luca/.claude/projects/-b/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl
 
     #[test]
     fn is_uuid_v4_shape_rejects_wrong_length_or_dashes() {
-        assert!(!is_uuid_v4_shape("d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2"));    // too short
-        assert!(!is_uuid_v4_shape("d2c1d5a4_7f3a_4b8b_9bb3_1e5c6f9a3b2d"));   // wrong sep
-        assert!(!is_uuid_v4_shape("zzzzzzzz-7f3a-4b8b-9bb3-1e5c6f9a3b2d"));   // non-hex
+        assert!(!is_uuid_v4_shape("d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2"));
+        assert!(!is_uuid_v4_shape("d2c1d5a4_7f3a_4b8b_9bb3_1e5c6f9a3b2d"));
+        assert!(!is_uuid_v4_shape("zzzzzzzz-7f3a-4b8b-9bb3-1e5c6f9a3b2d"));
     }
 }
