@@ -32,6 +32,39 @@ pub const PROBE_BUDGET: Duration = Duration::from_millis(500);
 // Pure parsers
 // ---------------------------------------------------------------------------
 
+use serde::Deserialize;
+
+/// What we extract from `~/.claude/sessions/<pid>.json`. Mirrors the live
+/// metadata file Claude Code writes per running process.
+#[derive(Debug, Clone)]
+pub struct PidSession {
+    pub session_id: String,
+    pub cwd: Option<String>,
+    pub started_at_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct PidSessionRaw {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    cwd: Option<String>,
+    #[serde(default, rename = "startedAt")]
+    started_at_ms: u64,
+}
+
+/// Parse a `~/.claude/sessions/<pid>.json` body. Returns `None` on
+/// malformed JSON or when `sessionId` is missing — those are the only
+/// hard requirements.
+pub(crate) fn parse_pid_json(body: &str) -> Option<PidSession> {
+    let raw: PidSessionRaw = serde_json::from_str(body).ok()?;
+    let session_id = raw.session_id?;
+    Some(PidSession {
+        session_id,
+        cwd: raw.cwd,
+        started_at_ms: raw.started_at_ms,
+    })
+}
+
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
 /// `args` may contain spaces (it's the rest of the line).
 fn parse_ps_line(line: &str) -> Option<(u32, u32, &str)> {
@@ -501,5 +534,47 @@ junk junk
         assert!(!is_uuid_v4_shape("d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2"));
         assert!(!is_uuid_v4_shape("d2c1d5a4_7f3a_4b8b_9bb3_1e5c6f9a3b2d"));
         assert!(!is_uuid_v4_shape("zzzzzzzz-7f3a-4b8b-9bb3-1e5c6f9a3b2d"));
+    }
+
+    // -----------------------------------------------------------------
+    // parse_pid_json
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_pid_json_extracts_session_id_cwd_started_at() {
+        let body = r#"{
+            "pid": 3929,
+            "sessionId": "5a7f9805-2543-4dd9-94ce-9563047d2c26",
+            "cwd": "/Users/luca/proj",
+            "startedAt": 1777368328688,
+            "kind": "interactive",
+            "entrypoint": "cli"
+        }"#;
+        let got = parse_pid_json(body).expect("happy-path parse");
+        assert_eq!(got.session_id, "5a7f9805-2543-4dd9-94ce-9563047d2c26");
+        assert_eq!(got.cwd.as_deref(), Some("/Users/luca/proj"));
+        assert_eq!(got.started_at_ms, 1777368328688);
+    }
+
+    #[test]
+    fn parse_pid_json_returns_none_for_malformed() {
+        assert!(parse_pid_json("{ not json").is_none());
+        assert!(parse_pid_json("").is_none());
+    }
+
+    #[test]
+    fn parse_pid_json_returns_none_when_session_id_missing() {
+        let body = r#"{ "pid": 1, "startedAt": 0 }"#;
+        assert!(parse_pid_json(body).is_none());
+    }
+
+    #[test]
+    fn parse_pid_json_tolerates_missing_optional_fields() {
+        // cwd absent — still returns Some with cwd: None.
+        let body = r#"{ "sessionId": "abc-123", "startedAt": 42 }"#;
+        let got = parse_pid_json(body).expect("session_id is the only required field");
+        assert_eq!(got.session_id, "abc-123");
+        assert!(got.cwd.is_none());
+        assert_eq!(got.started_at_ms, 42);
     }
 }
