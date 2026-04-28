@@ -1,6 +1,7 @@
 import type { ClaudeStatus } from "./claude-status";
 import type { AccountInfo } from "./claude-account";
 import { estimateCost } from "./claude-pricing";
+import { showToast } from "./toast";
 
 export interface ClaudeHudPrefs {
   hudEnabled: boolean;
@@ -42,7 +43,7 @@ export function renderClaudeHud(
   if (account && account.logged_in && account.email) {
     emailSpan.textContent = account.email + (prefs.showPlan && account.subscription_type ? ` (${account.subscription_type})` : "");
     emailSpan.classList.add("claude-hud__copyable");
-    attachCopy(emailSpan, account.email);
+    attachCopy(emailSpan, account.email, "email");
   } else {
     emailSpan.textContent = "not logged in";
   }
@@ -53,7 +54,7 @@ export function renderClaudeHud(
   const sessionSpan = document.createElement("span");
   sessionSpan.className = "claude-hud__session claude-hud__copyable";
   sessionSpan.textContent = status.session_id.slice(0, 8);
-  attachCopy(sessionSpan, `claude --resume ${status.session_id}`);
+  attachCopy(sessionSpan, `claude --resume ${status.session_id}`, "resume command");
   root.appendChild(sessionSpan);
 
   // Model (abbreviated: drop the "claude-" prefix if present)
@@ -125,16 +126,14 @@ export function renderClaudeHud(
   return root;
 }
 
-function attachCopy(span: HTMLElement, value: string): void {
+function attachCopy(span: HTMLElement, value: string, label: string): void {
   span.addEventListener("click", () => {
     void navigator.clipboard.writeText(value);
-    // Flash via class — keyframe handles the timing. The text content
-    // is intentionally unchanged so the strip layout doesn't reflow on
-    // click. Re-trigger on rapid double-clicks by removing the class,
-    // forcing a sync reflow, then re-adding it.
-    span.classList.remove("claude-hud__copied");
-    void span.offsetWidth;
-    span.classList.add("claude-hud__copied");
+    showToast({
+      kind: "success",
+      message: `Copied ${label}`,
+      detail: value,
+    });
   });
 }
 

@@ -720,21 +720,8 @@ body {
 .claude-hud__copyable:active {
   background: var(--bg-active);
 }
-/* Brief filled-pill flash on copy. Text content stays put so the strip
-   doesn't reflow; the bg + inverted text read as a button-press. */
-.claude-hud__copied {
-  animation: claude-hud-copied 900ms ease-out;
-}
-@keyframes claude-hud-copied {
-  0%, 55% {
-    background: var(--accent-green);
-    color: var(--bg);
-  }
-  100% {
-    background: transparent;
-    color: inherit;
-  }
-}
+/* Copy feedback now lives in the global toast component (toast.ts +
+   #toast-host below). The HUD itself doesn't change on click. */
 
 /* Override xterm.js defaults that paint opaque #000 over the terminal
    viewport and composition view, masking #app-frame's --app-alpha fill.
@@ -2062,4 +2049,78 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------------
+   Toast — global, app-level. Slides up from above the status bar,
+   stacks newest-on-top, click to dismiss. See toast.ts for the API.
+   --------------------------------------------------------------------- */
+#toast-host {
+  position: fixed;
+  bottom: 30px;          /* clears the 22px #status-bar + 8px breathing */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;  /* newest at bottom of stack = closest to viewport edge = visually on top of the older ones above */
+  gap: 8px;
+  pointer-events: none;  /* the host itself; toasts re-enable below */
+  z-index: 1000;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 480px;
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--fg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  animation: toast-in 200ms ease-out;
+}
+.toast__icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+.toast--success .toast__icon { color: var(--accent-green); }
+.toast--info    .toast__icon { color: var(--accent-blue); }
+.toast--error   .toast__icon { color: var(--accent-red); }
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+.toast__message { color: var(--fg); }
+.toast__detail {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+.toast--leaving {
+  animation: toast-out 200ms ease-in forwards;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(8px);  opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast--leaving { animation-duration: 1ms; }
 }
