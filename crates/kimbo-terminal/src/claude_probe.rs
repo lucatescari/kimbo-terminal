@@ -17,8 +17,11 @@ use std::time::{Duration, Instant};
 pub const PROBE_BUDGET: Duration = Duration::from_millis(100);
 
 /// Parse `ps -axo pid=,ppid=` output and return the transitive descendants
-/// of `root` (excluding root itself), in BFS order. Lines that don't parse
-/// as two integers are skipped.
+/// of `root` (excluding root itself), in DFS order (deepest-first via a
+/// stack). Order is not load-bearing — `probe_claude_session_for_pid`
+/// uses first-match semantics and any traversal would yield the same
+/// answer when a single descendant holds the JSONL fd. Lines that don't
+/// parse as two integers are skipped.
 pub(crate) fn parse_descendants(ps_output: &str, root: u32) -> Vec<u32> {
     let mut children_of: HashMap<u32, Vec<u32>> = HashMap::new();
     for line in ps_output.lines() {
