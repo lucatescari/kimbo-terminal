@@ -128,13 +128,13 @@ export function renderClaudeHud(
 function attachCopy(span: HTMLElement, value: string): void {
   span.addEventListener("click", () => {
     void navigator.clipboard.writeText(value);
-    const original = span.textContent;
-    span.textContent = "copied";
+    // Flash via class — keyframe handles the timing. The text content
+    // is intentionally unchanged so the strip layout doesn't reflow on
+    // click. Re-trigger on rapid double-clicks by removing the class,
+    // forcing a sync reflow, then re-adding it.
+    span.classList.remove("claude-hud__copied");
+    void span.offsetWidth;
     span.classList.add("claude-hud__copied");
-    setTimeout(() => {
-      span.textContent = original;
-      span.classList.remove("claude-hud__copied");
-    }, 1500);
   });
 }
 

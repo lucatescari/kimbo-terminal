@@ -720,8 +720,20 @@ body {
 .claude-hud__copyable:active {
   background: var(--bg-active);
 }
+/* Brief filled-pill flash on copy. Text content stays put so the strip
+   doesn't reflow; the bg + inverted text read as a button-press. */
 .claude-hud__copied {
-  color: var(--accent-green);
+  animation: claude-hud-copied 900ms ease-out;
+}
+@keyframes claude-hud-copied {
+  0%, 55% {
+    background: var(--accent-green);
+    color: var(--bg);
+  }
+  100% {
+    background: transparent;
+    color: inherit;
+  }
 }
 
 /* Override xterm.js defaults that paint opaque #000 over the terminal
