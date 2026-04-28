@@ -95,24 +95,63 @@ fn is_uuid_v4_shape(s: &str) -> bool {
 /// match, or budget exhaustion. Never panics.
 pub fn probe_claude_session_for_pid(root: u32) -> Option<String> {
     let deadline = Instant::now() + PROBE_BUDGET;
-    let ps_out = run_with_deadline("ps", &["-axo", "pid=,ppid="], deadline)?;
+    let started = Instant::now();
+    eprintln!("[claude-probe] start root_pid={}", root);
+    let ps_out = match run_with_deadline("ps", &["-axo", "pid=,ppid="], deadline) {
+        Some(s) => s,
+        None => {
+            eprintln!("[claude-probe] ps failed/timed out");
+            return None;
+        }
+    };
     let descendants = parse_descendants(&ps_out, root);
+    eprintln!(
+        "[claude-probe] descendants of {}: {:?}",
+        root, descendants
+    );
     if descendants.is_empty() {
+        eprintln!("[claude-probe] no descendants — returning None");
         return None;
     }
     for pid in descendants {
         if Instant::now() >= deadline {
+            eprintln!("[claude-probe] deadline hit before pid={}", pid);
             return None;
         }
         let pid_str = pid.to_string();
         let lsof_out = match run_with_deadline("lsof", &["-p", &pid_str, "-Fn"], deadline) {
             Some(s) => s,
-            None => continue,
+            None => {
+                eprintln!("[claude-probe] lsof pid={} failed/timed out", pid);
+                continue;
+            }
         };
+        let lines = lsof_out.lines().count();
+        let has_claude_dir = lsof_out.contains("/.claude/projects/");
+        eprintln!(
+            "[claude-probe] lsof pid={} lines={} has_claude_dir={}",
+            pid, lines, has_claude_dir
+        );
+        if has_claude_dir {
+            for line in lsof_out.lines() {
+                if line.contains("/.claude/projects/") {
+                    eprintln!("[claude-probe]   match-line: {}", line);
+                }
+            }
+        }
         if let Some(uuid) = parse_claude_jsonl_fd(&lsof_out) {
+            eprintln!(
+                "[claude-probe] HIT pid={} uuid={} (elapsed {:?})",
+                pid, uuid, started.elapsed()
+            );
             return Some(uuid);
         }
     }
+    eprintln!(
+        "[claude-probe] no match across {} descendants (elapsed {:?})",
+        parse_descendants(&ps_out, root).len(),
+        started.elapsed()
+    );
     None
 }
 
