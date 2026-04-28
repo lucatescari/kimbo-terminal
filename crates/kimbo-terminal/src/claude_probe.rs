@@ -10,11 +10,13 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Hard cap on the entire probe (descendant collection + lsof per pid).
-/// Tab-close UX cost: roughly this much added latency. 100ms is below the
-/// human-perceptible-as-laggy threshold and well above what `ps` + a small
-/// number of `lsof` calls actually take in practice.
-pub const PROBE_BUDGET: Duration = Duration::from_millis(100);
+/// Hard cap on the entire probe (descendant collection + the combined
+/// lsof call). Tab-close UX cost is bounded by this. macOS `lsof` is
+/// 50-100ms per invocation regardless of pid count, so collapsing all
+/// descendants into a single `lsof -p N1,N2,…` call lets us stay well
+/// under this cap in the typical case (one shell with one or two
+/// claude/node descendants) while leaving headroom for slower hardware.
+pub const PROBE_BUDGET: Duration = Duration::from_millis(500);
 
 /// Parse `ps -axo pid=,ppid=` output and return the transitive descendants
 /// of `root` (excluding root itself), in DFS order (deepest-first via a
@@ -113,43 +115,46 @@ pub fn probe_claude_session_for_pid(root: u32) -> Option<String> {
         eprintln!("[claude-probe] no descendants — returning None");
         return None;
     }
-    for pid in descendants {
-        if Instant::now() >= deadline {
-            eprintln!("[claude-probe] deadline hit before pid={}", pid);
+    // Combine all descendant pids into a single `lsof -p N1,N2,…` call.
+    // macOS lsof is ~50-100ms per invocation regardless of pid count, so
+    // one call across the whole tree is dramatically faster than one per
+    // descendant — and lets us stay inside PROBE_BUDGET even on slow disks.
+    let pid_list = descendants
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let lsof_out = match run_with_deadline("lsof", &["-p", &pid_list, "-Fn"], deadline) {
+        Some(s) => s,
+        None => {
+            eprintln!("[claude-probe] lsof failed/timed out for pids {}", pid_list);
             return None;
         }
-        let pid_str = pid.to_string();
-        let lsof_out = match run_with_deadline("lsof", &["-p", &pid_str, "-Fn"], deadline) {
-            Some(s) => s,
-            None => {
-                eprintln!("[claude-probe] lsof pid={} failed/timed out", pid);
-                continue;
+    };
+    let lines = lsof_out.lines().count();
+    let has_claude_dir = lsof_out.contains("/.claude/projects/");
+    eprintln!(
+        "[claude-probe] lsof pids={} lines={} has_claude_dir={}",
+        pid_list, lines, has_claude_dir
+    );
+    if has_claude_dir {
+        for line in lsof_out.lines() {
+            if line.contains("/.claude/projects/") {
+                eprintln!("[claude-probe]   match-line: {}", line);
             }
-        };
-        let lines = lsof_out.lines().count();
-        let has_claude_dir = lsof_out.contains("/.claude/projects/");
+        }
+    }
+    if let Some(uuid) = parse_claude_jsonl_fd(&lsof_out) {
         eprintln!(
-            "[claude-probe] lsof pid={} lines={} has_claude_dir={}",
-            pid, lines, has_claude_dir
+            "[claude-probe] HIT uuid={} (elapsed {:?})",
+            uuid,
+            started.elapsed()
         );
-        if has_claude_dir {
-            for line in lsof_out.lines() {
-                if line.contains("/.claude/projects/") {
-                    eprintln!("[claude-probe]   match-line: {}", line);
-                }
-            }
-        }
-        if let Some(uuid) = parse_claude_jsonl_fd(&lsof_out) {
-            eprintln!(
-                "[claude-probe] HIT pid={} uuid={} (elapsed {:?})",
-                pid, uuid, started.elapsed()
-            );
-            return Some(uuid);
-        }
+        return Some(uuid);
     }
     eprintln!(
         "[claude-probe] no match across {} descendants (elapsed {:?})",
-        parse_descendants(&ps_out, root).len(),
+        descendants.len(),
         started.elapsed()
     );
     None
