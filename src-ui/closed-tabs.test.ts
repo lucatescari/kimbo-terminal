@@ -7,6 +7,7 @@ import {
   shapeFromTree,
   firstLeafCwd,
   firstLeafScrollback,
+  firstLeafClaudeResume,
   restoredSeparator,
   type ClosedTabEntry,
   type ClosedTabShape,
@@ -299,6 +300,43 @@ describe("firstLeafScrollback", () => {
       second: { type: "leaf", cwd: "/c", scrollback: "right" },
     };
     expect(firstLeafScrollback(shape)).toBe("leftmost");
+  });
+});
+
+describe("firstLeafClaudeResume", () => {
+  it("returns the leaf's claudeResume when shape is a leaf", () => {
+    expect(
+      firstLeafClaudeResume({
+        type: "leaf",
+        cwd: "/a",
+        claudeResume: { uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" },
+      }),
+    ).toEqual({ uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" });
+  });
+
+  it("returns undefined when leaf has no claudeResume", () => {
+    expect(firstLeafClaudeResume({ type: "leaf", cwd: "/a" })).toBeUndefined();
+  });
+
+  it("walks left through splits to find the first leaf's claudeResume", () => {
+    const shape: ClosedTabShape = {
+      type: "split",
+      axis: "vertical",
+      first: {
+        type: "split",
+        axis: "horizontal",
+        first: {
+          type: "leaf",
+          cwd: "/a",
+          claudeResume: { uuid: "leftmost-uuid-leftmost-uuid-leftmost00" },
+        },
+        second: { type: "leaf", cwd: "/b" },
+      },
+      second: { type: "leaf", cwd: "/c" },
+    };
+    expect(firstLeafClaudeResume(shape)).toEqual({
+      uuid: "leftmost-uuid-leftmost-uuid-leftmost00",
+    });
   });
 });
 

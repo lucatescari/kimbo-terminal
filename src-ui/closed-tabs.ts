@@ -19,6 +19,11 @@ export interface ClosedLeaf {
    *  Optional so empty panes (or future code paths that skip capture)
    *  reopen blank without a separator. */
   scrollback?: string;
+  /** Recovered Claude Code session id, if a `claude` descendant was
+   *  running in this leaf at close time. Surfaced as a "resume:" line
+   *  beneath the restored separator on reopen. Optional and silently
+   *  omitted on miss — see claude-session-probe.ts. */
+  claudeResume?: { uuid: string };
 }
 
 /** A serializable split — axis + two children. Sizes are NOT preserved
@@ -127,6 +132,19 @@ export function firstLeafCwd(shape: ClosedTabShape): string | null {
  *  pane at close time). */
 export function firstLeafScrollback(shape: ClosedTabShape): string | undefined {
   return shape.type === "leaf" ? shape.scrollback : firstLeafScrollback(shape.first);
+}
+
+/** First-leaf claudeResume, walking always-left through splits. Mirrors
+ *  firstLeafCwd / firstLeafScrollback: seeds the root pane created by
+ *  createTab before replayShape recurses into the rest of the layout.
+ *  Returns undefined if the leftmost leaf had no claude descendant at
+ *  close time. */
+export function firstLeafClaudeResume(
+  shape: ClosedTabShape,
+): { uuid: string } | undefined {
+  return shape.type === "leaf"
+    ? shape.claudeResume
+    : firstLeafClaudeResume(shape.first);
 }
 
 /** Visual separator written between restored scrollback and the fresh
