@@ -51,6 +51,7 @@ export type SettingsCategory =
   | "workspaces"
   | "keybinds"
   | "kimbo"
+  | "claude-code"
   | "advanced"
   | "about";
 
@@ -61,6 +62,7 @@ const NAV: { id: SettingsCategory; label: string; icon: IconName }[] = [
   { id: "workspaces", label: "Workspaces", icon: "layers" },
   { id: "keybinds",   label: "Keybinds",   icon: "keyboard" },
   { id: "kimbo",      label: "Kimbo",      icon: "smile" },
+  { id: "claude-code", label: "Claude Code", icon: "smile" },
   { id: "advanced",   label: "Advanced",   icon: "wrench" },
   { id: "about",      label: "About",      icon: "info" },
 ];
@@ -271,8 +273,9 @@ function render(): void {
     case "font":       renderFont(main); break;
     case "workspaces": renderWorkspaces(main); break;
     case "keybinds":   renderKeybinds(main); break;
-    case "kimbo":      void renderKimbo(main); break;
-    case "advanced":   renderAdvanced(main); break;
+    case "kimbo":       void renderKimbo(main); break;
+    case "claude-code": renderClaudeCode(main); break;
+    case "advanced":    renderAdvanced(main); break;
     case "about":      void renderAbout(main); break;
   }
 
@@ -1022,6 +1025,68 @@ async function renderKimbo(el: HTMLElement): Promise<void> {
   }
 
   el.appendChild(shell);
+}
+
+// ===========================================================================
+// Claude Code
+// ===========================================================================
+
+function renderClaudeCode(el: HTMLElement): void {
+  el.appendChild(header(
+    "Claude Code",
+    "Surface session info from <code>claude</code> in the pane chrome while it's running. All data is local — read from <code>~/.claude/</code> or <code>claude auth status</code>.",
+  ));
+
+  const prefs = getPrefs();
+
+  const hudSec = section("HUD");
+  hudSec.appendChild(row(
+    "Show Claude HUD when claude is running",
+    "Per-pane status strip below the pane head.",
+    toggle(prefs.claudeHudEnabled, (v) => setPref("claudeHudEnabled", v)),
+  ));
+  hudSec.appendChild(row(
+    "Show extended fields",
+    "Append permission mode and message / tool counts.",
+    toggle(prefs.claudeHudExtended, (v) => setPref("claudeHudExtended", v)),
+  ));
+  hudSec.appendChild(row(
+    "Show subscription plan",
+    "Append the plan tier (e.g. \"max\") after the email.",
+    toggle(prefs.claudeHudShowPlan, (v) => setPref("claudeHudShowPlan", v)),
+  ));
+  el.appendChild(hudSec);
+
+  const accountSec = section("Account");
+  const refreshBtn = button("Refresh", () => {});
+  refreshBtn.classList.add("ghost");
+  refreshBtn.removeEventListener("click", () => {});
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing\u2026";
+    try {
+      const { refreshAccount } = await import("./claude-account");
+      await refreshAccount();
+      refreshBtn.textContent = "Refreshed \u2713";
+      setTimeout(() => {
+        refreshBtn.textContent = "Refresh";
+        refreshBtn.disabled = false;
+      }, 1500);
+    } catch (e) {
+      console.warn("refresh account failed:", e);
+      refreshBtn.textContent = "Failed";
+      setTimeout(() => {
+        refreshBtn.textContent = "Refresh";
+        refreshBtn.disabled = false;
+      }, 1500);
+    }
+  });
+  accountSec.appendChild(row(
+    "Account info",
+    "Re-runs <code>claude auth status</code>.",
+    refreshBtn,
+  ));
+  el.appendChild(accountSec);
 }
 
 // ===========================================================================
