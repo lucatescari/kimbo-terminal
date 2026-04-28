@@ -173,10 +173,16 @@ export function firstLeafClaudeResume(
 }
 
 /** Visual separator written between restored scrollback and the fresh
- *  shell's first prompt. Dim italic, ASCII-art horizontal rule. The
- *  message tells the user what they're looking at without using a full
- *  banner. \r\n on each side forces fresh lines so the separator never
- *  appends to a partial line in the captured scrollback. */
+ *  shell's first prompt. Gray (256-color 245), ASCII-art horizontal
+ *  rule. The message tells the user what they're looking at without
+ *  using a full banner. \r\n on each side forces fresh lines so the
+ *  separator never appends to a partial line in the captured scrollback.
+ *
+ *  Plain FG color, no DIM (`\x1b[2m`) and no italic (`\x1b[3m`): both
+ *  attributes set bits in xterm.js's BG word, which makes the WebGL
+ *  renderer paint an opaque rectangle behind the cell — visible as a
+ *  solid black bar on a translucent terminal. FG-only sidesteps the
+ *  renderer path entirely. */
 export function restoredSeparator(): string {
-  return "\r\n\x1b[2;3m─── reopened from closed tab ───\x1b[0m\r\n";
+  return "\r\n\x1b[38;5;245m─── reopened from closed tab ───\x1b[0m\r\n";
 }

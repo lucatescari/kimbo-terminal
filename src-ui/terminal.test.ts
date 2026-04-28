@@ -279,10 +279,17 @@ describe("restoredClaudeResumeLine", () => {
     expect(line).toContain("claude was running here");
   });
 
-  it("uses dim italic SGR and ends with CRLF", () => {
+  it("uses a fg-only SGR (no DIM, no italic) and ends with CRLF", () => {
     const line = restoredClaudeResumeLine({ uuid: "uuid" });
-    expect(line).toMatch(/\x1b\[2;3m/);
+    // Must contain SOME SGR escape and end with a reset.
+    expect(line).toMatch(/\x1b\[[\d;]+m/);
     expect(line).toMatch(/\x1b\[0m/);
+    // Must NOT use DIM (\e[2m) or italic (\e[3m) standalone — both set
+    // BG-word bits in xterm.js, which the WebGL renderer paints as an
+    // opaque rectangle on a translucent terminal.
+    expect(line).not.toMatch(/\x1b\[2m/);
+    expect(line).not.toMatch(/\x1b\[3m/);
+    expect(line).not.toMatch(/\x1b\[2;3m/);
     expect(line.endsWith("\r\n")).toBe(true);
   });
 });

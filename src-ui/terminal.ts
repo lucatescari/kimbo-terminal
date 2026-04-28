@@ -25,11 +25,20 @@ import { attachOsc8Links } from "./osc8";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
 import { getPrefs } from "./ui-prefs";
 
-/** Compose the dim "claude was running here · resume: …" line written
- *  beneath the existing restoredSeparator() on tab reopen. Exported so
- *  the contract can be unit-tested without bringing up xterm. */
+/** Compose the auxiliary "claude was running here · resume: …" line
+ *  written beneath the existing restoredSeparator() on tab reopen.
+ *  Exported so the contract can be unit-tested without bringing up xterm.
+ *
+ *  Foreground-only gray (256-color 245). Avoids `\x1b[2m` (DIM) and
+ *  `\x1b[3m` (italic) — both set bits in xterm.js's BG word, which
+ *  triggers the WebGL renderer to paint an opaque rectangle behind the
+ *  cell. On a translucent terminal that reads as a solid black bar
+ *  through the otherwise-transparent viewport. See ansi-bg-transparent.ts
+ *  for the DIM half of the same bug; italic has the same shape but no
+ *  app-wide filter (stripping italic would regress every CLI that uses
+ *  it for emphasis). FG-only color sidesteps the renderer path entirely. */
 export function restoredClaudeResumeLine(resume: { uuid: string }): string {
-  return `\x1b[2;3m   ↳ claude was running here · resume: claude --resume ${resume.uuid}\x1b[0m\r\n`;
+  return `\x1b[38;5;245m   \u21B3 claude was running here \u00B7 resume: claude --resume ${resume.uuid}\x1b[0m\r\n`;
 }
 
 export interface TerminalSession {
@@ -128,34 +137,19 @@ export async function createTerminalSession(
   void container.offsetWidth;
   try { fit.fit(); } catch (e) { console.warn("initial fit before replay:", e); }
 
-  // Replay closed-tab scrollback BEFORE the PTY listener attaches AND
-  // before OSC handlers register below. xterm processes term.write
-  // synchronously into its parser, so the bytes hit the buffer before
-  // any callback (PTY, OSC 7 cwd, OSC 0/2 title, OSC 133
-  // shell-integration) can fire. Old OSC sequences embedded in the
-  // scrollback are parsed-and-ignored as visual decoration since their
-  // handlers don't exist yet — we don't want stale OSC events firing
-  // during replay. The if-check skips the separator for empty captures
-  // so a never-used pane reopens blank.
-  //
-  // We also push the scrollback bytes through stripAnsiBlackBg when
-  // transparentBlackBg is on — same filter the PTY-output path uses —
-  // so DIM-attribute SGRs (used by our restored separator and the
-  // claude-resume line, plus any DIM in the captured scrollback) don't
-  // render as opaque black rectangles on a translucent terminal. See
-  // ansi-bg-transparent.ts for the WebGL-renderer reasoning.
+  // Replay closed-tab scrollback BEFORE the PTY listener attaches AND before
+  // OSC handlers register below. xterm processes term.write synchronously
+  // into its parser, so the bytes hit the buffer before any callback
+  // (PTY, OSC 7 cwd, OSC 0/2 title, OSC 133 shell-integration) can fire.
+  // Old OSC sequences embedded in the scrollback are parsed-and-ignored
+  // as visual decoration since their handlers don't exist yet — we don't
+  // want stale OSC events firing during replay. The if-check skips the
+  // separator for empty captures so a never-used pane reopens blank.
   if (restoredScrollback) {
-    const writeReplay = (s: string): void => {
-      if (getPrefs().transparentBlackBg) {
-        term.write(stripAnsiBlackBg(new TextEncoder().encode(s)));
-      } else {
-        term.write(s);
-      }
-    };
-    writeReplay(restoredScrollback);
-    writeReplay(restoredSeparator());
+    term.write(restoredScrollback);
+    term.write(restoredSeparator());
     if (restoredClaudeResume) {
-      writeReplay(restoredClaudeResumeLine(restoredClaudeResume));
+      term.write(restoredClaudeResumeLine(restoredClaudeResume));
     }
   }
 
