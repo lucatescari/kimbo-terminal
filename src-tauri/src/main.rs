@@ -49,6 +49,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(PtyManager::new())
+        .manage(commands::claude::ClaudeAccountCache::default())
         .manage(ThemeState::default())
         .manage(UpdateState::default())
         .setup(|app| {
@@ -192,6 +193,7 @@ fn main() {
             commands::pty::pty_is_busy,
             commands::claude::probe_claude_session,
             commands::claude::claude_status,
+            commands::claude::claude_account_info,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,
