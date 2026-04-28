@@ -65,6 +65,74 @@ pub(crate) fn parse_pid_json(body: &str) -> Option<PidSession> {
     })
 }
 
+/// Live-running totals of a Claude Code session, derived from its
+/// `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` log.
+#[derive(Debug, Default, Clone)]
+pub struct JsonlStats {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub model: Option<String>,
+    pub permission_mode: Option<String>,
+    pub message_count: u32,
+    pub tool_count: u32,
+}
+
+/// Walk a JSONL body line-by-line and accumulate the stats. Skips lines
+/// that don't parse as JSON or don't have the shape we care about.
+/// `model` and `permission_mode` are last-write-wins (latest occurrence
+/// in the file); other fields sum.
+pub(crate) fn accumulate_jsonl_stats(body: &str) -> JsonlStats {
+    let mut stats = JsonlStats::default();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let entry_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        if entry_type == "permission-mode" {
+            if let Some(m) = v.get("permissionMode").and_then(|m| m.as_str()) {
+                stats.permission_mode = Some(m.to_string());
+            }
+            continue;
+        }
+
+        if entry_type == "user" || entry_type == "assistant" {
+            stats.message_count += 1;
+        }
+
+        // Token usage and model are nested under `message` for both
+        // wrapping conventions Claude Code uses.
+        if let Some(msg) = v.get("message") {
+            if let Some(usage) = msg.get("usage") {
+                if let Some(n) = usage.get("input_tokens").and_then(|n| n.as_u64()) {
+                    stats.input_tokens += n;
+                }
+                if let Some(n) = usage.get("output_tokens").and_then(|n| n.as_u64()) {
+                    stats.output_tokens += n;
+                }
+            }
+            if let Some(model) = msg.get("model").and_then(|m| m.as_str()) {
+                stats.model = Some(model.to_string());
+            }
+            if entry_type == "assistant" {
+                if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                    for block in content {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                            stats.tool_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    stats
+}
+
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
 /// `args` may contain spaces (it's the rest of the line).
 fn parse_ps_line(line: &str) -> Option<(u32, u32, &str)> {
@@ -576,5 +644,82 @@ junk junk
         assert_eq!(got.session_id, "abc-123");
         assert!(got.cwd.is_none());
         assert_eq!(got.started_at_ms, 42);
+    }
+
+    // -----------------------------------------------------------------
+    // accumulate_jsonl_stats
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn accumulate_jsonl_stats_empty_input() {
+        let s = accumulate_jsonl_stats("");
+        assert_eq!(s.input_tokens, 0);
+        assert_eq!(s.output_tokens, 0);
+        assert_eq!(s.model, None);
+        assert_eq!(s.permission_mode, None);
+        assert_eq!(s.message_count, 0);
+        assert_eq!(s.tool_count, 0);
+    }
+
+    #[test]
+    fn accumulate_jsonl_stats_sums_assistant_usage() {
+        let jsonl = "\
+{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50},\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n\
+{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"more\"}}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":200,\"output_tokens\":80},\"content\":[{\"type\":\"text\",\"text\":\"k\"}]}}\n";
+        let s = accumulate_jsonl_stats(jsonl);
+        assert_eq!(s.input_tokens, 300);
+        assert_eq!(s.output_tokens, 130);
+        assert_eq!(s.model.as_deref(), Some("claude-opus-4-7"));
+        assert_eq!(s.message_count, 4);
+        assert_eq!(s.tool_count, 0);
+    }
+
+    #[test]
+    fn accumulate_jsonl_stats_counts_tool_use_blocks() {
+        let jsonl = "\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"running\"},{\"type\":\"tool_use\",\"id\":\"a\",\"name\":\"Bash\",\"input\":{}}]}}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"content\":[{\"type\":\"tool_use\",\"id\":\"b\",\"name\":\"Read\",\"input\":{}},{\"type\":\"tool_use\",\"id\":\"c\",\"name\":\"Edit\",\"input\":{}}]}}\n";
+        let s = accumulate_jsonl_stats(jsonl);
+        assert_eq!(s.tool_count, 3);
+        assert_eq!(s.message_count, 2);
+    }
+
+    #[test]
+    fn accumulate_jsonl_stats_picks_latest_permission_mode_and_model() {
+        let jsonl = "\
+{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-haiku-4-5\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"content\":[]}}\n\
+{\"type\":\"permission-mode\",\"permissionMode\":\"plan\"}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"content\":[]}}\n";
+        let s = accumulate_jsonl_stats(jsonl);
+        assert_eq!(s.permission_mode.as_deref(), Some("plan"));
+        assert_eq!(s.model.as_deref(), Some("claude-opus-4-7"));
+    }
+
+    #[test]
+    fn accumulate_jsonl_stats_skips_malformed_lines() {
+        let jsonl = "\
+not-json-at-all\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"m\",\"usage\":{\"input_tokens\":7,\"output_tokens\":3},\"content\":[]}}\n\
+{}\n\
+{\"type\":\"hook_success\"}\n";
+        let s = accumulate_jsonl_stats(jsonl);
+        assert_eq!(s.input_tokens, 7);
+        assert_eq!(s.output_tokens, 3);
+        assert_eq!(s.message_count, 1);
+    }
+
+    #[test]
+    fn accumulate_jsonl_stats_ignores_non_user_assistant_types_for_message_count() {
+        let jsonl = "\
+{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n\
+{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"m\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0},\"content\":[]}}\n\
+{\"type\":\"system\",\"content\":\"x\"}\n\
+{\"type\":\"hook_success\"}\n\
+{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n";
+        let s = accumulate_jsonl_stats(jsonl);
+        assert_eq!(s.message_count, 2);
     }
 }
