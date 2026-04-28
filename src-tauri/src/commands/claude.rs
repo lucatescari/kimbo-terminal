@@ -66,8 +66,12 @@ pub struct ClaudeAccountCache {
 }
 
 fn fetch_account_info() -> Option<AccountInfo> {
-    let output = Command::new("claude")
-        .args(["auth", "status"])
+    // Go through login+interactive shell so PATH matches Terminal —
+    // a bundled .app launched via launchd only gets the minimal
+    // /usr/bin:/bin:/usr/sbin:/sbin and won't find claude otherwise.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let output = Command::new(&shell)
+        .args(["-ilc", "claude auth status"])
         .output()
         .ok()?;
     if !output.status.success() {
