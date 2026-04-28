@@ -668,14 +668,16 @@ body {
       calc(var(--app-alpha, 1) * 100%),
     transparent
   );
+  border-top: 1px solid var(--divider);
   border-bottom: 1px solid var(--divider);
   user-select: none;
   -webkit-user-select: none;
   white-space: nowrap;
   overflow: hidden;
 }
-/* When the HUD is present, drop the pane-head's bottom border so the
-   two strips merge visually into a single chrome block. */
+/* The HUD owns both its borders. Drop the pane-head's bottom border
+   when a HUD sits below it so we don't end up with a doubled line
+   between the two strips. */
 .pane:has(> .claude-hud) > .pane-head {
   border-bottom: none;
 }
