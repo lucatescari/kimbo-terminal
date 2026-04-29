@@ -1,4 +1,5 @@
 use kimbo_terminal::PtySession;
+use serial_test::serial;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -118,6 +119,7 @@ fn run_and_drain(session: &mut PtySession, cmd: &[u8], phase: u8) -> String {
 }
 
 #[test]
+#[serial(pty)]
 fn test_pty_spawn_and_write() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     session.write(b"echo KIMBO_TEST_MARKER\n");
@@ -143,12 +145,14 @@ fn test_pty_spawn_and_write() {
 }
 
 #[test]
+#[serial(pty)]
 fn test_pty_resize() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     session.resize(120, 40); // Should not panic
 }
 
 #[test]
+#[serial(pty)]
 fn test_pty_cwd() {
     let home = dirs::home_dir();
     let session = PtySession::new(None, home.clone()).expect("failed to spawn PTY");
@@ -169,6 +173,7 @@ fn test_pty_cwd() {
 /// the shell's PGRP terminates it. If this fails, the whole kill-on-drop
 /// path is broken.
 #[test]
+#[serial(pty)]
 fn drop_kills_idle_shell() {
     let session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
@@ -193,6 +198,7 @@ fn drop_kills_idle_shell() {
 /// returns the job's PGID, we SIGHUP/SIGKILL that group too, and the
 /// job dies when the pane closes.
 #[test]
+#[serial(pty)]
 fn drop_kills_foreground_job_in_its_own_process_group() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
@@ -236,6 +242,7 @@ fn drop_kills_foreground_job_in_its_own_process_group() {
 /// foreground, `tcgetpgrp(master_fd)` returns its PGID (different from
 /// the shell's). The drop must kill BOTH the fg group and the shell.
 #[test]
+#[serial(pty)]
 fn drop_kills_both_fg_group_and_shell_group() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
@@ -284,6 +291,7 @@ fn drop_kills_both_fg_group_and_shell_group() {
 /// sleep would survive as an init-owned orphan (the exact symptom the
 /// user hit).
 #[test]
+#[serial(pty)]
 fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
@@ -320,6 +328,7 @@ fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
 /// of them must die on pane close; if even one survives (held a port,
 /// stayed running on init), we've regressed.
 #[test]
+#[serial(pty)]
 fn drop_kills_concurrently_style_multi_child_tree() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
@@ -363,6 +372,7 @@ fn drop_kills_concurrently_style_multi_child_tree() {
 /// fallback kill strategy (process-tree walk), session-filter kills
 /// miss them entirely — this test documents whether we handle that.
 #[test]
+#[serial(pty)]
 fn drop_kills_descendants_that_detached_via_setsid() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
@@ -412,6 +422,7 @@ fn drop_kills_descendants_that_detached_via_setsid() {
 /// an idle prompt (the shell's own PGRP owns the tty), and `true` once
 /// a foreground job has claimed the controlling terminal.
 #[test]
+#[serial(pty)]
 fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
     let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     // Warm: give zsh time to finish init + prompt, otherwise tcgetpgrp
@@ -449,13 +460,19 @@ fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
 // -----------------------------------------------------------------------
 
 #[test]
+#[serial(pty)]
 fn kill_tree_terminates_shell_and_backgrounded_descendant() {
     let mut session = PtySession::new(None, None).unwrap();
     let shell_pid = session.pid();
 
+    // Warm the shell first — without this the run_and_drain below has to
+    // wait through full zsh init (~/.zshrc, prompt setup) before the
+    // command runs, which can exceed run_and_drain's 5s window under load.
+    let _warm = run_and_drain(&mut session, b"true", 0);
+
     // sleep 60 & — `&` puts sleep in its own pgrp, distinct from the shell.
     // This is the case the original Drop bug missed and the design fixes.
-    let output = run_and_drain(&mut session, b"sleep 60 & echo PID=$!\n", 1);
+    let output = run_and_drain(&mut session, b"sleep 60 & echo PID=$!", 1);
     let sleep_pid = extract_pid_after("PID=", &output)
         .expect("shell should have echoed the bg sleep's PID");
 
@@ -465,18 +482,19 @@ fn kill_tree_terminates_shell_and_backgrounded_descendant() {
     session.kill_tree();
     drop(session); // closes master fd — mirrors PtyManager::close's sessions.remove
 
-    // SIGHUP fires sync, SIGKILL escalates after 150 ms. 600 ms slack for CI.
+    // SIGHUP fires sync, SIGKILL escalates after 150 ms. 1s slack for CI.
     assert!(
-        wait_dead(shell_pid, Duration::from_millis(600)),
-        "shell still alive 600ms after kill_tree+drop"
+        wait_dead(shell_pid, Duration::from_secs(1)),
+        "shell still alive 1s after kill_tree+drop"
     );
     assert!(
-        wait_dead(sleep_pid, Duration::from_millis(600)),
-        "bg sleep still alive 600ms after kill_tree+drop"
+        wait_dead(sleep_pid, Duration::from_secs(1)),
+        "bg sleep still alive 1s after kill_tree+drop"
     );
 }
 
 #[test]
+#[serial(pty)]
 fn kill_tree_is_idempotent() {
     let session = PtySession::new(None, None).unwrap();
     // Two back-to-back calls must not panic, must not double-broadcast,
@@ -487,6 +505,7 @@ fn kill_tree_is_idempotent() {
 }
 
 #[test]
+#[serial(pty)]
 fn drop_after_explicit_kill_tree_does_not_re_signal() {
     // Functional check that the safety-net Drop path doesn't fire when
     // kill_tree has already run. We can't observe the absence of a kill
