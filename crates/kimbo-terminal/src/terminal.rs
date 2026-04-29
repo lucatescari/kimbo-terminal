@@ -98,6 +98,9 @@ impl PtySession {
 
             // Set TERM so programs know the terminal capabilities.
             std::env::set_var("TERM", "xterm-256color");
+            // Expose a terminal identity so shell startup scripts can apply
+            // Kimbo-specific behavior (for example fastfetch image layout).
+            std::env::set_var("TERM_PROGRAM", "kimbo");
 
             // Build argv for execvp: [shell, "-l", NULL]
             let c_shell =

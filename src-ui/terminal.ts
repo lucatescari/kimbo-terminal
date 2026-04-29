@@ -4,6 +4,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { restoredSeparator } from "./closed-tabs";
@@ -22,6 +23,8 @@ import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
+import { attachOsc1337Renderer } from "./osc1337-renderer";
+import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
 import { getPrefs } from "./ui-prefs";
 
@@ -156,13 +159,59 @@ export async function createTerminalSession(
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
   // context lost on display sleep).
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (e) {
-    console.warn("WebGL renderer unavailable, falling back to default:", e);
-  }
+  //
+  // WKWebView often fires WebGL context loss when the window is backgrounded.
+  // We dispose the addon on loss (xterm requirement), but we must load a new
+  // WebglAddon when the user returns — otherwise the session stays on the
+  // Canvas renderer permanently and translucent/DIM compositing no longer
+  // matches the stream filter in ansi-bg-transparent.ts.
+  let webglAddon: WebglAddon | null = null;
+
+  const tryLoadWebglAddon = (): void => {
+    if (webglAddon) return;
+    try {
+      const w = new WebglAddon();
+      w.onContextLoss(() => {
+        webglAddon = null;
+        try {
+          w.dispose();
+        } catch {
+          /* ignore */
+        }
+      });
+      term.loadAddon(w);
+      webglAddon = w;
+    } catch (e) {
+      console.warn("WebGL renderer unavailable, falling back to default:", e);
+    }
+  };
+
+  tryLoadWebglAddon();
+
+  const restoreWebglAfterContextLoss = (): void => {
+    if (document.visibilityState !== "visible") return;
+    // Defer one frame: WKWebView sometimes isn't ready to create a new GL
+    // context synchronously on the same tick as focus/visibility.
+    requestAnimationFrame(() => {
+      tryLoadWebglAddon();
+      fit.fit();
+    });
+  };
+  window.addEventListener("focus", restoreWebglAfterContextLoss);
+  document.addEventListener("visibilitychange", restoreWebglAfterContextLoss);
+
+  /** Native window focus — DOM `window` focus does not always track Cmd-Tab in Tauri/WKWebView. */
+  let unlistenTauriFocus: (() => void) | undefined;
+  void getCurrentWindow()
+    .onFocusChanged(({ payload: focused }) => {
+      if (focused) restoreWebglAfterContextLoss();
+    })
+    .then((unlisten) => {
+      unlistenTauriFocus = unlisten;
+    })
+    .catch(() => {
+      /* No Tauri bridge (e.g. vitest). */
+    });
 
   registerTerminal(term);
   // The .pane element is already in the document (panes.ts:createLeaf
@@ -222,6 +271,10 @@ export async function createTerminalSession(
     openUrl(uri).catch((e) => console.error("openUrl failed:", e));
   });
 
+  // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
+  // delegated to a dedicated module so terminal.ts stays focused on wiring.
+  const disposeInlineImages = attachOsc1337Renderer(term, container);
+
   // Create backend PTY.
   const ptyId = await createPty(cwd);
 
@@ -247,15 +300,22 @@ export async function createTerminalSession(
     return true;
   });
 
-  // Wire output: PTY -> xterm.js. We run the bytes through a cheap ANSI
-  // filter that maps "set bg to black" SGR codes (40 / 100 / 48;5;0 /
-  // 48;2;0;0;0) to "reset bg" (49) AND neutralises the DIM attribute
-  // (`\x1b[2m` → `\x1b[22m`) since xterm.js's WebGL renderer draws an
-  // opaque black rect behind any DIM cell — see ansi-bg-transparent.ts.
-  // The pref is read per-chunk so toggling it in settings applies live.
+  // Wire output: PTY -> xterm.js, with an OSC 1337 cursor-advance
+  // preprocessor. The preprocessor splices `\r\n * height` after every
+  // cell-sized inline image so fastfetch's subsequent `\x1b[9A` (cursor
+  // up) lands on the image's top row instead of on prior scrollback. See
+  // osc1337-preprocess.ts for why this can't be done from inside the OSC
+  // handler (term.write there is queued after the current parser chunk).
+  const osc1337Advancer = new Osc1337CursorAdvancer();
+  // PTY bytes are UTF-8. We may first filter ANSI dark-background sequences
+  // when the transparency preference is enabled, then decode to text and run
+  // the OSC 1337 preprocessor on that text stream.
+  const ptyDecoder = new TextDecoder("utf-8");
   const unlistenOutput = await onPtyOutput(ptyId, (data) => {
     dumpPtyChunkIfArmed(data, ptyId);
-    term.write(getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data);
+    const filtered = getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data;
+    const text = ptyDecoder.decode(filtered, { stream: true });
+    term.write(osc1337Advancer.transform(text));
   });
 
   // Wire input: xterm.js -> PTY
@@ -319,6 +379,10 @@ export async function createTerminalSession(
       // synchronous and callers don't have to change.
       closePty(ptyId).catch((e) => console.warn("closePty failed:", e));
 
+      try { disposeInlineImages(); } catch (e) { console.warn("disposeInlineImages:", e); }
+      try { window.removeEventListener("focus", restoreWebglAfterContextLoss); } catch (e) { console.warn("window remove focus listener:", e); }
+      try { document.removeEventListener("visibilitychange", restoreWebglAfterContextLoss); } catch (e) { console.warn("document remove visibilitychange listener:", e); }
+      try { unlistenTauriFocus?.(); } catch (e) { console.warn("unlistenTauriFocus:", e); }
       try { onDataDisposable.dispose(); } catch (e) { console.warn("onDataDisposable.dispose:", e); }
       try { onResizeDisposable.dispose(); } catch (e) { console.warn("onResizeDisposable.dispose:", e); }
       try { unlistenOutput(); } catch (e) { console.warn("unlistenOutput:", e); }

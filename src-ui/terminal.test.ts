@@ -70,6 +70,15 @@ describe("terminal: WebGL renderer", () => {
     expect(terminalSource).toMatch(/try\s*\{[\s\S]*?new WebglAddon/);
     expect(terminalSource).toContain("onContextLoss");
   });
+
+  it("reattaches WebGL after context loss when the window regains focus or visibility", () => {
+    expect(terminalSource).toContain('addEventListener("focus"');
+    expect(terminalSource).toContain('addEventListener("visibilitychange"');
+    expect(terminalSource).toContain("restoreWebglAfterContextLoss");
+    expect(terminalSource).toContain('from "@tauri-apps/api/window"');
+    expect(terminalSource).toContain("getCurrentWindow");
+    expect(terminalSource).toContain("onFocusChanged");
+  });
 });
 
 describe("terminal: Unicode 11 widths", () => {
@@ -233,6 +242,28 @@ describe("terminal: OSC 8 hyperlinks", () => {
 
   it("osc8 callback honors event.metaKey for activation", () => {
     expect(terminalSource).toMatch(/attachOsc8Links\s*\(\s*term\s*,\s*\([^)]*event[^)]*\)\s*=>[\s\S]*?event\.metaKey/);
+  });
+});
+
+describe("terminal: OSC 1337 inline images", () => {
+  it("imports attachOsc1337Renderer in terminal.ts", () => {
+    expect(terminalSource).toContain('from "./osc1337-renderer"');
+    expect(terminalSource).toContain("attachOsc1337Renderer");
+  });
+
+  it("wires inline renderer and dispose", () => {
+    expect(terminalSource).toMatch(/attachOsc1337Renderer\s*\(/);
+    expect(terminalSource).toMatch(/disposeInlineImages\s*\(\s*\)/);
+  });
+
+  it("runs PTY output through the OSC 1337 cursor-advance preprocessor", () => {
+    // Required so fastfetch's `\x1b[9A` after an inline image lands on
+    // the image's top row (cursor advance has to be spliced into the
+    // same parser chunk as the OSC — it can't be deferred from inside
+    // the OSC handler).
+    expect(terminalSource).toContain('from "./osc1337-preprocess"');
+    expect(terminalSource).toContain("Osc1337CursorAdvancer");
+    expect(terminalSource).toMatch(/\.transform\s*\(\s*\w+\s*\)/);
   });
 });
 

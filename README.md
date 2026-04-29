@@ -34,6 +34,33 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
   <img src="assets/kimbo-cmd-k.gif" alt="Kimbo command palette demo" width="720" />
 </p>
 
+## What's New in `feat/osc1337-inline-images`
+
+This branch focuses on better media and rendering behavior in the terminal, plus the latest updates merged from `dev`.
+
+- **Inline images (imgcat / OSC 1337)** — renders iTerm-style inline images directly inside the terminal viewport
+- **OSC 1337 cursor-advance preprocessing** — keeps cursor math correct after inline image output (important for tools like `fastfetch`)
+- **Transparent ANSI background filtering** — rewrites problematic black background ANSI sequences to preserve window transparency
+- **Settings and UX additions from `dev`** — includes recent upstream improvements merged from Luca's `dev` branch
+
+### `imgcat` quick setup
+
+Kimbo can render OSC 1337 inline images, but the `imgcat` command must be installed separately.
+
+```bash
+# iTerm2 bundles imgcat; add it to PATH once
+mkdir -p ~/.local/bin
+ln -sf "/Applications/iTerm.app/Contents/Resources/utilities/imgcat" ~/.local/bin/imgcat
+
+# reload shell
+exec zsh
+
+# test
+imgcat /path/to/image.png
+```
+
+Kimbo supports both default multipart `imgcat` output and legacy `imgcat -l`.
+
 ## Tech Stack
 
 - **Rust** — PTY management, config, workspace detection
