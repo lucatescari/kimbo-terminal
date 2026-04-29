@@ -40,7 +40,13 @@ export function parseOsc1337MultipartStart(payload: string): Osc1337InlineImage 
 }
 
 function decodeBase64Text(data: string): string {
-  return decodeURIComponent(escape(atob(data)));
+  // atob produces a binary string (one char per byte); pivot through a
+  // Uint8Array and TextDecoder to recover the original UTF-8 text.
+  // Replaces the deprecated `decodeURIComponent(escape(...))` idiom.
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 function estimateBase64Bytes(data: string): number | null {
