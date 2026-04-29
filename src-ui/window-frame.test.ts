@@ -139,6 +139,10 @@ describe("window frame: tauri window config", () => {
     expect(win.shadow).toBe(true);
   });
 
+  it("backgroundThrottling: disabled so WebKit 14+ does not tear down the compositor on focus changes", () => {
+    expect((win as { backgroundThrottling?: string }).backgroundThrottling).toBe("disabled");
+  });
+
   // THE critical flag. Tauri silently IGNORES `transparent: true` on macOS
   // unless `macOSPrivateApi: true` is set on the app config. Without it, the
   // window is opaque and every rounded-corner effort is invisible. This is
@@ -146,6 +150,57 @@ describe("window frame: tauri window config", () => {
   // `transparent: true` but not this flag.
   it("macOSPrivateApi: true at the app level — required for `transparent: true` to actually take effect on macOS", () => {
     expect(app.macOSPrivateApi).toBe(true);
+  });
+});
+
+describe("window frame: translucency restore after refocus", () => {
+  const mainRs = readFileSync(resolve(__dirname, "../src-tauri/src/main.rs"), "utf-8");
+  const mainTs = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
+  const windowRs = readFileSync(
+    resolve(__dirname, "../src-tauri/src/commands/window.rs"),
+    "utf-8",
+  );
+
+  it("Rust command clears then reapplies vibrancy (no stacked blur views)", () => {
+    expect(windowRs).toContain("clear_vibrancy");
+    expect(windowRs).toContain("apply_vibrancy");
+    expect(windowRs).toContain("NSVisualEffectState::Active");
+    expect(mainRs).toContain("refresh_window_translucency");
+  });
+
+  it("nudges outer window size to force WKWebView / CA to redraw transparent frames", () => {
+    expect(windowRs).toContain("outer_size");
+    expect(windowRs).toContain("PhysicalSize::new");
+  });
+
+  it("Rust reapplies WKWebView transparency (opaque flag + drawsBackground)", () => {
+    expect(windowRs).toContain("WKWebView");
+    expect(windowRs).toContain("drawsBackground");
+    expect(windowRs).toContain("setUnderPageBackgroundColor");
+  });
+
+  it("Rust toggles window shadow + walks superviews (tauri#8255 / Wry parent view chain)", () => {
+    expect(windowRs).toContain("set_shadow");
+    expect(windowRs).toContain("superview");
+    expect(windowRs).toContain("contentView");
+    expect(windowRs).toContain("set_focus");
+  });
+
+  it("Rust runs translucency refresh on native WindowEvent::Focused(true)", () => {
+    expect(mainRs).toContain("WindowEvent::Focused(true)");
+    expect(mainRs).toContain("refresh_main_window_translucency");
+    expect(mainRs).toContain("kimbo-window-focused");
+  });
+
+  it("optional Stage Manager workaround: KIMBO_MACOS_ACCESSORY_ACTIVATION=1", () => {
+    expect(mainRs).toContain("KIMBO_MACOS_ACCESSORY_ACTIVATION");
+    expect(mainRs).toContain("ActivationPolicy::Accessory");
+  });
+
+  it("Frontend refits + reapplies CSS when kimbo-window-focused fires", () => {
+    expect(mainTs).toContain("kimbo-window-focused");
+    expect(mainTs).toContain("applyRoot");
+    expect(mainTs).toContain("fitAllPanes");
   });
 });
 
