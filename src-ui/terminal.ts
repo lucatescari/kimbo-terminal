@@ -273,11 +273,7 @@ export async function createTerminalSession(
 
   // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
   // delegated to a dedicated module so terminal.ts stays focused on wiring.
-  const disposeInlineImages = attachOsc1337Renderer(term, container, {
-    onImageClick: (blobUrl) => {
-      openUrl(blobUrl).catch((e) => console.error("openUrl failed:", e));
-    },
-  });
+  const disposeInlineImages = attachOsc1337Renderer(term, container);
 
   // Create backend PTY.
   const ptyId = await createPty(cwd);

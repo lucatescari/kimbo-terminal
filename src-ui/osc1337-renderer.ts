@@ -7,10 +7,6 @@ import {
   sniffBitmapFormat,
 } from "./osc1337";
 
-export interface AttachOptions {
-  onImageClick?: (blobUrl: string) => void;
-}
-
 const MAX_BYTES = 10 * 1024 * 1024;
 
 /** Attach the OSC 1337 inline-image handler to a terminal.
@@ -25,7 +21,6 @@ const MAX_BYTES = 10 * 1024 * 1024;
 export function attachOsc1337Renderer(
   term: Terminal,
   container: HTMLElement,
-  opts: AttachOptions = {},
 ): () => void {
   let multipartMeta: NonNullable<ReturnType<typeof parseOsc1337MultipartStart>> | null = null;
   let multipartParts: string[] = [];
@@ -110,15 +105,9 @@ export function attachOsc1337Renderer(
     img.style.width = `${layout.pxWidth}px`;
     img.style.height = `${layout.pxHeight}px`;
     img.style.display = "block";
-    img.style.pointerEvents = "auto";
+    img.style.pointerEvents = "none";
     img.style.userSelect = "none";
     img.alt = parsed.name || "inline image";
-    if (opts.onImageClick) {
-      img.addEventListener("click", (ev) => {
-        if (!ev.metaKey) return;
-        opts.onImageClick?.(blobUrl);
-      });
-    }
 
     const decoration = term.registerDecoration({
       marker,
