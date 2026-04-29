@@ -29,6 +29,8 @@ npm run test:all   # Everything
 - Run `npm run test:all` before submitting
 - Keep commits focused with clear messages
 
+Every PR runs CI on GitHub Actions (`.github/workflows/ci.yml`) which executes the same checks on Ubuntu plus a `cargo check` for the macOS Tauri app. PRs need a green CI before merging.
+
 ## Themes
 
 Want to contribute a theme? See the [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo.
