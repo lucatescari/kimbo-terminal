@@ -3,7 +3,17 @@
 A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layouts, tabbed windows, and a command palette for developer workflows.
 
 <p align="center">
+  <a href="https://github.com/lucatescari/kimbo-terminal/actions/workflows/ci.yml"><img src="https://github.com/lucatescari/kimbo-terminal/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/lucatescari/kimbo-terminal/releases/latest"><img src="https://img.shields.io/github/v/release/lucatescari/kimbo-terminal?display_name=tag&sort=semver" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/lucatescari/kimbo-terminal" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform: macOS" />
+  <img src="https://img.shields.io/badge/made%20with-%E2%9D%A4-red" alt="Made with love" />
+</p>
+
+<p align="center">
+  <img src="src-ui/public/kimbo_happy.png" alt="Kimbo (happy)" width="128" />
   <img src="src-ui/public/kimbo_normal.png" alt="Kimbo Terminal" width="128" />
+  <img src="src-ui/public/kimbo_surprised.png" alt="Kimbo (surprised)" width="128" />
 </p>
 
 > **Beta** — Kimbo is in active development. Expect rough edges. Feedback and contributions welcome.

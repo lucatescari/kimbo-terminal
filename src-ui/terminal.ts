@@ -202,16 +202,24 @@ export async function createTerminalSession(
 
   /** Native window focus — DOM `window` focus does not always track Cmd-Tab in Tauri/WKWebView. */
   let unlistenTauriFocus: (() => void) | undefined;
-  void getCurrentWindow()
-    .onFocusChanged(({ payload: focused }) => {
-      if (focused) restoreWebglAfterContextLoss();
-    })
-    .then((unlisten) => {
-      unlistenTauriFocus = unlisten;
-    })
-    .catch(() => {
-      /* No Tauri bridge (e.g. vitest). */
-    });
+  try {
+    // `getCurrentWindow()` reads `__TAURI_INTERNALS__.metadata` and throws
+    // synchronously when the bridge isn't installed (vitest browser tests).
+    // The trailing `.catch` only handles `onFocusChanged`'s promise — it
+    // does NOT swallow the synchronous throw, so wrap the whole thing.
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) restoreWebglAfterContextLoss();
+      })
+      .then((unlisten) => {
+        unlistenTauriFocus = unlisten;
+      })
+      .catch(() => {
+        /* onFocusChanged rejected (event channel not ready). */
+      });
+  } catch {
+    /* No Tauri bridge (e.g. vitest browser tests). */
+  }
 
   registerTerminal(term);
   // The .pane element is already in the document (panes.ts:createLeaf
