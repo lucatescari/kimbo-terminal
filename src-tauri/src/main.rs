@@ -53,6 +53,14 @@ fn main() {
         .manage(ThemeState::default())
         .manage(UpdateState::default())
         .setup(|app| {
+            // Stage Manager / Sonoma (tauri#8255): optional dock-less activation policy.
+            // Launch with `KIMBO_MACOS_ACCESSORY_ACTIVATION=1` if translucency still breaks on refocus.
+            #[cfg(target_os = "macos")]
+            if std::env::var("KIMBO_MACOS_ACCESSORY_ACTIVATION").ok().as_deref() == Some("1") {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                log::info!("ActivationPolicy::Accessory (KIMBO_MACOS_ACCESSORY_ACTIVATION=1)");
+            }
+
             // Force the webview's background to transparent so the CSS rounded
             // body shows the desktop through at the corners. Without this,
             // WebKit paints an opaque default background behind our HTML and
@@ -72,11 +80,13 @@ fn main() {
                 // slider values. Adapts to light/dark via set_window_theme.
                 #[cfg(target_os = "macos")]
                 {
-                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                    use window_vibrancy::{
+                        apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                    };
                     if let Err(e) = apply_vibrancy(
                         &win,
                         NSVisualEffectMaterial::Tooltip,
-                        None,
+                        Some(NSVisualEffectState::Active),
                         Some(14.0),
                     ) {
                         log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
@@ -174,10 +184,22 @@ fn main() {
             // exit or swallows the request when the user cancels.
             if let Some(win) = app.get_webview_window("main") {
                 let handle_for_close = app.handle().clone();
+                let win_focus = win.clone();
                 win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = handle_for_close.emit("quit-requested", ());
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            let _ = handle_for_close.emit("quit-requested", ());
+                        }
+                        tauri::WindowEvent::Focused(true) => {
+                            if let Err(e) =
+                                commands::window::refresh_main_window_translucency(&win_focus)
+                            {
+                                log::warn!("refresh translucency on focus: {e}");
+                            }
+                            let _ = handle_for_close.emit("kimbo-window-focused", ());
+                        }
+                        _ => {}
                     }
                 });
             }
@@ -204,6 +226,7 @@ fn main() {
             commands::kimbo::write_kimbo_shell_scripts,
             commands::workspace::list_projects,
             commands::update::check_for_updates,
+            commands::window::refresh_window_translucency,
             quit_app,
             set_window_theme,
         ])
