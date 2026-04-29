@@ -101,9 +101,6 @@ impl PtySession {
             // Expose a terminal identity so shell startup scripts can apply
             // Kimbo-specific behavior (for example fastfetch image layout).
             std::env::set_var("TERM_PROGRAM", "kimbo");
-            // Keep startup noise down for nvm users with stale npm prefix
-            // config inherited from Homebrew-centric setups.
-            std::env::remove_var("npm_config_prefix");
 
             // Build argv for execvp: [shell, "-l", NULL]
             let c_shell =
