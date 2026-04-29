@@ -30,11 +30,4 @@ libc = "0.2"
 nix = { version = "0.29", features = ["term", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = "0.3"
-objc2-foundation = "0.3"
-objc2-web-kit = { version = "0.3", default-features = false, features = [
-  "WKWebView",
-  "objc2-app-kit",
-] }
 window-vibrancy = "0.6"
