@@ -183,7 +183,11 @@ describe("window frame: translucency restore after refocus", () => {
     expect(windowRs).toContain("set_shadow");
     expect(windowRs).toContain("superview");
     expect(windowRs).toContain("contentView");
-    expect(windowRs).toContain("set_focus");
+  });
+
+  it("defers shadow restore via tokio's blocking pool (no fresh OS thread per refocus)", () => {
+    expect(windowRs).toContain("tauri::async_runtime::spawn_blocking");
+    expect(windowRs).not.toMatch(/thread::spawn\s*\(/);
   });
 
   it("Rust runs translucency refresh on native WindowEvent::Focused(true)", () => {

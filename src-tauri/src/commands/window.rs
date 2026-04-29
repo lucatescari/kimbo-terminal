@@ -108,8 +108,11 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
         let _ = win.set_size(tauri::PhysicalSize::new(w, h));
     }
 
+    // Defer the shadow restore onto tokio's blocking pool (reused across
+    // events) instead of spawning a fresh OS thread per refocus — rapid
+    // Cmd-Tab no longer stacks N short-lived threads.
     let win_delayed = win.clone();
-    thread::spawn(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         thread::sleep(Duration::from_millis(130));
         let inner = win_delayed.clone();
         let _ = win_delayed.run_on_main_thread(move || {
@@ -123,8 +126,6 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
             });
         });
     });
-
-    let _ = win.set_focus();
 
     Ok(())
 }
