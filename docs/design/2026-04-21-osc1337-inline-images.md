@@ -24,8 +24,8 @@ The image must flow with the scrollback buffer — scrolling, resizing, and evic
 | 1 | Renderer strategy | Custom DOM overlay (no 3rd-party addon) |
 | 2 | Scroll behavior | Image flows with scrollback (marker-backed) |
 | 3 | Sizing units supported | Full spec: cells, `Npx`, `N%`, `auto` |
-| 4 | Safety caps | 10 MB decoded / image, 50 concurrent, 4096 px max dim, PNG/JPEG/GIF/WebP only |
-| 5 | Interactivity | Cmd-click → open in default system viewer; nothing else |
+| 4 | Safety caps | 10 MB decoded / image, 4096 px max dim, PNG/JPEG/GIF/WebP only |
+| 5 | Interactivity | None in v1; lifetime is bound to xterm's marker disposal |
 
 ## Architecture
 
@@ -56,10 +56,10 @@ export function attachOsc1337Renderer(
 
 **Owns internally:**
 
-- `liveImages: Map<IMarker, LiveImage>` — up to 50 entries
-- An absolute-positioned overlay `<div>` appended to `container` (sibling of `.xterm-screen`)
-- A `ResizeObserver` on `container`
-- A measured `{cellWidth, cellHeight}` cache, invalidated on `term.onResize`
+- A per-image marker + decoration registered on `term`. xterm's decoration
+  layer owns positioning, scroll, and clip; image lifetime is bound to the
+  marker (so scrollback eviction frees the image automatically — no separate
+  concurrent-count cap needed).
 
 **Registers on `term.parser`:** the OSC 1337 handler (replaces the one currently in `terminal.ts`).
 
@@ -129,7 +129,6 @@ All failures fall through to the text marker. The handler never throws.
 | Decoded size > 10 MB | `(too large)` |
 | Format sniff returns `null` (incl. SVG) | `(unsupported format)` |
 | `<img>` `onerror` fires post-sniff | `(decode failed)` |
-| Live count ≥ 50 | evict oldest → its overlay replaced with its own marker text |
 
 Blob URLs are revoked in three places: `marker.onDispose`, `<img>` `onerror`, and the renderer's top-level `dispose()`. No leaks.
 
@@ -137,9 +136,15 @@ Blob URLs are revoked in three places: `marker.onDispose`, `<img>` `onerror`, an
 
 - **SVG rejected.** SVG can embed `<script>` and fetch external resources. Only PNG/JPEG/GIF/WebP pass the magic-byte sniff.
 - **Hard 10 MB cap** per image, enforced *before* allocating the `Uint8Array`, so a malicious 1 GB payload on the PTY can't OOM the renderer.
-- **50 concurrent cap** bounds DOM node count and GPU memory.
+- **Multipart byte cap.** Running total across `FilePart=` chunks; once the
+  cap trips the rest of the parts are dropped before they buffer in memory.
+- **DOM bound = xterm marker lifetime.** Decorations clear when their marker
+  is evicted from the scrollback buffer, so the image count is implicitly
+  bounded by the user's scrollback depth.
 - **No external fetches.** Only blob URLs from in-process bytes; `<img>` never loads from the network.
-- **Cmd-click opens via `openUrl` (Tauri opener plugin)** — same trusted path as OSC 8 links, which already requires user intent (Cmd held).
+- **No interactivity in v1.** Cmd-click is intentionally not wired — blob
+  URLs are document-scoped and won't survive a hand-off to the system
+  opener. A future temp-file path can revisit this.
 
 ## Testing
 
@@ -159,7 +164,6 @@ Blob URLs are revoked in three places: `marker.onDispose`, `<img>` `onerror`, an
 - Attach renderer to a real `Terminal`; feed OSC 1337 via `term.write()`; assert `<img>` appears in overlay with expected dimensions
 - Scroll the terminal (`term.scrollLines`); assert overlay `style.top` changed
 - Trigger a `term.onResize`; assert cell cache invalidated and live images re-positioned
-- Feed 51 images; assert first one was evicted (its overlay replaced with text marker)
 - Dispose the session; assert overlay `<div>` removed, `URL.revokeObjectURL` called for every live blob (spy)
 - Malformed base64, oversize payload, SVG payload — each produces a text marker, no `<img>` inserted
 
@@ -188,4 +192,5 @@ No changes to Rust/PTY, Tauri plugins, or CSS beyond possibly one rule for the o
 - Drag-out-to-save
 - Sixel / Kitty graphics protocol support
 - Copy-to-clipboard via OSC 52 integration
-- Image lazy-load when scrolling back up (evicted images currently become text-marker-only forever)
+- Image lazy-load when scrolling back up (xterm-evicted markers currently mean the image is gone for good)
+- Cmd-click → write decoded bytes to a temp file and `openUrl()` the file path

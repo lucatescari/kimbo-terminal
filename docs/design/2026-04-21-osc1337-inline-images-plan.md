@@ -1328,7 +1328,6 @@ git commit -m "docs: inline images shipped, remove from roadmap"
 - DOM + marker lifecycle in `src-ui/osc1337-renderer.ts`
 - Single wiring call in `src-ui/terminal.ts`
 - Full iTerm sizing spec (cells / px / % / auto) supported
-- Hard caps: 10 MB per image, 50 concurrent, 4096 px max dim, PNG/JPEG/GIF/WebP only
-- Cmd-click opens in system viewer
-- Image flows with scrollback via xterm marker
+- Hard caps: 10 MB per image, 4096 px max dim, PNG/JPEG/GIF/WebP only; multipart byte cap during accumulation
+- Image flows with scrollback via xterm marker; lifetime is bound to the marker, no separate concurrent-image cap
 - Blob URLs revoked on every exit path — no leaks
