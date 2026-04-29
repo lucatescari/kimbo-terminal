@@ -29,6 +29,11 @@ export function attachOsc1337Renderer(
 ): () => void {
   let multipartMeta: NonNullable<ReturnType<typeof parseOsc1337MultipartStart>> | null = null;
   let multipartParts: string[] = [];
+  // Running estimate of decoded bytes across accumulated FilePart= chunks.
+  // Without this, a long stream of parts could balloon `multipartParts`
+  // memory before the FileEnd-time MAX_BYTES check fires.
+  let multipartBytes = 0;
+  let multipartAborted = false;
 
   const fallbackMarker = (
     parsed: NonNullable<ReturnType<typeof parseOsc1337InlineImage>>,
@@ -146,25 +151,50 @@ export function attachOsc1337Renderer(
     });
   };
 
+  const resetMultipart = (): void => {
+    multipartMeta = null;
+    multipartParts = [];
+    multipartBytes = 0;
+    multipartAborted = false;
+  };
+
   const oscHandler = (data: string): boolean => {
     const multipartStart = parseOsc1337MultipartStart(data);
     if (multipartStart) {
       multipartMeta = multipartStart;
       multipartParts = [];
+      multipartBytes = 0;
+      multipartAborted = false;
       return true;
     }
 
     if (data.startsWith("FilePart=")) {
-      if (multipartMeta) multipartParts.push(data.slice("FilePart=".length));
+      if (!multipartMeta || multipartAborted) return true;
+      const part = data.slice("FilePart=".length);
+      // 4 base64 chars = 3 decoded bytes. Tracking the running sum lets us
+      // bail before the parts array itself grows past MAX_BYTES.
+      multipartBytes += Math.floor((part.length * 3) / 4);
+      if (multipartBytes > MAX_BYTES) {
+        multipartAborted = true;
+        // Free the buffered chunks immediately — keep meta around so we can
+        // emit the fallback when FileEnd arrives.
+        multipartParts = [];
+        return true;
+      }
+      multipartParts.push(part);
       return true;
     }
 
     if (data === "FileEnd") {
       if (!multipartMeta) return true;
       const parsed = multipartMeta;
+      const aborted = multipartAborted;
       const base64 = multipartParts.join("");
-      multipartMeta = null;
-      multipartParts = [];
+      resetMultipart();
+      if (aborted) {
+        fallbackMarker(parsed, "too large or invalid");
+        return true;
+      }
       if (!parsed.inline) {
         fallbackMarker(parsed, "download-only, not rendered");
         return true;
