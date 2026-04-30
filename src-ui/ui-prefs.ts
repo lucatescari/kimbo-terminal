@@ -54,6 +54,15 @@ export interface UiPrefs {
   /** Claude Code → Append the subscription tier (e.g. "max") in
    *  parentheses after the email. Defaults to off. */
   claudeHudShowPlan: boolean;
+  /** Claude Code → Show 5h / weekly rate-limit percentages in the HUD
+   *  instead of token counts / cost. Installs a tiny shim into the Claude
+   *  Code config. Tri-state:
+   *   - undefined  → never decided; triggers smart auto-install (Task 16).
+   *   - true       → user explicitly enabled.
+   *   - false      → user explicitly disabled.
+   *   - "dismissed" → auto-install was blocked (existing statusLine), user
+   *                   chose not to replace it. */
+  claudeRateLimitsEnabled?: boolean | "dismissed";
 }
 
 const DEFAULTS: UiPrefs = {

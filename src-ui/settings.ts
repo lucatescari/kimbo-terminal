@@ -1055,6 +1055,29 @@ function renderClaudeCode(el: HTMLElement): void {
     "Append the plan tier (e.g. \"max\") after the email.",
     toggle(prefs.claudeHudShowPlan, (v) => setPref("claudeHudShowPlan", v)),
   ));
+  hudSec.appendChild(row(
+    "Show Claude rate limits",
+    "Replaces tokens/cost with 5h and weekly limit percentages. Installs a tiny shim into your Claude Code config.",
+    toggle(prefs.claudeRateLimitsEnabled === true, async (v) => {
+      if (v) {
+        const { installRateLimits } = await import("./claude-rate-limits");
+        const { showToast } = await import("./toast");
+        const outcome = await installRateLimits(true);
+        if (outcome.kind === "Installed" || outcome.kind === "NoOp") {
+          setPref("claudeRateLimitsEnabled", true);
+          showToast({ kind: "success", message: "Rate-limit display enabled" });
+        } else {
+          console.warn("install pending despite force:", outcome);
+        }
+      } else {
+        const { uninstallRateLimits } = await import("./claude-rate-limits");
+        const { showToast } = await import("./toast");
+        await uninstallRateLimits();
+        setPref("claudeRateLimitsEnabled", false);
+        showToast({ kind: "info", message: "Rate-limit display disabled" });
+      }
+    }),
+  ));
   el.appendChild(hudSec);
 
   const accountSec = section("Account");
