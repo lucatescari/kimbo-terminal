@@ -2,6 +2,7 @@
 name = "kimbo-app"
 version = "0.10.1"
 edition = "2021"
+build = "build.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

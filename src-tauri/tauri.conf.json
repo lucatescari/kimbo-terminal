@@ -42,7 +42,8 @@
     "resources": [
       "resources/shell/kimbo-init.zsh",
       "resources/shell/kimbo-init.bash",
-      "resources/shell/kimbo-init.fish"
+      "resources/shell/kimbo-init.fish",
+      "resources/kimbo-claude-statusline"
     ],
     "macOS": {
       "entitlements": "entitlements.plist"
