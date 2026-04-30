@@ -526,13 +526,13 @@ async function maybeAutoInstall(): Promise<void> {
       showToast({
         kind: "success",
         message: "Kimbo enabled rate-limit display in Claude.",
-        detail: "Disable in Settings → HUD.",
+        detail: "Disable in Settings → Claude Code → HUD.",
       });
     } else if (outcome.kind === "Pending") {
       showToast({
         kind: "info",
         message: "Enable rate-limit display in Claude?",
-        detail: `Your current statusLine (${outcome.existing}) would be replaced. Toggle in Settings → HUD if you'd like to enable it.`,
+        detail: `Your current statusLine (${outcome.existing}) would be replaced. Toggle in Settings → Claude Code → HUD if you'd like to enable it.`,
       });
       setPref("claudeRateLimitsEnabled", "dismissed");
     }

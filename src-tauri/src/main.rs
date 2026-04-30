@@ -211,7 +211,7 @@ fn main() {
             ) {
                 let path_str = sidecar.to_string_lossy().to_string();
                 if let Err(e) = commands::claude_rate_limits::rewrite_wrapper(&path_str) {
-                    eprintln!("rewrite_wrapper failed: {e}");
+                    log::warn!("rewrite_wrapper failed: {e}");
                 }
             }
 

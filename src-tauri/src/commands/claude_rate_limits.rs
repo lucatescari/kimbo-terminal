@@ -20,7 +20,7 @@ pub fn read_cache_at(path: &Path) -> Option<RateLimits> {
     match serde_json::from_slice::<RateLimits>(&bytes) {
         Ok(r) => Some(r),
         Err(e) => {
-            eprintln!("claude_rate_limits: cache parse failed: {e}");
+            log::warn!("claude_rate_limits: cache parse failed: {e}");
             None
         }
     }
