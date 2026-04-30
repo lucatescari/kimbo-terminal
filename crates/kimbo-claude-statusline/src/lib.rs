@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitWindow {
@@ -12,6 +13,28 @@ pub struct ParsedInput {
     pub seven_day: Option<LimitWindow>,
     pub account_email: Option<String>,
     pub version_too_old: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RateLimits {
+    pub five_hour: Option<LimitWindow>,
+    pub seven_day: Option<LimitWindow>,
+    pub captured_at_ms: u64,
+    pub account_email: Option<String>,
+    pub version_too_old: bool,
+}
+
+/// Write the cache file atomically (write to .tmp sibling, then rename).
+pub fn write_cache(path: &Path, cache: &RateLimits) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(cache)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 /// Parse the JSON Claude Code pipes into the statusLine command.
@@ -42,6 +65,45 @@ pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
         account_email,
         version_too_old,
     })
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn write_cache_creates_file_with_serialized_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claude-rate-limits.json");
+        let cache = RateLimits {
+            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: "2026-04-30T18:00:00Z".into() }),
+            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: "2026-05-04T00:00:00Z".into() }),
+            captured_at_ms: 1714478531000,
+            account_email: Some("luca@tescari.dev".into()),
+            version_too_old: false,
+        };
+        write_cache(&path, &cache).unwrap();
+
+        let bytes = fs::read(&path).unwrap();
+        let parsed: RateLimits = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed, cache);
+    }
+
+    #[test]
+    fn write_cache_creates_parent_directory_if_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/sub/claude-rate-limits.json");
+        let cache = RateLimits {
+            five_hour: None,
+            seven_day: None,
+            captured_at_ms: 0,
+            account_email: None,
+            version_too_old: true,
+        };
+        write_cache(&path, &cache).unwrap();
+        assert!(path.exists());
+    }
 }
 
 #[cfg(test)]
