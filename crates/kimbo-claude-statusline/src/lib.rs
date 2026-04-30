@@ -156,3 +156,46 @@ mod tests {
         assert!(!p.version_too_old);
     }
 }
+
+/// Render the one-line status string Claude Code displays in its TUI.
+pub fn render_statusline(parsed: &ParsedInput) -> String {
+    let pct = |w: &Option<LimitWindow>| -> String {
+        w.as_ref().map_or_else(|| "—%".to_string(), |w| format!("{}%", w.used_percentage))
+    };
+    format!("5h {} · Wk {}", pct(&parsed.five_hour), pct(&parsed.seven_day))
+}
+
+#[cfg(test)]
+mod statusline_tests {
+    use super::*;
+
+    fn p(used_5h: u8, used_7d: u8) -> ParsedInput {
+        ParsedInput {
+            five_hour: Some(LimitWindow { used_percentage: used_5h, resets_at: "x".into() }),
+            seven_day: Some(LimitWindow { used_percentage: used_7d, resets_at: "x".into() }),
+            account_email: None,
+            version_too_old: false,
+        }
+    }
+
+    #[test]
+    fn renders_both_windows_with_separator() {
+        assert_eq!(render_statusline(&p(47, 23)), "5h 47% · Wk 23%");
+    }
+
+    #[test]
+    fn renders_dash_for_missing_windows() {
+        let parsed = ParsedInput { five_hour: None, seven_day: None, ..Default::default() };
+        assert_eq!(render_statusline(&parsed), "5h —% · Wk —%");
+    }
+
+    #[test]
+    fn renders_dash_only_for_the_missing_window() {
+        let parsed = ParsedInput {
+            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: "x".into() }),
+            seven_day: None,
+            ..Default::default()
+        };
+        assert_eq!(render_statusline(&parsed), "5h 47% · Wk —%");
+    }
+}
