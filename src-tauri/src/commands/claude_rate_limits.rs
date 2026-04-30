@@ -10,13 +10,11 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 pub use kimbo_claude_statusline::{LimitWindow, RateLimits};
 
-#[allow(dead_code)]
 fn cache_path() -> PathBuf {
     kimbo_config::AppConfig::config_dir().join("claude-rate-limits.json")
 }
 
 /// Read the cache file. Returns `None` when missing or corrupt; never panics.
-#[allow(dead_code)]
 pub fn read_cache_at(path: &Path) -> Option<RateLimits> {
     let bytes = std::fs::read(path).ok()?;
     match serde_json::from_slice::<RateLimits>(&bytes) {
@@ -29,14 +27,12 @@ pub fn read_cache_at(path: &Path) -> Option<RateLimits> {
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 pub fn claude_rate_limits() -> Result<Option<RateLimits>, String> {
     Ok(read_cache_at(&cache_path()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
-#[allow(dead_code)]
 pub enum InstallAction {
     InstallSilently,
     AlreadyOurs,
@@ -46,7 +42,6 @@ pub enum InstallAction {
 /// Pure planner: given the current contents of `~/.claude/settings.json`
 /// (or `None` if the file doesn't exist) and the absolute path our wrapper
 /// would be installed at, decide what to do.
-#[allow(dead_code)]
 pub fn decide_install_action(settings_json: Option<&str>, our_wrapper_path: &str) -> InstallAction {
     let raw = match settings_json {
         Some(s) => s,
@@ -122,14 +117,12 @@ mod planner_tests {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
-#[allow(dead_code)]
 pub enum InstallOutcome {
     Installed,
     Pending { existing: String },
     NoOp,
 }
 
-#[allow(dead_code)]
 const STATUSLINE_BACKUP_FILE: &str = "claude-statusline-backup.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -139,7 +132,6 @@ pub(crate) struct StatusLineBackup {
 }
 
 /// Pure: produce the wrapper script body given absolute paths.
-#[allow(dead_code)]
 pub fn render_wrapper_script(sidecar_abs_path: &str, app_data_abs_path: &str) -> String {
     format!(
         "#!/bin/sh\n# Kimbo Claude statusline wrapper — auto-generated, do not edit.\n# Rewritten by kimbo on every launch with the current sidecar path.\nKIMBO_APP_DATA=\"{app_data_abs_path}\" \\\n    exec \"{sidecar_abs_path}\" \"$@\"\n"
@@ -149,7 +141,6 @@ pub fn render_wrapper_script(sidecar_abs_path: &str, app_data_abs_path: &str) ->
 /// Pure: given current settings.json content and a wrapper path, return the
 /// new settings.json content with our statusLine installed. Preserves all
 /// other keys verbatim.
-#[allow(dead_code)]
 pub fn install_into_settings(current: Option<&str>, wrapper_path: &str) -> Result<String, String> {
     let mut v: serde_json::Value = match current {
         Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
@@ -165,7 +156,6 @@ pub fn install_into_settings(current: Option<&str>, wrapper_path: &str) -> Resul
 
 /// Pure: produce the settings JSON with our statusLine entry removed; or the
 /// backup's original_status_line restored if a backup is provided.
-#[allow(dead_code)]
 pub fn uninstall_from_settings(
     current: Option<&str>,
     backup: Option<&StatusLineBackup>,
@@ -292,32 +282,26 @@ mod tests {
     }
 }
 
-#[allow(dead_code)]
 fn home_dir() -> std::io::Result<PathBuf> {
     dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home dir"))
 }
 
-#[allow(dead_code)]
 fn settings_path() -> std::io::Result<PathBuf> {
     Ok(home_dir()?.join(".claude").join("settings.json"))
 }
 
-#[allow(dead_code)]
 fn wrapper_path() -> std::io::Result<PathBuf> {
     Ok(home_dir()?.join(".claude").join("kimbo-statusline.sh"))
 }
 
-#[allow(dead_code)]
 fn backup_path() -> PathBuf {
     kimbo_config::AppConfig::config_dir().join(STATUSLINE_BACKUP_FILE)
 }
 
-#[allow(dead_code)]
 fn read_optional(p: &Path) -> Option<String> {
     std::fs::read_to_string(p).ok()
 }
 
-#[allow(dead_code)]
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -327,7 +311,6 @@ fn now_ms() -> u64 {
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 pub fn claude_rate_limits_install(
     force: bool,
     sidecar_abs_path: String,
@@ -381,7 +364,6 @@ pub fn claude_rate_limits_install(
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 pub fn claude_rate_limits_uninstall() -> Result<(), String> {
     let settings_p = settings_path().map_err(|e| e.to_string())?;
     let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
@@ -401,7 +383,6 @@ pub fn claude_rate_limits_uninstall() -> Result<(), String> {
 
 /// Called from app setup on every kimbo launch when the feature is enabled,
 /// to refresh the wrapper with the currently-resolved sidecar path.
-#[allow(dead_code)]
 pub fn rewrite_wrapper(sidecar_abs_path: &str) -> Result<(), String> {
     let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
     if !wrapper_p.exists() {

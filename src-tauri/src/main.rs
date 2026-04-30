@@ -204,6 +204,17 @@ fn main() {
                 });
             }
 
+            let resolver = app.path();
+            if let Ok(sidecar) = resolver.resolve(
+                "resources/kimbo-claude-statusline",
+                tauri::path::BaseDirectory::Resource,
+            ) {
+                let path_str = sidecar.to_string_lossy().to_string();
+                if let Err(e) = commands::claude_rate_limits::rewrite_wrapper(&path_str) {
+                    eprintln!("rewrite_wrapper failed: {e}");
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -227,6 +238,9 @@ fn main() {
             commands::workspace::list_projects,
             commands::update::check_for_updates,
             commands::window::refresh_window_translucency,
+            commands::claude_rate_limits::claude_rate_limits,
+            commands::claude_rate_limits::claude_rate_limits_install,
+            commands::claude_rate_limits::claude_rate_limits_uninstall,
             quit_app,
             set_window_theme,
         ])
