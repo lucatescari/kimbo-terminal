@@ -49,6 +49,11 @@ fn malformed_input_exits_non_zero_and_writes_no_cache() {
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
 
-    assert!(!out.status.success());
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "expected exit code 3 for malformed JSON, got {:?}",
+        out.status.code()
+    );
     assert!(!cache_path.exists(), "cache must not be written on parse failure");
 }

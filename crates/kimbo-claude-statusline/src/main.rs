@@ -21,11 +21,13 @@ fn main() -> ExitCode {
         }
     };
 
+    let line = render_statusline(&parsed);
+
     let cache = RateLimits {
-        five_hour: parsed.five_hour.clone(),
-        seven_day: parsed.seven_day.clone(),
+        five_hour: parsed.five_hour,
+        seven_day: parsed.seven_day,
         captured_at_ms: now_ms(),
-        account_email: parsed.account_email.clone(),
+        account_email: parsed.account_email,
         version_too_old: parsed.version_too_old,
     };
 
@@ -35,7 +37,6 @@ fn main() -> ExitCode {
         return ExitCode::from(4);
     }
 
-    let line = render_statusline(&parsed);
     let _ = writeln!(std::io::stdout(), "{line}");
     ExitCode::SUCCESS
 }

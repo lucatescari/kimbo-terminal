@@ -24,16 +24,28 @@ pub struct RateLimits {
     pub version_too_old: bool,
 }
 
-/// Write the cache file atomically (write to .tmp sibling, then rename).
+/// Write the cache file atomically (write to a uniquely-named .tmp sibling,
+/// then rename). Concurrent invocations get distinct tmp names so they don't
+/// stomp each other's bytes. Tmp file is removed on any failure.
 pub fn write_cache(path: &Path, cache: &RateLimits) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("json.tmp");
     let bytes = serde_json::to_vec_pretty(cache)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(&tmp, &bytes)?;
-    std::fs::rename(&tmp, path)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("{}.{}.tmp", std::process::id(), nanos));
+    if let Err(e) = std::fs::write(&tmp, &bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
 }
 
