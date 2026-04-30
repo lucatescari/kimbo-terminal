@@ -512,14 +512,16 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<
   const { getAccountInfo } = await import("./claude-account");
   const { renderClaudeHud } = await import("./claude-hud");
   const { getPrefs } = await import("./ui-prefs");
+  const { getRateLimits } = await import("./claude-rate-limits");
 
-  const [status, account] = await Promise.all([
+  const [status, account, rateLimits] = await Promise.all([
     claudeStatus(ptyId),
     getAccountInfo(),
+    getRateLimits(),
   ]);
 
   const prefs = getPrefs();
-  const newHud = renderClaudeHud(status, account, null, {
+  const newHud = renderClaudeHud(status, account, rateLimits, {
     hudEnabled: prefs.claudeHudEnabled,
     extendedFields: prefs.claudeHudExtended,
     showPlan: prefs.claudeHudShowPlan,
