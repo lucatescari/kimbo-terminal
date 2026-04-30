@@ -312,9 +312,19 @@ fn now_ms() -> u64 {
 
 #[tauri::command]
 pub fn claude_rate_limits_install(
+    app: tauri::AppHandle,
     force: bool,
-    sidecar_abs_path: String,
 ) -> Result<InstallOutcome, String> {
+    use tauri::Manager;
+    let resolver = app.path();
+    let sidecar = resolver
+        .resolve(
+            "resources/kimbo-claude-statusline",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("resolve sidecar: {e}"))?;
+    let sidecar_abs_path = sidecar.to_string_lossy().to_string();
+
     let settings_p = settings_path().map_err(|e| e.to_string())?;
     let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
     let app_data = kimbo_config::AppConfig::config_dir();
