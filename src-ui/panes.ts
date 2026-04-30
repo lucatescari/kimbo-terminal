@@ -519,7 +519,7 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<
   ]);
 
   const prefs = getPrefs();
-  const newHud = renderClaudeHud(status, account, {
+  const newHud = renderClaudeHud(status, account, null, {
     hudEnabled: prefs.claudeHudEnabled,
     extendedFields: prefs.claudeHudExtended,
     showPlan: prefs.claudeHudShowPlan,

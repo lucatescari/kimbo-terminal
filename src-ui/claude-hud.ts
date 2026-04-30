@@ -1,7 +1,10 @@
 import type { ClaudeStatus } from "./claude-status";
 import type { AccountInfo } from "./claude-account";
+import type { RateLimits } from "./claude-rate-limits";
 import { estimateCost } from "./claude-pricing";
 import { showToast } from "./toast";
+
+const STALE_THRESHOLD_MS = 60 * 60 * 1000;
 
 export interface ClaudeHudPrefs {
   hudEnabled: boolean;
@@ -14,6 +17,7 @@ export interface ClaudeHudPrefs {
 export function renderClaudeHud(
   status: ClaudeStatus | null,
   account: AccountInfo | null,
+  rateLimits: RateLimits | null,
   prefs: ClaudeHudPrefs,
 ): HTMLElement | null {
   if (!prefs.hudEnabled) return null;
@@ -66,33 +70,45 @@ export function renderClaudeHud(
     root.appendChild(modelSpan);
   }
 
-  // Tokens — arrows in dim color, numbers in regular fg.
-  root.appendChild(sep());
-  const tokSpan = document.createElement("span");
-  tokSpan.className = "claude-hud__tokens";
-  const upArrow = document.createElement("span");
-  upArrow.className = "claude-hud__arrow";
-  upArrow.textContent = "\u2191";
-  const upNum = document.createTextNode(formatTokens(status.input_tokens));
-  const downArrow = document.createElement("span");
-  downArrow.className = "claude-hud__arrow";
-  downArrow.textContent = "\u2193";
-  const downNum = document.createTextNode(formatTokens(status.output_tokens));
-  tokSpan.appendChild(upArrow);
-  tokSpan.appendChild(upNum);
-  tokSpan.appendChild(document.createTextNode(" "));
-  tokSpan.appendChild(downArrow);
-  tokSpan.appendChild(downNum);
-  root.appendChild(tokSpan);
+  // Decide limits-vs-tokens path.
+  const matchesAccount =
+    rateLimits != null &&
+    !rateLimits.version_too_old &&
+    account != null &&
+    account.email != null &&
+    rateLimits.account_email === account.email;
 
-  // Cost (skip if model unknown)
-  const cost = estimateCost(status.model, status.input_tokens, status.output_tokens);
-  if (cost !== null) {
+  if (matchesAccount && rateLimits) {
     root.appendChild(sep());
-    const costSpan = document.createElement("span");
-    costSpan.className = "claude-hud__cost";
-    costSpan.textContent = formatCost(cost);
-    root.appendChild(costSpan);
+    root.appendChild(renderLimits(rateLimits));
+  } else {
+    // Tokens/cost fallback (preserved unchanged from the original code below).
+    root.appendChild(sep());
+    const tokSpan = document.createElement("span");
+    tokSpan.className = "claude-hud__tokens";
+    const upArrow = document.createElement("span");
+    upArrow.className = "claude-hud__arrow";
+    upArrow.textContent = "\u2191";
+    const upNum = document.createTextNode(formatTokens(status.input_tokens));
+    const downArrow = document.createElement("span");
+    downArrow.className = "claude-hud__arrow";
+    downArrow.textContent = "\u2193";
+    const downNum = document.createTextNode(formatTokens(status.output_tokens));
+    tokSpan.appendChild(upArrow);
+    tokSpan.appendChild(upNum);
+    tokSpan.appendChild(document.createTextNode(" "));
+    tokSpan.appendChild(downArrow);
+    tokSpan.appendChild(downNum);
+    root.appendChild(tokSpan);
+
+    const cost = estimateCost(status.model, status.input_tokens, status.output_tokens);
+    if (cost !== null) {
+      root.appendChild(sep());
+      const costSpan = document.createElement("span");
+      costSpan.className = "claude-hud__cost";
+      costSpan.textContent = formatCost(cost);
+      root.appendChild(costSpan);
+    }
   }
 
   // Duration
@@ -121,6 +137,11 @@ export function renderClaudeHud(
     toolSpan.className = "claude-hud__tools";
     toolSpan.textContent = `${status.tool_count} tools`;
     root.appendChild(toolSpan);
+  }
+
+  // Upgrade pill (independent of the fallback decision)
+  if (rateLimits?.version_too_old) {
+    root.appendChild(renderUpgradePill());
   }
 
   return root;
@@ -164,4 +185,51 @@ export function formatDuration(ms: number): string {
 /** Format cost as "~$2.30" with two decimals. */
 export function formatCost(dollars: number): string {
   return `~$${dollars.toFixed(2)}`;
+}
+
+function renderLimits(rl: RateLimits): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "claude-hud__limits";
+  const ageMs = Date.now() - rl.captured_at_ms;
+  if (ageMs > STALE_THRESHOLD_MS) {
+    span.classList.add("claude-hud__limits--stale");
+    const mins = Math.floor(ageMs / 60_000);
+    span.title = `last seen ${mins} min ago`;
+  }
+  appendWindow(span, "5h", rl.five_hour);
+  span.appendChild(document.createTextNode(" \u00b7 "));
+  appendWindow(span, "Wk", rl.seven_day);
+  return span;
+}
+
+function appendWindow(parent: HTMLElement, label: string, w: RateLimits["five_hour"]): void {
+  const lbl = document.createElement("span");
+  lbl.className = "claude-hud__limits-label";
+  lbl.textContent = label + " ";
+  parent.appendChild(lbl);
+  if (!w) {
+    parent.appendChild(document.createTextNode("—%"));
+    return;
+  }
+  const resetMs = Date.parse(w.resets_at);
+  if (Number.isFinite(resetMs) && resetMs < Date.now()) {
+    parent.appendChild(document.createTextNode("↻"));
+    return;
+  }
+  const pct = document.createElement("span");
+  pct.textContent = `${w.used_percentage}%`;
+  if (w.used_percentage >= 95) pct.classList.add("claude-hud__limits-danger");
+  else if (w.used_percentage >= 80) pct.classList.add("claude-hud__limits-warn");
+  if (Number.isFinite(resetMs)) {
+    pct.title = `${label} resets in ${formatDuration(resetMs - Date.now())}`;
+  }
+  parent.appendChild(pct);
+}
+
+function renderUpgradePill(): HTMLElement {
+  const pill = document.createElement("span");
+  pill.className = "claude-hud__upgrade-pill";
+  pill.textContent = "Update Claude Code ≥2.1.80 for limits";
+  pill.title = "Rate-limit display requires Claude Code 2.1.80 or newer.";
+  return pill;
 }
