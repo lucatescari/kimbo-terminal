@@ -33,6 +33,94 @@ pub fn claude_rate_limits() -> Result<Option<RateLimits>, String> {
     Ok(read_cache_at(&cache_path()))
 }
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind")]
+#[allow(dead_code)]
+pub enum InstallAction {
+    InstallSilently,
+    AlreadyOurs,
+    AskFirst { existing: String },
+}
+
+/// Pure planner: given the current contents of `~/.claude/settings.json`
+/// (or `None` if the file doesn't exist) and the absolute path our wrapper
+/// would be installed at, decide what to do.
+#[allow(dead_code)]
+pub fn decide_install_action(settings_json: Option<&str>, our_wrapper_path: &str) -> InstallAction {
+    let raw = match settings_json {
+        Some(s) => s,
+        None => return InstallAction::InstallSilently,
+    };
+    let v: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return InstallAction::InstallSilently,
+    };
+    let cmd = v.pointer("/statusLine/command").and_then(|x| x.as_str());
+    match cmd {
+        None => InstallAction::InstallSilently,
+        Some(c) if c == our_wrapper_path => InstallAction::AlreadyOurs,
+        Some(c) => InstallAction::AskFirst { existing: c.to_string() },
+    }
+}
+
+#[cfg(test)]
+mod planner_tests {
+    use super::*;
+
+    #[test]
+    fn no_settings_file_means_install_silently() {
+        assert_eq!(
+            decide_install_action(None, "/x/wrapper.sh"),
+            InstallAction::InstallSilently
+        );
+    }
+
+    #[test]
+    fn empty_settings_means_install_silently() {
+        assert_eq!(
+            decide_install_action(Some("{}"), "/x/wrapper.sh"),
+            InstallAction::InstallSilently
+        );
+    }
+
+    #[test]
+    fn no_status_line_key_means_install_silently() {
+        assert_eq!(
+            decide_install_action(Some(r#"{"theme":"dark"}"#), "/x/wrapper.sh"),
+            InstallAction::InstallSilently
+        );
+    }
+
+    #[test]
+    fn existing_command_matching_our_path_is_already_ours() {
+        let s = r#"{"statusLine":{"type":"command","command":"/x/wrapper.sh"}}"#;
+        assert_eq!(
+            decide_install_action(Some(s), "/x/wrapper.sh"),
+            InstallAction::AlreadyOurs
+        );
+    }
+
+    #[test]
+    fn different_existing_command_returns_ask_first() {
+        let s = r#"{"statusLine":{"type":"command","command":"/usr/local/bin/my-bar"}}"#;
+        assert_eq!(
+            decide_install_action(Some(s), "/x/wrapper.sh"),
+            InstallAction::AskFirst { existing: "/usr/local/bin/my-bar".into() }
+        );
+    }
+
+    #[test]
+    fn malformed_settings_treated_as_empty() {
+        // We don't want to refuse install just because the user's JSON is broken.
+        assert_eq!(
+            decide_install_action(Some("not json"), "/x/wrapper.sh"),
+            InstallAction::InstallSilently
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
