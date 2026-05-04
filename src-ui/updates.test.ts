@@ -125,7 +125,9 @@ describe("updates: launch toast", () => {
     await initUpdateCheck({ updates: { auto_check: true } } as any);
     expect(showToast).toHaveBeenCalledTimes(1);
     const opts = vi.mocked(showToast).mock.calls[0][0];
+    expect(opts.kind).toBe("info");
     expect(opts.message).toContain("0.3.0");
+    expect(opts.detail).toBe("Click to install");
     expect(opts.durationMs).toBe(0);
     expect(typeof opts.onClick).toBe("function");
   });
