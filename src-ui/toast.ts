@@ -9,6 +9,10 @@
 // `durationMs`, then slide back down. Click any toast to dismiss it
 // early. Stacks newest-on-top so the most recent message is closest to
 // the viewport edge.
+//
+// Pass onClick to make a toast actionable: it gets a right-edge chevron,
+// the callback fires on click, and durationMs: 0 keeps it visible until
+// then.
 
 export type ToastKind = "success" | "info" | "error";
 
@@ -53,7 +57,8 @@ export function showToast(opts: ToastOptions): void {
   const root = ensureHost();
   const kind = opts.kind ?? "info";
   const duration = opts.durationMs ?? 2500;
-  const actionable = typeof opts.onClick === "function";
+  const onClick = typeof opts.onClick === "function" ? opts.onClick : undefined;
+  const actionable = onClick !== undefined;
 
   const toast = document.createElement("div");
   toast.className = `toast toast--${kind}`;
@@ -103,9 +108,9 @@ export function showToast(opts: ToastOptions): void {
   };
 
   toast.addEventListener("click", () => {
-    if (actionable && !dismissed) {
+    if (onClick && !dismissed) {
       try {
-        opts.onClick!();
+        onClick();
       } catch (e) {
         console.warn("toast onClick threw:", e);
       }
