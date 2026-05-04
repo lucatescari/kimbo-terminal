@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { showToast } from "./toast";
+import { openSettingsToCategory } from "./settings";
 
 export interface UpdateInfo {
   current: string;
@@ -29,6 +31,17 @@ export async function initUpdateCheck(config: ConfigShape): Promise<void> {
   if (!config.updates?.auto_check) return;
   try {
     cached = await invoke<UpdateInfo>("check_for_updates", { force: false });
+    if (cached?.is_newer) {
+      showToast({
+        kind: "info",
+        message: `Update available: v${cached.latest}`,
+        detail: "Click to install",
+        durationMs: 0,
+        onClick: () => {
+          void openSettingsToCategory("about");
+        },
+      });
+    }
   } catch (e) {
     console.warn("Auto update check failed:", e);
   }

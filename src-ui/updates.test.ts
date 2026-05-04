@@ -31,6 +31,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("./toast", () => ({
+  showToast: vi.fn(),
+}));
+
+vi.mock("./settings", () => ({
+  openSettingsToCategory: vi.fn(),
+}));
+
 import { invoke } from "@tauri-apps/api/core";
 import {
   initUpdateCheck,
@@ -39,6 +47,8 @@ import {
   hasPendingUpdate,
   __resetUpdateCacheForTests,
 } from "./updates";
+import { showToast } from "./toast";
+import { openSettingsToCategory } from "./settings";
 
 const fakeInfo = {
   current: "0.2.1",
@@ -99,5 +109,49 @@ describe("updates: cache behavior", () => {
     vi.mocked(invoke).mockResolvedValueOnce({ ...fakeInfo, is_newer: false });
     await forceCheckUpdate();
     expect(hasPendingUpdate()).toBe(false);
+  });
+});
+
+describe("updates: launch toast", () => {
+  beforeEach(() => {
+    __resetUpdateCacheForTests();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(showToast).mockReset();
+    vi.mocked(openSettingsToCategory).mockReset();
+  });
+
+  it("shows a persistent actionable toast when initUpdateCheck finds an update", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(fakeInfo);
+    await initUpdateCheck({ updates: { auto_check: true } } as any);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const opts = vi.mocked(showToast).mock.calls[0][0];
+    expect(opts.message).toContain("0.3.0");
+    expect(opts.durationMs).toBe(0);
+    expect(typeof opts.onClick).toBe("function");
+  });
+
+  it("toast onClick navigates to the About settings panel", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(fakeInfo);
+    await initUpdateCheck({ updates: { auto_check: true } } as any);
+    const opts = vi.mocked(showToast).mock.calls[0][0];
+    opts.onClick!();
+    expect(openSettingsToCategory).toHaveBeenCalledWith("about");
+  });
+
+  it("does not show a toast when the launch check finds no newer version", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ ...fakeInfo, is_newer: false });
+    await initUpdateCheck({ updates: { auto_check: true } } as any);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("does not show a toast when auto_check is disabled", async () => {
+    await initUpdateCheck({ updates: { auto_check: false } } as any);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("does not show a toast when the launch check fails", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("offline"));
+    await initUpdateCheck({ updates: { auto_check: true } } as any);
+    expect(showToast).not.toHaveBeenCalled();
   });
 });
