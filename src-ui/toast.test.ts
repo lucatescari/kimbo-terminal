@@ -64,4 +64,41 @@ describe("showToast", () => {
     toast.click();
     expect(toast.classList.contains("toast--leaving")).toBe(true);
   });
+
+  it("does not auto-dismiss when durationMs is 0", () => {
+    vi.useFakeTimers();
+    showToast({ message: "stay", durationMs: 0 });
+    expect(host()!.querySelectorAll(".toast").length).toBe(1);
+    // Run far past any normal duration; the toast must still be there.
+    vi.advanceTimersByTime(60_000);
+    const toast = host()!.querySelector(".toast")!;
+    expect(toast).toBeTruthy();
+    expect(toast.classList.contains("toast--leaving")).toBe(false);
+  });
+
+  it("invokes onClick once when the toast is clicked, then dismisses", () => {
+    const onClick = vi.fn();
+    showToast({ message: "click me", durationMs: 0, onClick });
+    const toast = host()!.querySelector(".toast") as HTMLElement;
+    toast.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(toast.classList.contains("toast--leaving")).toBe(true);
+    // Clicking again must not re-fire the callback.
+    toast.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a chevron and the actionable class when onClick is provided", () => {
+    showToast({ message: "go", durationMs: 0, onClick: () => {} });
+    const toast = host()!.querySelector(".toast")!;
+    expect(toast.classList.contains("toast--actionable")).toBe(true);
+    expect(toast.querySelector(".toast__chevron")).toBeTruthy();
+  });
+
+  it("does not render a chevron when onClick is absent", () => {
+    showToast({ message: "plain" });
+    const toast = host()!.querySelector(".toast")!;
+    expect(toast.classList.contains("toast--actionable")).toBe(false);
+    expect(toast.querySelector(".toast__chevron")).toBeNull();
+  });
 });

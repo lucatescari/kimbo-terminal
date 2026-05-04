@@ -17,11 +17,16 @@ export interface ToastOptions {
   message: string;
   /** Visual + semantic kind. Default "info". */
   kind?: ToastKind;
-  /** How long the toast stays before auto-dismissing. Default 2500ms. */
+  /** How long the toast stays before auto-dismissing. Default 2500ms.
+   *  Pass 0 to keep the toast visible until the user clicks it. */
   durationMs?: number;
   /** Optional secondary line shown smaller below the message. Mono font;
    *  word-breaks so long values like UUIDs / shell commands fit. */
   detail?: string;
+  /** When set, the toast becomes actionable: clicking it invokes this
+   *  callback and then dismisses the toast. A right-edge chevron is
+   *  rendered as an affordance. Without this, click still dismisses. */
+  onClick?: () => void;
 }
 
 const ICONS: Record<ToastKind, string> = {
@@ -48,9 +53,11 @@ export function showToast(opts: ToastOptions): void {
   const root = ensureHost();
   const kind = opts.kind ?? "info";
   const duration = opts.durationMs ?? 2500;
+  const actionable = typeof opts.onClick === "function";
 
   const toast = document.createElement("div");
   toast.className = `toast toast--${kind}`;
+  if (actionable) toast.classList.add("toast--actionable");
 
   const icon = document.createElement("span");
   icon.className = "toast__icon";
@@ -73,6 +80,15 @@ export function showToast(opts: ToastOptions): void {
   }
 
   toast.appendChild(body);
+
+  if (actionable) {
+    const chevron = document.createElement("span");
+    chevron.className = "toast__chevron";
+    chevron.textContent = "\u203A"; // ›
+    chevron.setAttribute("aria-hidden", "true");
+    toast.appendChild(chevron);
+  }
+
   root.appendChild(toast);
 
   let dismissed = false;
@@ -86,8 +102,20 @@ export function showToast(opts: ToastOptions): void {
     setTimeout(() => toast.remove(), 400);
   };
 
-  toast.addEventListener("click", dismiss);
-  setTimeout(dismiss, duration);
+  toast.addEventListener("click", () => {
+    if (actionable && !dismissed) {
+      try {
+        opts.onClick!();
+      } catch (e) {
+        console.warn("toast onClick threw:", e);
+      }
+    }
+    dismiss();
+  });
+
+  if (duration > 0) {
+    setTimeout(dismiss, duration);
+  }
 }
 
 /** Test-only — drop the host element and reset module state between

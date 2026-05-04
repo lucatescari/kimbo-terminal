@@ -2109,6 +2109,17 @@ body {
   color: var(--fg-muted);
   word-break: break-all;
 }
+.toast__chevron {
+  flex-shrink: 0;
+  margin-left: 8px;
+  align-self: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fg-muted);
+}
+.toast--actionable:hover .toast__chevron {
+  color: var(--fg);
+}
 .toast--leaving {
   animation: toast-out 200ms ease-in forwards;
 }
