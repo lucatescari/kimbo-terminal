@@ -27,7 +27,6 @@ fn main() -> ExitCode {
         five_hour: parsed.five_hour,
         seven_day: parsed.seven_day,
         captured_at_ms: now_ms(),
-        account_email: parsed.account_email,
         version_too_old: parsed.version_too_old,
     };
 

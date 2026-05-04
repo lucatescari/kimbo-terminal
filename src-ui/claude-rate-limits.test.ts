@@ -14,15 +14,14 @@ describe("getRateLimits", () => {
 
   it("returns the parsed payload", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({
-      five_hour: { used_percentage: 47, resets_at: "2026-04-30T18:00:00Z" },
-      seven_day: { used_percentage: 23, resets_at: "2026-05-04T00:00:00Z" },
+      five_hour: { used_percentage: 47, resets_at: 1777902000 },
+      seven_day: { used_percentage: 23, resets_at: 1778234400 },
       captured_at_ms: 1714478531000,
-      account_email: "luca@tescari.dev",
       version_too_old: false,
     });
     const r = await getRateLimits();
     expect(r?.five_hour?.used_percentage).toBe(47);
-    expect(r?.account_email).toBe("luca@tescari.dev");
+    expect(r?.five_hour?.resets_at).toBe(1777902000);
   });
 
   it("returns null when the cmd returns null", async () => {

@@ -2,14 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface LimitWindow {
   used_percentage: number;
-  resets_at: string; // RFC3339
+  /** Unix timestamp in seconds. */
+  resets_at: number;
 }
 
 export interface RateLimits {
   five_hour: LimitWindow | null;
   seven_day: LimitWindow | null;
   captured_at_ms: number;
-  account_email: string | null;
   version_too_old: boolean;
 }
 

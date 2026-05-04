@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const FRESH_JSON: &str = r#"{"rate_limits":{"5-hour":{"used_percentage":47,"resets_at":"2026-04-30T18:00:00Z"},"7-day":{"used_percentage":23,"resets_at":"2026-05-04T00:00:00Z"}},"workspace":{"account_email":"luca@tescari.dev"}}"#;
+const FRESH_JSON: &str = r#"{"rate_limits":{"five_hour":{"used_percentage":47,"resets_at":1777902000},"seven_day":{"used_percentage":23,"resets_at":1778234400}}}"#;
 
 #[test]
 fn end_to_end_writes_cache_and_prints_status() {
@@ -29,7 +29,7 @@ fn end_to_end_writes_cache_and_prints_status() {
     let cache_bytes = std::fs::read(&cache_path).unwrap();
     let cache_str = String::from_utf8_lossy(&cache_bytes);
     assert!(cache_str.contains("\"used_percentage\": 47"));
-    assert!(cache_str.contains("luca@tescari.dev"));
+    assert!(cache_str.contains("\"resets_at\": 1777902000"));
 }
 
 #[test]

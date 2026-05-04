@@ -4,14 +4,14 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitWindow {
     pub used_percentage: u8,
-    pub resets_at: String,
+    /// Unix timestamp in seconds (Claude Code's native shape).
+    pub resets_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ParsedInput {
     pub five_hour: Option<LimitWindow>,
     pub seven_day: Option<LimitWindow>,
-    pub account_email: Option<String>,
     pub version_too_old: bool,
 }
 
@@ -20,7 +20,6 @@ pub struct RateLimits {
     pub five_hour: Option<LimitWindow>,
     pub seven_day: Option<LimitWindow>,
     pub captured_at_ms: u64,
-    pub account_email: Option<String>,
     pub version_too_old: bool,
 }
 
@@ -51,6 +50,18 @@ pub fn write_cache(path: &Path, cache: &RateLimits) -> std::io::Result<()> {
 
 /// Parse the JSON Claude Code pipes into the statusLine command.
 /// Returns `Err` only on malformed JSON. Missing optional fields are tolerated.
+///
+/// Real Claude Code 2.1.112 sends:
+/// ```json
+/// {
+///   "rate_limits": {
+///     "five_hour": { "used_percentage": 22, "resets_at": 1777902000 },
+///     "seven_day": { "used_percentage": 2,  "resets_at": 1778234400 }
+///   }
+/// }
+/// ```
+/// `resets_at` is a Unix timestamp in seconds (an integer, not a string).
+/// The JSON does not contain the user's email, so we don't capture one.
 pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
     let v: serde_json::Value = serde_json::from_str(stdin)?;
 
@@ -61,20 +72,13 @@ pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
         let w = rate_limits?.get(key)?;
         Some(LimitWindow {
             used_percentage: w.get("used_percentage")?.as_u64()?.min(255) as u8,
-            resets_at: w.get("resets_at")?.as_str()?.to_string(),
+            resets_at: w.get("resets_at")?.as_u64()?,
         })
     };
 
-    let account_email = v
-        .pointer("/workspace/account_email")
-        .and_then(|x| x.as_str())
-        .or_else(|| v.get("email").and_then(|x| x.as_str()))
-        .map(str::to_string);
-
     Ok(ParsedInput {
-        five_hour: extract_window("5-hour"),
-        seven_day: extract_window("7-day"),
-        account_email,
+        five_hour: extract_window("five_hour"),
+        seven_day: extract_window("seven_day"),
         version_too_old,
     })
 }
@@ -89,10 +93,9 @@ mod cache_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("claude-rate-limits.json");
         let cache = RateLimits {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: "2026-04-30T18:00:00Z".into() }),
-            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: "2026-05-04T00:00:00Z".into() }),
+            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 1777902000 }),
+            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
             captured_at_ms: 1714478531000,
-            account_email: Some("luca@tescari.dev".into()),
             version_too_old: false,
         };
         write_cache(&path, &cache).unwrap();
@@ -110,7 +113,6 @@ mod cache_tests {
             five_hour: None,
             seven_day: None,
             captured_at_ms: 0,
-            account_email: None,
             version_too_old: true,
         };
         write_cache(&path, &cache).unwrap();
@@ -124,22 +126,20 @@ mod tests {
 
     const INPUT_FRESH: &str = r#"{
       "rate_limits": {
-        "5-hour":  { "used_percentage": 47, "resets_at": "2026-04-30T18:00:00Z" },
-        "7-day":   { "used_percentage": 23, "resets_at": "2026-05-04T00:00:00Z" }
-      },
-      "workspace": { "account_email": "luca@tescari.dev" }
+        "five_hour":  { "used_percentage": 22, "resets_at": 1777902000 },
+        "seven_day":  { "used_percentage": 2,  "resets_at": 1778234400 }
+      }
     }"#;
 
     const INPUT_OLD: &str = r#"{
-      "workspace": { "account_email": "luca@tescari.dev" }
+      "model": { "id": "claude-opus-4-7" }
     }"#;
 
     #[test]
-    fn parse_fresh_input_extracts_both_windows_and_email() {
+    fn parse_fresh_input_extracts_both_windows() {
         let p = parse_input(INPUT_FRESH).unwrap();
-        assert_eq!(p.five_hour, Some(LimitWindow { used_percentage: 47, resets_at: "2026-04-30T18:00:00Z".into() }));
-        assert_eq!(p.seven_day, Some(LimitWindow { used_percentage: 23, resets_at: "2026-05-04T00:00:00Z".into() }));
-        assert_eq!(p.account_email.as_deref(), Some("luca@tescari.dev"));
+        assert_eq!(p.five_hour, Some(LimitWindow { used_percentage: 22, resets_at: 1777902000 }));
+        assert_eq!(p.seven_day, Some(LimitWindow { used_percentage: 2, resets_at: 1778234400 }));
         assert!(!p.version_too_old);
     }
 
@@ -157,11 +157,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_input_with_top_level_email_field_is_picked_up() {
-        let s = r#"{ "rate_limits": {}, "email": "alt@example.com" }"#;
+    fn parse_input_with_empty_rate_limits_is_not_version_too_old() {
+        let s = r#"{ "rate_limits": {} }"#;
         let p = parse_input(s).unwrap();
-        // top-level email is a fallback when workspace.account_email is absent
-        assert_eq!(p.account_email.as_deref(), Some("alt@example.com"));
         // empty rate_limits map ≠ missing key, so we treat windows as None but NOT version_too_old
         assert!(p.five_hour.is_none());
         assert!(p.seven_day.is_none());
@@ -183,9 +181,8 @@ mod statusline_tests {
 
     fn p(used_5h: u8, used_7d: u8) -> ParsedInput {
         ParsedInput {
-            five_hour: Some(LimitWindow { used_percentage: used_5h, resets_at: "x".into() }),
-            seven_day: Some(LimitWindow { used_percentage: used_7d, resets_at: "x".into() }),
-            account_email: None,
+            five_hour: Some(LimitWindow { used_percentage: used_5h, resets_at: 0 }),
+            seven_day: Some(LimitWindow { used_percentage: used_7d, resets_at: 0 }),
             version_too_old: false,
         }
     }
@@ -204,7 +201,7 @@ mod statusline_tests {
     #[test]
     fn renders_dash_only_for_the_missing_window() {
         let parsed = ParsedInput {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: "x".into() }),
+            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 0 }),
             seven_day: None,
             ..Default::default()
         };

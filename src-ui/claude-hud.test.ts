@@ -172,11 +172,14 @@ describe("renderClaudeHud", () => {
   });
 });
 
+// resets_at is Unix seconds. Future = past Y2038 buffer.
+const FUTURE_SEC = Math.floor(Date.now() / 1000) + 86400; // tomorrow
+const PAST_SEC = 946684800; // 2000-01-01
+
 const FRESH_LIMITS: RateLimits = {
-  five_hour: { used_percentage: 47, resets_at: "2099-01-01T00:00:00Z" },
-  seven_day: { used_percentage: 23, resets_at: "2099-01-01T00:00:00Z" },
+  five_hour: { used_percentage: 47, resets_at: FUTURE_SEC },
+  seven_day: { used_percentage: 23, resets_at: FUTURE_SEC },
   captured_at_ms: Date.now(),
-  account_email: "luca@tescari.dev",
   version_too_old: false,
 };
 
@@ -189,7 +192,6 @@ const VERSION_TOO_OLD: RateLimits = {
   five_hour: null,
   seven_day: null,
   captured_at_ms: Date.now(),
-  account_email: "luca@tescari.dev",
   version_too_old: true,
 };
 
@@ -208,7 +210,7 @@ const ACCOUNT_RL = { logged_in: true, email: "luca@tescari.dev", subscription_ty
 const PREFS_RL = { hudEnabled: true, extendedFields: false, showPlan: false };
 
 describe("renderClaudeHud with rateLimits", () => {
-  it("renders 5h/Wk percentages and hides tokens/cost when fresh + matching account", () => {
+  it("renders 5h/Wk percentages and hides tokens/cost when fresh", () => {
     const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, FRESH_LIMITS, PREFS_RL)!;
     expect(el.querySelector(".claude-hud__limits")).toBeTruthy();
     expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("5h");
@@ -224,13 +226,6 @@ describe("renderClaudeHud with rateLimits", () => {
     expect(el.querySelector(".claude-hud__tokens")).toBeTruthy();
   });
 
-  it("falls back to tokens/cost when account_email mismatches", () => {
-    const mismatched = { ...FRESH_LIMITS, account_email: "other@example.com" };
-    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, mismatched, PREFS_RL)!;
-    expect(el.querySelector(".claude-hud__limits")).toBeNull();
-    expect(el.querySelector(".claude-hud__tokens")).toBeTruthy();
-  });
-
   it("applies the stale class when captured_at is older than 60min", () => {
     const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, STALE_LIMITS, PREFS_RL)!;
     const limits = el.querySelector(".claude-hud__limits");
@@ -240,11 +235,11 @@ describe("renderClaudeHud with rateLimits", () => {
   });
 
   it("applies warn class at 80-94% and danger class at 95+%", () => {
-    const warn: RateLimits = { ...FRESH_LIMITS, five_hour: { used_percentage: 80, resets_at: "x" } };
+    const warn: RateLimits = { ...FRESH_LIMITS, five_hour: { used_percentage: 80, resets_at: FUTURE_SEC } };
     const elWarn = renderClaudeHud(STATUS_RL, ACCOUNT_RL, warn, PREFS_RL)!;
     expect(elWarn.querySelector(".claude-hud__limits-warn")).toBeTruthy();
 
-    const danger: RateLimits = { ...FRESH_LIMITS, seven_day: { used_percentage: 95, resets_at: "x" } };
+    const danger: RateLimits = { ...FRESH_LIMITS, seven_day: { used_percentage: 95, resets_at: FUTURE_SEC } };
     const elDanger = renderClaudeHud(STATUS_RL, ACCOUNT_RL, danger, PREFS_RL)!;
     expect(elDanger.querySelector(".claude-hud__limits-danger")).toBeTruthy();
   });
@@ -252,7 +247,7 @@ describe("renderClaudeHud with rateLimits", () => {
   it("renders ↻ for windows with resets_at in the past", () => {
     const past: RateLimits = {
       ...FRESH_LIMITS,
-      five_hour: { used_percentage: 47, resets_at: "2000-01-01T00:00:00Z" },
+      five_hour: { used_percentage: 47, resets_at: PAST_SEC },
     };
     const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, past, PREFS_RL)!;
     expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("↻");

@@ -251,10 +251,9 @@ mod tests {
 
     fn sample() -> RateLimits {
         RateLimits {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: "2026-04-30T18:00:00Z".into() }),
-            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: "2026-05-04T00:00:00Z".into() }),
+            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 1777902000 }),
+            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
             captured_at_ms: 1714478531000,
-            account_email: Some("luca@tescari.dev".into()),
             version_too_old: false,
         }
     }

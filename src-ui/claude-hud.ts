@@ -70,15 +70,14 @@ export function renderClaudeHud(
     root.appendChild(modelSpan);
   }
 
-  // Decide limits-vs-tokens path.
-  const matchesAccount =
-    rateLimits != null &&
-    !rateLimits.version_too_old &&
-    account != null &&
-    account.email != null &&
-    rateLimits.account_email === account.email;
+  // Decide limits-vs-tokens path. Show limits whenever we have fresh data
+  // and the version is supported. Claude Code's statusline JSON doesn't
+  // expose the account email, so we don't gate on a per-account match —
+  // the cache is naturally invalidated when the user runs a turn after
+  // switching accounts.
+  const showLimits = rateLimits != null && !rateLimits.version_too_old;
 
-  if (matchesAccount && rateLimits) {
+  if (showLimits && rateLimits) {
     root.appendChild(sep());
     root.appendChild(renderLimits(rateLimits));
   } else {
@@ -211,8 +210,9 @@ function appendWindow(parent: HTMLElement, label: string, w: RateLimits["five_ho
     parent.appendChild(document.createTextNode("—%"));
     return;
   }
-  const resetMs = Date.parse(w.resets_at);
-  if (Number.isFinite(resetMs) && resetMs < Date.now()) {
+  // resets_at is Unix seconds. Convert to ms for Date arithmetic.
+  const resetMs = w.resets_at * 1000;
+  if (resetMs < Date.now()) {
     parent.appendChild(document.createTextNode("↻"));
     return;
   }
@@ -220,9 +220,7 @@ function appendWindow(parent: HTMLElement, label: string, w: RateLimits["five_ho
   pct.textContent = `${w.used_percentage}%`;
   if (w.used_percentage >= 95) pct.classList.add("claude-hud__limits-danger");
   else if (w.used_percentage >= 80) pct.classList.add("claude-hud__limits-warn");
-  if (Number.isFinite(resetMs)) {
-    pct.title = `${label} resets in ${formatDuration(resetMs - Date.now())}`;
-  }
+  pct.title = `${label} resets in ${formatDuration(resetMs - Date.now())}`;
   parent.appendChild(pct);
 }
 
