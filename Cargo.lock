@@ -2182,6 +2182,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kimbo-claude-notify"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "kimbo-claude-statusline"
 version = "0.1.0"
 dependencies = [
