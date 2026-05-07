@@ -26,6 +26,118 @@ pub fn parse_event_line(line: &str) -> Option<NotifyEvent> {
     Some(NotifyEvent { session_id, kind, ts, message })
 }
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// Resolve the same socket path the sidecar uses.
+pub fn socket_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".kimbo").join("notify.sock"))
+}
+
+/// Try to clear a stale socket file at `path`. If a connect succeeds another
+/// kimbo is listening — return `Err(())`. If connect fails with anything else
+/// (typically `ECONNREFUSED` or `ENOENT`) we treat the file as stale and
+/// remove it.
+pub fn clear_stale_socket(path: &Path) -> Result<(), ()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    match std::os::unix::net::UnixStream::connect(path) {
+        Ok(_) => Err(()), // someone is listening
+        Err(_) => {
+            let _ = std::fs::remove_file(path);
+            Ok(())
+        }
+    }
+}
+
+/// Start the listener as a background tokio task. Returns immediately.
+/// On every received event, calls `on_event` with the parsed payload.
+///
+/// If bind fails (path race, permission, EADDRINUSE on some platforms), logs
+/// and returns — the app stays alive without notify-events in this window.
+pub fn spawn_listener<F>(path: PathBuf, on_event: F)
+where
+    F: Fn(NotifyEvent) + Send + Sync + 'static,
+{
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::net::UnixListener;
+
+    let on_event = Arc::new(on_event);
+
+    tauri::async_runtime::spawn(async move {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(()) = clear_stale_socket(&path) {
+            log::info!("notify-socket: another kimbo is listening; this window will not receive events");
+            return;
+        }
+        let listener = match UnixListener::bind(&path) {
+            Ok(l) => l,
+            Err(e) => {
+                log::warn!("notify-socket bind failed at {path:?}: {e}");
+                return;
+            }
+        };
+        log::info!("notify-socket listening at {path:?}");
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("notify-socket accept error: {e}");
+                    continue;
+                }
+            };
+            let on_event = on_event.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.is_err() {
+                    return;
+                }
+                if let Some(ev) = parse_event_line(&line) {
+                    on_event(ev);
+                } else {
+                    log::warn!("notify-socket: dropped unparseable line");
+                }
+            });
+        }
+    });
+}
+
+#[cfg(test)]
+mod listener_tests {
+    use super::*;
+
+    #[test]
+    fn clear_stale_socket_succeeds_when_path_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("notify.sock");
+        assert_eq!(clear_stale_socket(&p), Ok(()));
+    }
+
+    #[test]
+    fn clear_stale_socket_unlinks_dead_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("notify.sock");
+        std::fs::write(&p, b"junk").unwrap();
+        assert_eq!(clear_stale_socket(&p), Ok(()));
+        assert!(!p.exists());
+    }
+
+    #[test]
+    fn clear_stale_socket_returns_err_when_listener_alive() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("notify.sock");
+        let _listener = UnixListener::bind(&p).unwrap();
+        assert_eq!(clear_stale_socket(&p), Err(()));
+        assert!(p.exists());
+    }
+}
+
 #[cfg(test)]
 mod parse_tests {
     use super::*;
