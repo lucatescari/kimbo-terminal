@@ -17,6 +17,9 @@ fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
     // run BEFORE app.exit; SIGHUP is synchronous, the 150ms SIGKILL
     // escalation runs in detached threads per session.
     manager.kill_all();
+    if let Some(sock_path) = notify_socket::socket_path() {
+        let _ = std::fs::remove_file(&sock_path);
+    }
     app.exit(0);
 }
 
@@ -209,6 +212,20 @@ fn main() {
                 let path_str = sidecar.to_string_lossy().to_string();
                 if let Err(e) = commands::claude_rate_limits::rewrite_wrapper(&path_str) {
                     log::warn!("rewrite_wrapper failed: {e}");
+                }
+            }
+
+            // Notify-socket listener — receives events from kimbo-claude-notify hooks.
+            {
+                let app_handle = app.handle().clone();
+                if let Some(sock_path) = notify_socket::socket_path() {
+                    notify_socket::spawn_listener(sock_path, move |ev| {
+                        if let Err(e) = app_handle.emit("claude-notify", &ev) {
+                            log::warn!("emit claude-notify failed: {e}");
+                        }
+                    });
+                } else {
+                    log::warn!("notify-socket: $HOME unset; skipping listener");
                 }
             }
 
