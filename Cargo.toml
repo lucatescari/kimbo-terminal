@@ -6,6 +6,7 @@ members = [
     "crates/kimbo-config",
     "crates/kimbo-workspace",
     "crates/kimbo-claude-statusline",
+    "crates/kimbo-claude-notify",
 ]
 
 [workspace.package]
