@@ -2177,6 +2177,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "ureq",
  "window-vibrancy",
 ]
