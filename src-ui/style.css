@@ -724,6 +724,39 @@ body {
 /* Copy feedback now lives in the global toast component (toast.ts +
    #toast-host below). The HUD itself doesn't change on click. */
 
+/* Rate-limit HUD slot — .claude-hud__limits and its modifiers/children. */
+.claude-hud__limits {
+  /* default: same look as the rest of the HUD */
+}
+
+.claude-hud__limits-label {
+  color: var(--accent-muted, #8a8a8a);
+}
+
+.claude-hud__limits-warn {
+  color: var(--accent-yellow, #f9e2af);
+  font-weight: 600;
+}
+
+.claude-hud__limits-danger {
+  color: var(--accent-red, #f38ba8);
+  font-weight: 600;
+}
+
+.claude-hud__limits--stale {
+  opacity: 0.55;
+}
+
+.claude-hud__upgrade-pill {
+  margin-left: 0.5em;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--accent-yellow, #f9e2af);
+  color: #1a1a1a;
+  font-size: 10px;
+  cursor: default;
+}
+
 /* Override xterm.js defaults that paint opaque #000 over the terminal
    viewport and composition view, masking #app-frame's --app-alpha fill.
    See node_modules/@xterm/xterm/css/xterm.css lines 81 and 95.

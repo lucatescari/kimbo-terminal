@@ -5,6 +5,7 @@ members = [
     "crates/kimbo-terminal",
     "crates/kimbo-config",
     "crates/kimbo-workspace",
+    "crates/kimbo-claude-statusline",
 ]
 
 [workspace.package]

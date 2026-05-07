@@ -1,4 +1,5 @@
 pub mod claude;
+pub mod claude_rate_limits;
 pub mod config;
 pub mod kimbo;
 pub mod pty;

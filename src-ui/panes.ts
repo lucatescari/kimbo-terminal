@@ -32,6 +32,7 @@ let nextPaneId = 1;
 let tree: PaneTree | null = null;
 let activePaneId = -1;
 let rootEl: HTMLElement;
+let installAttempted = false;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -507,19 +508,63 @@ function fitAll(node: PaneTree): void {
   }
 }
 
+async function maybeAutoInstall(): Promise<void> {
+  if (installAttempted) return;
+  installAttempted = true;
+
+  const { getPrefs, setPref } = await import("./ui-prefs");
+  const prefs = getPrefs();
+  if (prefs.claudeRateLimitsEnabled !== undefined) return; // already decided
+
+  const { installRateLimits } = await import("./claude-rate-limits");
+  const { showToast } = await import("./toast");
+
+  try {
+    const outcome = await installRateLimits(false);
+    if (outcome.kind === "Installed" || outcome.kind === "NoOp") {
+      setPref("claudeRateLimitsEnabled", true);
+      showToast({
+        kind: "success",
+        message: "Kimbo enabled rate-limit display in Claude.",
+        detail: "Disable in Settings → Claude Code → HUD.",
+      });
+    } else if (outcome.kind === "Pending") {
+      showToast({
+        kind: "info",
+        message: "Enable rate-limit display in Claude?",
+        detail: `Your current statusLine (${outcome.existing}) would be replaced. Toggle in Settings → Claude Code → HUD if you'd like to enable it.`,
+      });
+      setPref("claudeRateLimitsEnabled", "dismissed");
+    }
+  } catch (e) {
+    console.warn("auto-install failed:", e);
+    showToast({
+      kind: "error",
+      message: "Couldn't enable rate-limit display",
+      detail: String(e),
+    });
+  }
+}
+
 async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<void> {
   const { claudeStatus } = await import("./claude-status");
   const { getAccountInfo } = await import("./claude-account");
   const { renderClaudeHud } = await import("./claude-hud");
   const { getPrefs } = await import("./ui-prefs");
+  const { getRateLimits } = await import("./claude-rate-limits");
 
-  const [status, account] = await Promise.all([
+  const [status, account, rateLimits] = await Promise.all([
     claudeStatus(ptyId),
     getAccountInfo(),
+    getRateLimits(),
   ]);
 
+  if (status) {
+    void maybeAutoInstall();
+  }
+
   const prefs = getPrefs();
-  const newHud = renderClaudeHud(status, account, {
+  const newHud = renderClaudeHud(status, account, rateLimits, {
     hudEnabled: prefs.claudeHudEnabled,
     extendedFields: prefs.claudeHudExtended,
     showPlan: prefs.claudeHudShowPlan,

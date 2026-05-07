@@ -7,6 +7,7 @@ import {
 } from "./claude-hud";
 import type { ClaudeStatus } from "./claude-status";
 import type { AccountInfo } from "./claude-account";
+import type { RateLimits } from "./claude-rate-limits";
 
 const STATUS: ClaudeStatus = {
   session_id: "5a7f9805-2543-4dd9-94ce-9563047d2c26",
@@ -67,17 +68,17 @@ describe("formatCost", () => {
 
 describe("renderClaudeHud", () => {
   it("returns null when hudEnabled is false", () => {
-    const el = renderClaudeHud(STATUS, ACCOUNT, { ...PREFS_DEFAULT, hudEnabled: false });
+    const el = renderClaudeHud(STATUS, ACCOUNT, null, { ...PREFS_DEFAULT, hudEnabled: false });
     expect(el).toBeNull();
   });
 
   it("returns null when status is null", () => {
-    const el = renderClaudeHud(null, ACCOUNT, PREFS_DEFAULT);
+    const el = renderClaudeHud(null, ACCOUNT, null, PREFS_DEFAULT);
     expect(el).toBeNull();
   });
 
   it("renders the default field set", () => {
-    const el = renderClaudeHud(STATUS, ACCOUNT, PREFS_DEFAULT)!;
+    const el = renderClaudeHud(STATUS, ACCOUNT, null, PREFS_DEFAULT)!;
     const text = el.textContent ?? "";
     expect(text).toContain("luca@tescari.dev");
     expect(text).toContain("5a7f9805"); // abbreviated session id
@@ -95,7 +96,7 @@ describe("renderClaudeHud", () => {
   });
 
   it("appends extended fields when extendedFields is on", () => {
-    const el = renderClaudeHud(STATUS, ACCOUNT, { ...PREFS_DEFAULT, extendedFields: true })!;
+    const el = renderClaudeHud(STATUS, ACCOUNT, null, { ...PREFS_DEFAULT, extendedFields: true })!;
     const text = el.textContent ?? "";
     expect(text).toContain("default");
     expect(text).toContain("24 msgs");
@@ -103,7 +104,7 @@ describe("renderClaudeHud", () => {
   });
 
   it("appends plan when showPlan is on", () => {
-    const el = renderClaudeHud(STATUS, ACCOUNT, { ...PREFS_DEFAULT, showPlan: true })!;
+    const el = renderClaudeHud(STATUS, ACCOUNT, null, { ...PREFS_DEFAULT, showPlan: true })!;
     expect(el.textContent ?? "").toContain("(max)");
   });
 
@@ -111,18 +112,19 @@ describe("renderClaudeHud", () => {
     const el = renderClaudeHud(
       { ...STATUS, model: "claude-totally-fake" },
       ACCOUNT,
+      null,
       PREFS_DEFAULT,
     )!;
     expect(el.textContent ?? "").not.toContain("$");
   });
 
   it("renders 'not logged in' when account is null", () => {
-    const el = renderClaudeHud(STATUS, null, PREFS_DEFAULT)!;
+    const el = renderClaudeHud(STATUS, null, null, PREFS_DEFAULT)!;
     expect(el.textContent ?? "").toContain("not logged in");
   });
 
   it("renders 'not logged in' when account.logged_in is false", () => {
-    const el = renderClaudeHud(STATUS, { logged_in: false, email: null, subscription_type: null }, PREFS_DEFAULT)!;
+    const el = renderClaudeHud(STATUS, { logged_in: false, email: null, subscription_type: null }, null, PREFS_DEFAULT)!;
     expect(el.textContent ?? "").toContain("not logged in");
   });
 
@@ -140,7 +142,7 @@ describe("renderClaudeHud", () => {
     });
 
     it("clicking the session span copies the resume command", async () => {
-      const el = renderClaudeHud(STATUS, ACCOUNT, PREFS_DEFAULT)!;
+      const el = renderClaudeHud(STATUS, ACCOUNT, null, PREFS_DEFAULT)!;
       const span = el.querySelector(".claude-hud__session") as HTMLElement;
       expect(span).toBeTruthy();
       span.click();
@@ -150,7 +152,7 @@ describe("renderClaudeHud", () => {
     });
 
     it("clicking the email span copies the email", async () => {
-      const el = renderClaudeHud(STATUS, ACCOUNT, PREFS_DEFAULT)!;
+      const el = renderClaudeHud(STATUS, ACCOUNT, null, PREFS_DEFAULT)!;
       const span = el.querySelector(".claude-hud__email") as HTMLElement;
       expect(span).toBeTruthy();
       span.click();
@@ -159,7 +161,7 @@ describe("renderClaudeHud", () => {
     });
 
     it("not-logged-in email span has no click handler", async () => {
-      const el = renderClaudeHud(STATUS, null, PREFS_DEFAULT)!;
+      const el = renderClaudeHud(STATUS, null, null, PREFS_DEFAULT)!;
       const span = el.querySelector(".claude-hud__email") as HTMLElement;
       // The span exists but should not be marked copyable.
       expect(span.classList.contains("claude-hud__copyable")).toBe(false);
@@ -167,5 +169,94 @@ describe("renderClaudeHud", () => {
       await Promise.resolve();
       expect(writeText).not.toHaveBeenCalled();
     });
+  });
+});
+
+// resets_at is Unix seconds. Future = past Y2038 buffer.
+const FUTURE_SEC = Math.floor(Date.now() / 1000) + 86400; // tomorrow
+const PAST_SEC = 946684800; // 2000-01-01
+
+const FRESH_LIMITS: RateLimits = {
+  five_hour: { used_percentage: 47, resets_at: FUTURE_SEC },
+  seven_day: { used_percentage: 23, resets_at: FUTURE_SEC },
+  captured_at_ms: Date.now(),
+  version_too_old: false,
+};
+
+const STALE_LIMITS: RateLimits = {
+  ...FRESH_LIMITS,
+  captured_at_ms: Date.now() - 90 * 60 * 1000, // 90 min ago
+};
+
+const VERSION_TOO_OLD: RateLimits = {
+  five_hour: null,
+  seven_day: null,
+  captured_at_ms: Date.now(),
+  version_too_old: true,
+};
+
+const STATUS_RL = {
+  session_id: "5a7f9805-1234-5678-9abc-def012345678",
+  model: "claude-opus-4-7",
+  started_at_ms: Date.now() - 5 * 60_000,
+  input_tokens: 1200,
+  output_tokens: 3400,
+  permission_mode: "default",
+  message_count: 5,
+  tool_count: 9,
+};
+
+const ACCOUNT_RL = { logged_in: true, email: "luca@tescari.dev", subscription_type: "max" };
+const PREFS_RL = { hudEnabled: true, extendedFields: false, showPlan: false };
+
+describe("renderClaudeHud with rateLimits", () => {
+  it("renders 5h/Wk percentages and hides tokens/cost when fresh", () => {
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, FRESH_LIMITS, PREFS_RL)!;
+    expect(el.querySelector(".claude-hud__limits")).toBeTruthy();
+    expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("5h");
+    expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("47%");
+    expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("23%");
+    expect(el.querySelector(".claude-hud__tokens")).toBeNull();
+    expect(el.querySelector(".claude-hud__cost")).toBeNull();
+  });
+
+  it("falls back to tokens/cost when rateLimits is null", () => {
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, null, PREFS_RL)!;
+    expect(el.querySelector(".claude-hud__limits")).toBeNull();
+    expect(el.querySelector(".claude-hud__tokens")).toBeTruthy();
+  });
+
+  it("applies the stale class when captured_at is older than 60min", () => {
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, STALE_LIMITS, PREFS_RL)!;
+    const limits = el.querySelector(".claude-hud__limits");
+    expect(limits).toBeTruthy();
+    expect(limits!.classList.contains("claude-hud__limits--stale")).toBe(true);
+    expect(limits!.getAttribute("title")).toMatch(/last seen \d+ min ago/);
+  });
+
+  it("applies warn class at 80-94% and danger class at 95+%", () => {
+    const warn: RateLimits = { ...FRESH_LIMITS, five_hour: { used_percentage: 80, resets_at: FUTURE_SEC } };
+    const elWarn = renderClaudeHud(STATUS_RL, ACCOUNT_RL, warn, PREFS_RL)!;
+    expect(elWarn.querySelector(".claude-hud__limits-warn")).toBeTruthy();
+
+    const danger: RateLimits = { ...FRESH_LIMITS, seven_day: { used_percentage: 95, resets_at: FUTURE_SEC } };
+    const elDanger = renderClaudeHud(STATUS_RL, ACCOUNT_RL, danger, PREFS_RL)!;
+    expect(elDanger.querySelector(".claude-hud__limits-danger")).toBeTruthy();
+  });
+
+  it("renders ↻ for windows with resets_at in the past", () => {
+    const past: RateLimits = {
+      ...FRESH_LIMITS,
+      five_hour: { used_percentage: 47, resets_at: PAST_SEC },
+    };
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, past, PREFS_RL)!;
+    expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("↻");
+  });
+
+  it("falls back to tokens/cost AND emits upgrade pill when version_too_old", () => {
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, VERSION_TOO_OLD, PREFS_RL)!;
+    expect(el.querySelector(".claude-hud__limits")).toBeNull();
+    expect(el.querySelector(".claude-hud__tokens")).toBeTruthy();
+    expect(el.querySelector(".claude-hud__upgrade-pill")).toBeTruthy();
   });
 });
