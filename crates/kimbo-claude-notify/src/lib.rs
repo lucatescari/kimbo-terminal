@@ -148,3 +148,35 @@ mod encode_tests {
         assert_eq!(parsed["message"], "Claude needs your permission");
     }
 }
+
+use std::path::PathBuf;
+
+/// Resolve the Kimbo notify socket path.
+///
+/// Layout: `$HOME/.kimbo/notify.sock`. Per-user via `$HOME` (no need for an
+/// extra uid suffix on macOS, where home dirs are already per-user).
+///
+/// Caller is expected to override `$HOME` in tests to redirect.
+pub fn resolve_socket_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".kimbo").join("notify.sock"))
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_path_under_home_dot_kimbo() {
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: tests in this crate are single-threaded inside this module.
+        let saved = std::env::var_os("HOME");
+        unsafe { std::env::set_var("HOME", dir.path()); }
+        let got = resolve_socket_path().unwrap();
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+        assert_eq!(got, dir.path().join(".kimbo").join("notify.sock"));
+    }
+}
