@@ -98,3 +98,53 @@ mod parse_tests {
         assert!(parse_hook_payload(s).is_none());
     }
 }
+
+/// JSON line we write to the Kimbo socket. Newline-terminated so the
+/// listener can use line-buffered reads.
+pub fn encode_event_line(payload: &HookPayload, ts_ms: u64) -> String {
+    let kind_str = match payload.kind {
+        NotifyKind::Stop => "stop",
+        NotifyKind::Notification => "notification",
+    };
+    let v = serde_json::json!({
+        "session_id": payload.session_id,
+        "kind": kind_str,
+        "ts": ts_ms,
+        "message": payload.message,
+    });
+    format!("{}\n", v)
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::*;
+
+    #[test]
+    fn encodes_stop_event_without_message() {
+        let p = HookPayload {
+            session_id: "abc-123".into(),
+            kind: NotifyKind::Stop,
+            message: None,
+        };
+        let line = encode_event_line(&p, 1714478531000);
+        assert!(line.ends_with('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(parsed["session_id"], "abc-123");
+        assert_eq!(parsed["kind"], "stop");
+        assert_eq!(parsed["ts"], 1714478531000u64);
+        assert!(parsed["message"].is_null());
+    }
+
+    #[test]
+    fn encodes_notification_event_with_message() {
+        let p = HookPayload {
+            session_id: "xyz".into(),
+            kind: NotifyKind::Notification,
+            message: Some("Claude needs your permission".into()),
+        };
+        let line = encode_event_line(&p, 1);
+        let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(parsed["kind"], "notification");
+        assert_eq!(parsed["message"], "Claude needs your permission");
+    }
+}
