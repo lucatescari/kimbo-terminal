@@ -57,5 +57,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # tauri-build verifies every `bundle.externalBin` exists at the
+      # `<name>-<target-triple>` path before kimbo-app's build script returns.
+      # Build the sidecar first so src-tauri/build.rs can stage it.
+      - name: Build claude-statusline sidecar
+        run: cargo build -p kimbo-claude-statusline
+
       - name: cargo check src-tauri
         run: cargo check -p kimbo-app
