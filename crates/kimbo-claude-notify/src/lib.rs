@@ -5,20 +5,17 @@
 //! Designed to NEVER break the user's Claude session: any failure (kimbo not
 //! running, malformed payload, socket gone) results in a silent exit 0.
 
-use serde::{Deserialize, Serialize};
-
 /// What we extract from Claude Code's hook stdin payload. Both `Stop` and
 /// `Notification` hooks send the same envelope; only `hook_event_name`
 /// differs. `message` is only set on `Notification` hooks.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HookPayload {
     pub session_id: String,
     pub kind: NotifyKind,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyKind {
     Stop,
     Notification,
@@ -93,5 +90,11 @@ mod parse_tests {
     fn returns_none_for_malformed_json() {
         assert!(parse_hook_payload("not json").is_none());
         assert!(parse_hook_payload("").is_none());
+    }
+
+    #[test]
+    fn returns_none_for_wrong_type_session_id() {
+        let s = r#"{"session_id": 42, "hook_event_name": "Stop"}"#;
+        assert!(parse_hook_payload(s).is_none());
     }
 }
