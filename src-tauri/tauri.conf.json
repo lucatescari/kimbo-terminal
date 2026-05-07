@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicobrinkkemper/tauri-v2-schema/main/tauri.conf.json",
   "productName": "Kimbo",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "identifier": "com.kimbo.terminal",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build:frontend"
+    "beforeBuildCommand": "npm run build:frontend && cargo build --release -p kimbo-claude-statusline"
   },
   "app": {
     "windows": [
@@ -42,8 +42,10 @@
     "resources": [
       "resources/shell/kimbo-init.zsh",
       "resources/shell/kimbo-init.bash",
-      "resources/shell/kimbo-init.fish",
-      "resources/kimbo-claude-statusline"
+      "resources/shell/kimbo-init.fish"
+    ],
+    "externalBin": [
+      "binaries/kimbo-claude-statusline"
     ],
     "macOS": {
       "entitlements": "entitlements.plist"

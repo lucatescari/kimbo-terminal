@@ -204,11 +204,7 @@ fn main() {
                 });
             }
 
-            let resolver = app.path();
-            if let Ok(sidecar) = resolver.resolve(
-                "resources/kimbo-claude-statusline",
-                tauri::path::BaseDirectory::Resource,
-            ) {
+            if let Ok(sidecar) = commands::claude_rate_limits::sidecar_path() {
                 let path_str = sidecar.to_string_lossy().to_string();
                 if let Err(e) = commands::claude_rate_limits::rewrite_wrapper(&path_str) {
                     log::warn!("rewrite_wrapper failed: {e}");

@@ -14,6 +14,23 @@ fn cache_path() -> PathBuf {
     kimbo_config::AppConfig::config_dir().join("claude-rate-limits.json")
 }
 
+/// Resolve the bundled `kimbo-claude-statusline` sidecar relative to the
+/// running kimbo executable. Tauri's `externalBin` lands the binary in the
+/// same directory as the main app binary (Contents/MacOS/ on macOS,
+/// target/<profile>/ in dev), so `current_exe().parent()` works for both.
+pub fn sidecar_path() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let dir = exe.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "current_exe has no parent")
+    })?;
+    let bin_name = if cfg!(windows) {
+        "kimbo-claude-statusline.exe"
+    } else {
+        "kimbo-claude-statusline"
+    };
+    Ok(dir.join(bin_name))
+}
+
 /// Read the cache file. Returns `None` when missing or corrupt; never panics.
 pub fn read_cache_at(path: &Path) -> Option<RateLimits> {
     let bytes = std::fs::read(path).ok()?;
@@ -182,10 +199,10 @@ mod install_tests {
 
     #[test]
     fn render_wrapper_script_is_executable_sh_with_env_and_exec() {
-        let s = render_wrapper_script("/Apps/Kimbo.app/Contents/Resources/kimbo-claude-statusline", "/Users/u/Library/Application Support/kimbo");
+        let s = render_wrapper_script("/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-statusline", "/Users/u/Library/Application Support/kimbo");
         assert!(s.starts_with("#!/bin/sh\n"));
         assert!(s.contains("KIMBO_APP_DATA=\"/Users/u/Library/Application Support/kimbo\""));
-        assert!(s.contains("exec \"/Apps/Kimbo.app/Contents/Resources/kimbo-claude-statusline\""));
+        assert!(s.contains("exec \"/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-statusline\""));
         assert!(s.contains("\"$@\""));
     }
 
@@ -311,17 +328,10 @@ fn now_ms() -> u64 {
 
 #[tauri::command]
 pub fn claude_rate_limits_install(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     force: bool,
 ) -> Result<InstallOutcome, String> {
-    use tauri::Manager;
-    let resolver = app.path();
-    let sidecar = resolver
-        .resolve(
-            "resources/kimbo-claude-statusline",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .map_err(|e| format!("resolve sidecar: {e}"))?;
+    let sidecar = sidecar_path().map_err(|e| format!("resolve sidecar: {e}"))?;
     let sidecar_abs_path = sidecar.to_string_lossy().to_string();
 
     let settings_p = settings_path().map_err(|e| e.to_string())?;
