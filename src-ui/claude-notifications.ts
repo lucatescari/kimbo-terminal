@@ -163,54 +163,58 @@ export async function wireClaudeNotifications(): Promise<void> {
       };
     },
     paint: async (req: PaintRequest) => {
-      const focusPane = () => {
-        switchTab(req.tabId);
-        requestAnimationFrame(() => setActivePane(req.paneId));
-      };
+      try {
+        const focusPane = () => {
+          switchTab(req.tabId);
+          requestAnimationFrame(() => setActivePane(req.paneId));
+        };
 
-      // 1. Tab badge — only paint when not on that tab.
-      if (getActiveTab()?.id !== req.tabId) {
-        setTabBadge(req.tabId, req.kind === "notification" ? "perm" : "stop");
-      }
-
-      // 2. Pane head badge — only paint when on that tab but not that pane.
-      if (getActiveTab()?.id === req.tabId && getActivePaneId() !== req.paneId) {
-        setPaneBadge(req.paneId, req.kind === "notification" ? "perm" : "stop");
-      }
-
-      // 3. Toast — always.
-      showToast({
-        kind: "info",
-        accent: req.kind === "notification" ? "perm" : "stop",
-        message:
-          req.kind === "notification"
-            ? `Claude needs permission in ${req.tabName}`
-            : `Claude finished in ${req.tabName}`,
-        detail: req.message ?? undefined,
-        durationMs: 30_000,
-        onClick: focusPane,
-      });
-
-      // 4. macOS notification — only when window unfocused.
-      if (req.fireMacOsNotification) {
-        let granted = await isPermissionGranted();
-        if (!granted) {
-          granted = (await requestPermission()) === "granted";
+        // 1. Tab badge — only paint when not on that tab.
+        if (getActiveTab()?.id !== req.tabId) {
+          setTabBadge(req.tabId, req.kind === "notification" ? "perm" : "stop");
         }
-        if (granted) {
-          const body = req.cwdBasename
-            ? `${req.tabName} · ${req.cwdBasename}`
-            : req.tabName;
-          sendNotification({
-            title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
-            body,
-          });
-          pendingFocus = {
-            tabId: req.tabId,
-            paneId: req.paneId,
-            expiresAt: Date.now() + PENDING_FOCUS_TTL_MS,
-          };
+
+        // 2. Pane head badge — only paint when on that tab but not that pane.
+        if (getActiveTab()?.id === req.tabId && getActivePaneId() !== req.paneId) {
+          setPaneBadge(req.paneId, req.kind === "notification" ? "perm" : "stop");
         }
+
+        // 3. Toast — always.
+        showToast({
+          kind: "info",
+          accent: req.kind === "notification" ? "perm" : "stop",
+          message:
+            req.kind === "notification"
+              ? `Claude needs permission in ${req.tabName}`
+              : `Claude finished in ${req.tabName}`,
+          detail: req.message ?? undefined,
+          durationMs: 30_000,
+          onClick: focusPane,
+        });
+
+        // 4. macOS notification — only when window unfocused.
+        if (req.fireMacOsNotification) {
+          let granted = await isPermissionGranted();
+          if (!granted) {
+            granted = (await requestPermission()) === "granted";
+          }
+          if (granted) {
+            const body = req.cwdBasename
+              ? `${req.tabName} · ${req.cwdBasename}`
+              : req.tabName;
+            sendNotification({
+              title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
+              body,
+            });
+            pendingFocus = {
+              tabId: req.tabId,
+              paneId: req.paneId,
+              expiresAt: Date.now() + PENDING_FOCUS_TTL_MS,
+            };
+          }
+        }
+      } catch (e) {
+        console.warn("claude-notifications paint failed:", e);
       }
     },
   });
