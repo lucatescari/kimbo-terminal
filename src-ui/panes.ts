@@ -60,10 +60,6 @@ function applyPaneBadgeClass(head: HTMLElement, kind: PaneBadgeKind): void {
   }
 }
 
-export function getPaneBadge(paneId: number): PaneBadgeKind {
-  return paneBadge.get(paneId) ?? null;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
