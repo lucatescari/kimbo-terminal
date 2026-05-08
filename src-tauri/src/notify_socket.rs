@@ -92,6 +92,11 @@ where
             };
             let on_event = on_event.clone();
             tauri::async_runtime::spawn(async move {
+                // Contract: one connection = one event = one line, then EOF.
+                // The sidecar enforces this. If a future change has it write
+                // multiple events on one stream, switch to a `lines()` loop;
+                // today, anything after the first newline is silently dropped
+                // when the sidecar closes the stream.
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
                 if reader.read_line(&mut line).await.is_err() {
