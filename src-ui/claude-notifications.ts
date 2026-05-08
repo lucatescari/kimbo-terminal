@@ -126,6 +126,21 @@ import { setPaneBadge, getActivePaneId, setActivePane, paneCwdBasename } from ".
 import { paneForSession as paneForSessionLookup } from "./claude-session-map";
 import { getPrefs } from "./ui-prefs";
 
+/** Best-effort: ask macOS for notification permission. Called after the
+ *  hooks are installed so the prompt comes at a moment the user expects,
+ *  not the first time an unfocused notification fires. Idempotent: if
+ *  already granted (or already denied), this is a no-op. */
+export async function ensureNotificationPermission(): Promise<void> {
+  try {
+    const { isPermissionGranted, requestPermission } =
+      await import("@tauri-apps/plugin-notification");
+    if (await isPermissionGranted()) return;
+    await requestPermission();
+  } catch (e) {
+    console.warn("ensureNotificationPermission failed:", e);
+  }
+}
+
 export async function wireClaudeNotifications(): Promise<void> {
   const { listen } = await import("@tauri-apps/api/event");
   const { sendNotification, isPermissionGranted, requestPermission } =

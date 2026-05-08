@@ -620,6 +620,8 @@ async function maybeAutoInstallNotifications(): Promise<void> {
       message: "Kimbo enabled Claude notifications.",
       detail: "Disable in Settings → Claude Code → Notifications.",
     });
+    const { ensureNotificationPermission } = await import("./claude-notifications");
+    void ensureNotificationPermission();
   } catch (e) {
     // Transient failures (FS errors, permission denied, etc.) — leave the
     // prefs undefined so the next claude-detect retries. The Settings UI

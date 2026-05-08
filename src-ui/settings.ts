@@ -1142,6 +1142,8 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
         await invoke("claude_notifications_uninstall");
       } else {
         await invoke("claude_notifications_install");
+        const { ensureNotificationPermission } = await import("./claude-notifications");
+        void ensureNotificationPermission();
       }
     } catch (e) {
       const { showToast } = await import("./toast");
