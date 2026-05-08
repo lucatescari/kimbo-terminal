@@ -45,11 +45,43 @@ export interface Routing {
 const COALESCE_WINDOW_MS = 500;
 const lastNotificationByTs = new Map<string, number>();
 
+interface PendingFocus {
+  tabId: number;
+  paneId: number;
+  expiresAt: number;
+}
+
+const PENDING_FOCUS_TTL_MS = 30_000;
+let pendingFocus: PendingFocus | null = null;
+let focusListenerInstalled = false;
+
 let routing: Routing | null = null;
 
 export function setRoutingForTesting(r: Routing): void {
   routing = r;
   lastNotificationByTs.clear();
+}
+
+function ensureFocusListener(focusPane: (tabId: number, paneId: number) => void): void {
+  if (focusListenerInstalled) return;
+  focusListenerInstalled = true;
+  window.addEventListener("focus", () => {
+    if (!pendingFocus) return;
+    if (Date.now() > pendingFocus.expiresAt) {
+      pendingFocus = null;
+      return;
+    }
+    const target = pendingFocus;
+    pendingFocus = null;
+    focusPane(target.tabId, target.paneId);
+  });
+}
+
+// NOTE: The focus-listener path (notification click → window regains focus →
+// route to pending pane) is only exercised in wireClaudeNotifications, which
+// requires a real Tauri environment. Unit tests do not cover this path.
+export function clearPendingFocusForTesting(): void {
+  pendingFocus = null;
 }
 
 export function handleNotifyEvent(ev: NotifyEvent): void {
@@ -162,9 +194,19 @@ export async function wireClaudeNotifications(): Promise<void> {
             title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
             body,
           });
+          pendingFocus = {
+            tabId: req.tabId,
+            paneId: req.paneId,
+            expiresAt: Date.now() + PENDING_FOCUS_TTL_MS,
+          };
         }
       }
     },
+  });
+
+  ensureFocusListener((tabId, paneId) => {
+    switchTab(tabId);
+    requestAnimationFrame(() => setActivePane(paneId));
   });
 
   // Listen for backend socket events and route them.
