@@ -153,8 +153,12 @@ use std::path::PathBuf;
 
 /// Resolve the Kimbo notify socket path.
 ///
-/// Layout: `$HOME/.kimbo/notify.sock`. Per-user via `$HOME` (no need for an
-/// extra uid suffix on macOS, where home dirs are already per-user).
+/// Layout: `$HOME/.kimbo/notify.sock`. The spec called for a `<uid>` suffix
+/// (`notify-<uid>.sock`) for multi-user isolation, but `$HOME` already
+/// provides per-user isolation on macOS — adding `<uid>` would only matter
+/// in the unusual case of a shared home dir across machines, which kimbo
+/// doesn't otherwise support. Kept simple here; promote to `<uid>` if a
+/// shared-home scenario surfaces.
 ///
 /// Caller is expected to override `$HOME` in tests to redirect.
 pub fn resolve_socket_path() -> Option<PathBuf> {

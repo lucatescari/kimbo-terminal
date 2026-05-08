@@ -30,6 +30,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Resolve the same socket path the sidecar uses.
+///
+/// Layout: `$HOME/.kimbo/notify.sock`. The spec called for a `<uid>` suffix
+/// (`notify-<uid>.sock`) for multi-user isolation, but `$HOME` already
+/// provides per-user isolation on macOS — adding `<uid>` would only matter
+/// in the unusual case of a shared home dir across machines, which kimbo
+/// doesn't otherwise support. Kept simple here; promote to `<uid>` if a
+/// shared-home scenario surfaces.
 pub fn socket_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".kimbo").join("notify.sock"))
