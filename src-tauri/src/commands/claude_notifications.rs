@@ -177,3 +177,77 @@ mod install_tests {
         assert!(v.pointer("/hooks/Stop").is_some());
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum InstallStatus {
+    Installed,
+    PartiallyInstalled { missing: Vec<String> },
+    NotInstalled,
+    Unknown,
+}
+
+/// Pure: classify the install state by checking whether `wrapper_path` is
+/// present in BOTH `hooks.Stop` and `hooks.Notification` arrays.
+pub fn compute_status(current: Option<&str>, wrapper_path: &str) -> InstallStatus {
+    let raw = match current {
+        Some(s) if !s.trim().is_empty() => s,
+        _ => return InstallStatus::NotInstalled,
+    };
+    let v: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return InstallStatus::Unknown,
+    };
+
+    let mut missing: Vec<String> = Vec::new();
+    for &event in HOOK_EVENTS {
+        let present = v
+            .pointer(&format!("/hooks/{event}"))
+            .and_then(|a| a.as_array())
+            .map(|arr| arr.iter().any(|entry| entry_points_to(entry, wrapper_path)))
+            .unwrap_or(false);
+        if !present {
+            missing.push(event.to_string());
+        }
+    }
+
+    match missing.len() {
+        0 => InstallStatus::Installed,
+        n if n == HOOK_EVENTS.len() => InstallStatus::NotInstalled,
+        _ => InstallStatus::PartiallyInstalled { missing },
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn missing_settings_is_not_installed() {
+        assert_eq!(compute_status(None, "/x/notify.sh"), InstallStatus::NotInstalled);
+        assert_eq!(compute_status(Some(""), "/x/notify.sh"), InstallStatus::NotInstalled);
+        assert_eq!(compute_status(Some("{}"), "/x/notify.sh"), InstallStatus::NotInstalled);
+    }
+
+    #[test]
+    fn malformed_settings_is_unknown() {
+        assert_eq!(compute_status(Some("not json"), "/x/notify.sh"), InstallStatus::Unknown);
+    }
+
+    #[test]
+    fn both_hooks_present_is_installed() {
+        let installed = install_hooks_into_settings(None, "/x/notify.sh").unwrap();
+        assert_eq!(compute_status(Some(&installed), "/x/notify.sh"), InstallStatus::Installed);
+    }
+
+    #[test]
+    fn only_one_hook_present_is_partial() {
+        let s = r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/notify.sh"}]}]}}"#;
+        match compute_status(Some(s), "/x/notify.sh") {
+            InstallStatus::PartiallyInstalled { missing } => {
+                assert_eq!(missing, vec!["Notification".to_string()]);
+            }
+            other => panic!("expected PartiallyInstalled, got {other:?}"),
+        }
+    }
+}
