@@ -28,8 +28,6 @@ describe("claude-notifications: routing", () => {
       tabForPane: (paneId) => (paneId === 7 ? 3 : null),
       tabName: () => "test-tab",
       cwdBasename: () => "test-dir",
-      activeTabId: () => 1,
-      activePaneId: () => 0,
       windowFocused: () => true,
       prefs: () => ({ notifyOnStop: true, notifyOnPermission: true, notifySoundEnabled: false }),
       paint: onPaint,

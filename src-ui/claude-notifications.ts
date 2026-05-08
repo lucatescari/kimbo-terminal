@@ -35,8 +35,6 @@ export interface Routing {
   tabForPane(paneId: number): number | null;
   tabName(tabId: number): string;
   cwdBasename(paneId: number): string | null;
-  activeTabId(): number;
-  activePaneId(): number;
   windowFocused(): boolean;
   prefs(): NotifyPrefs;
   paint(req: PaintRequest): void;
@@ -155,8 +153,6 @@ export async function wireClaudeNotifications(): Promise<void> {
       return t ? (t.titleOverride ?? t.name) : `tab ${tabId}`;
     },
     cwdBasename: paneCwdBasename,
-    activeTabId: () => getActiveTab()?.id ?? -1,
-    activePaneId: () => getActivePaneId(),
     windowFocused: () => document.hasFocus(),
     prefs: () => {
       const p = getPrefs();
