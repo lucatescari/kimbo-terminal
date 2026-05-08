@@ -2204,6 +2204,9 @@ body {
    Pane head badge (Task 20)
    --------------------------------------------------------------------------- */
 .pane-head--badge { position: relative; }
+.pane-head.pane-head--badge {
+  padding-right: 18px;
+}
 .pane-head--badge::after {
   content: "";
   position: absolute;
