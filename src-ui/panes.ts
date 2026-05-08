@@ -235,6 +235,7 @@ export function closeActive(): void {
   } catch (e) {
     console.warn("pane session dispose failed:", e);
   }
+  import("./claude-session-map").then(({ removePane }) => removePane(leaf.paneId));
 
   requestAnimationFrame(() => fitAll(tree!));
 }
@@ -320,6 +321,7 @@ export function disposeTree(node: PaneTree | null): void {
     // walk and leak the rest of the subtree's PTYs (same failure shape as
     // the closeActive() zombie-pane bug).
     try { node.session.dispose(); } catch (e) { console.warn("pane session dispose failed:", e); }
+    import("./claude-session-map").then(({ removePane }) => removePane(node.paneId));
     return;
   }
   disposeTree(node.first);
@@ -396,7 +398,7 @@ async function createLeaf(opts: {
       return;
     }
     updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
-    await refreshClaudeHudFor(el, session.ptyId);
+    await refreshClaudeHudFor(el, session.ptyId, paneId);
   }, 2000);
 
   return { type: "leaf", paneId, session, element: el };
@@ -546,12 +548,13 @@ async function maybeAutoInstall(): Promise<void> {
   }
 }
 
-async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<void> {
+async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: number): Promise<void> {
   const { claudeStatus } = await import("./claude-status");
   const { getAccountInfo } = await import("./claude-account");
   const { renderClaudeHud } = await import("./claude-hud");
   const { getPrefs } = await import("./ui-prefs");
   const { getRateLimits } = await import("./claude-rate-limits");
+  const { setSessionPane } = await import("./claude-session-map");
 
   const [status, account, rateLimits] = await Promise.all([
     claudeStatus(ptyId),
@@ -560,6 +563,7 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<
   ]);
 
   if (status) {
+    setSessionPane(status.session_id, paneId);
     void maybeAutoInstall();
   }
 
