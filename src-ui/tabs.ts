@@ -50,6 +50,27 @@ let scrollRegionEl: HTMLElement | null = null;
 let leftArrowEl: HTMLElement | null = null;
 let rightArrowEl: HTMLElement | null = null;
 
+type BadgeKind = "stop" | "perm" | null;
+const tabBadge: Map<number, BadgeKind> = new Map();
+
+/** Set the badge state for a tab. Permission wins over stop when both apply.
+ *  Pass null to clear. Triggers a tab-bar re-render. */
+export function setTabBadge(tabId: number, kind: BadgeKind): void {
+  if (kind === null) {
+    tabBadge.delete(tabId);
+  } else {
+    const existing = tabBadge.get(tabId);
+    if (existing === "perm") return; // perm wins; don't downgrade
+    tabBadge.set(tabId, kind);
+  }
+  renderTabBar();
+}
+
+/** Read-only — used by claude-notifications.ts. */
+export function getTabBadge(tabId: number): BadgeKind {
+  return tabBadge.get(tabId) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -136,6 +157,7 @@ export function switchTab(id: number) {
 
   tab.container.style.display = "flex";
   activeTabId = id;
+  tabBadge.delete(id);
 
   // Restore pane tree for this tab.
   initPanes(tab.container);
@@ -470,7 +492,9 @@ function renderTabBar() {
 
   tabs.forEach((tab, i) => {
     const el = document.createElement("button");
-    el.className = "tab" + (tab.id === activeTabId ? " active" : "");
+    const badge = tabBadge.get(tab.id) ?? null;
+    const badgeCls = badge ? ` tab--badge tab--badge-${badge}` : "";
+    el.className = "tab" + (tab.id === activeTabId ? " active" : "") + badgeCls;
     el.type = "button";
     el.dataset.tabId = String(tab.id);
     el.dataset.tabIndex = String(i);

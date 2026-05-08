@@ -2181,3 +2181,21 @@ body {
 .toast--accent-perm {
   border-left: 3px solid var(--kimbo-notify-perm);
 }
+
+/* ---------------------------------------------------------------------------
+   Tab pill badge (Task 19)
+   --------------------------------------------------------------------------- */
+.tab.tab--badge { position: relative; }
+.tab--badge::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kimbo-notify-stop);
+}
+.tab--badge-perm::after {
+  background: var(--kimbo-notify-perm);
+}

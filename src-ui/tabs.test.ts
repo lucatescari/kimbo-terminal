@@ -814,3 +814,26 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     expect(reopenCall[3]).toBeUndefined();
   });
 });
+
+describe("tab badge", () => {
+  it("perm overrides stop", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(99, "stop");
+    h.tabs.setTabBadge(99, "perm");
+    expect(h.tabs.getTabBadge(99)).toBe("perm");
+  });
+
+  it("stop does not override perm", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(98, "perm");
+    h.tabs.setTabBadge(98, "stop");
+    expect(h.tabs.getTabBadge(98)).toBe("perm");
+  });
+
+  it("null clears the badge", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(97, "stop");
+    h.tabs.setTabBadge(97, null);
+    expect(h.tabs.getTabBadge(97)).toBeNull();
+  });
+});
