@@ -23,6 +23,8 @@ export interface PaintRequest {
   kind: "stop" | "notification";
   paneId: number;
   tabId: number;
+  tabName: string;
+  cwdBasename: string | null;
   message: string | null;
   fireMacOsNotification: boolean;
   playSound: boolean;
@@ -31,6 +33,8 @@ export interface PaintRequest {
 export interface Routing {
   paneForSession(sessionId: string): number | null;
   tabForPane(paneId: number): number | null;
+  tabName(tabId: number): string;
+  cwdBasename(paneId: number): string | null;
   activeTabId(): number;
   activePaneId(): number;
   windowFocused(): boolean;
@@ -76,6 +80,8 @@ export function handleNotifyEvent(ev: NotifyEvent): void {
     kind: ev.kind,
     paneId,
     tabId,
+    tabName: routing.tabName(tabId),
+    cwdBasename: routing.cwdBasename(paneId),
     message: ev.message,
     fireMacOsNotification: !routing.windowFocused(),
     playSound: prefs.notifySoundEnabled && !routing.windowFocused(),
@@ -83,8 +89,8 @@ export function handleNotifyEvent(ev: NotifyEvent): void {
 }
 
 import { showToast } from "./toast";
-import { setTabBadge, switchTab, getActiveTab, findTabIdByPaneId } from "./tabs";
-import { setPaneBadge, getActivePaneId, setActivePane } from "./panes";
+import { setTabBadge, switchTab, getActiveTab, findTabIdByPaneId, findTabById } from "./tabs";
+import { setPaneBadge, getActivePaneId, setActivePane, paneCwdBasename } from "./panes";
 import { paneForSession as paneForSessionLookup } from "./claude-session-map";
 import { getPrefs } from "./ui-prefs";
 
@@ -97,6 +103,11 @@ export async function wireClaudeNotifications(): Promise<void> {
   setRoutingForTesting({
     paneForSession: paneForSessionLookup,
     tabForPane: findTabIdByPaneId,
+    tabName: (tabId: number) => {
+      const t = findTabById(tabId);
+      return t ? (t.titleOverride ?? t.name) : `tab ${tabId}`;
+    },
+    cwdBasename: paneCwdBasename,
     activeTabId: () => getActiveTab()?.id ?? -1,
     activePaneId: () => getActivePaneId(),
     windowFocused: () => document.hasFocus(),
@@ -129,7 +140,9 @@ export async function wireClaudeNotifications(): Promise<void> {
         kind: "info",
         accent: req.kind === "notification" ? "perm" : "stop",
         message:
-          req.kind === "notification" ? "Claude needs permission" : "Claude finished",
+          req.kind === "notification"
+            ? `Claude needs permission in ${req.tabName}`
+            : `Claude finished in ${req.tabName}`,
         detail: req.message ?? undefined,
         durationMs: 30_000,
         onClick: focusPane,
@@ -142,9 +155,12 @@ export async function wireClaudeNotifications(): Promise<void> {
           granted = (await requestPermission()) === "granted";
         }
         if (granted) {
+          const body = req.cwdBasename
+            ? `${req.tabName} · ${req.cwdBasename}`
+            : req.tabName;
           sendNotification({
             title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
-            body: req.message ?? "",
+            body,
           });
         }
       }

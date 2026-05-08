@@ -468,6 +468,16 @@ export function setActivePane(id: number) {
   }
 }
 
+export function paneCwdBasename(paneId: number): string | null {
+  if (!tree) return null;
+  const leaf = findLeaf(tree, paneId);
+  if (!leaf) return null;
+  const cwd = leaf.session?.cwd;
+  if (!cwd) return null;
+  const trimmed = cwd.replace(/\/$/, "");
+  return trimmed.split("/").pop() ?? null;
+}
+
 function findLeaf(node: PaneTree, id: number): LeafNode | null {
   if (node.type === "leaf") return node.paneId === id ? node : null;
   return findLeaf(node.first, id) || findLeaf(node.second, id);
@@ -611,8 +621,12 @@ async function maybeAutoInstallNotifications(): Promise<void> {
       detail: "Disable in Settings → Claude Code → Notifications.",
     });
   } catch (e) {
-    setPref("notifyOnStop", "dismissed");
-    setPref("notifyOnPermission", "dismissed");
+    // Transient failures (FS errors, permission denied, etc.) — leave the
+    // prefs undefined so the next claude-detect retries. The Settings UI
+    // status row exposes the current install state independently.
+    // Note: "dismissed" is NOT set here — it is only reachable via explicit
+    // user action in the Settings panel (if that flow is added later).
+    notifyAutoInstallAttempted = false;
     showToast({
       kind: "error",
       message: "Couldn't enable Claude notifications",

@@ -26,6 +26,8 @@ describe("claude-notifications: routing", () => {
     routing = {
       paneForSession: (id) => (id === "sess-1" ? 7 : null),
       tabForPane: (paneId) => (paneId === 7 ? 3 : null),
+      tabName: () => "test-tab",
+      cwdBasename: () => "test-dir",
       activeTabId: () => 1,
       activePaneId: () => 0,
       windowFocused: () => true,

@@ -335,6 +335,10 @@ export function getActiveTab(): Tab | undefined {
   return tabs.find((t) => t.id === activeTabId);
 }
 
+export function findTabById(tabId: number): Tab | undefined {
+  return tabs.find((t) => t.id === tabId);
+}
+
 /** Snapshot of every open tab for session persistence. Returns the active
  *  tab's index and each tab's first-leaf cwd (what we'll restore to on
  *  next launch). Panes/splits collapse to a single cwd — restoring the
