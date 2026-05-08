@@ -143,6 +143,19 @@ export async function wireClaudeNotifications(): Promise<void> {
   const { listen } = await import("@tauri-apps/api/event");
   const { sendNotification, isPermissionGranted, requestPermission } =
     await import("@tauri-apps/plugin-notification");
+  const { resolveResource } = await import("@tauri-apps/api/path");
+
+  // Resolve the bundled kimbo icon once. macOS notifications fall back to a
+  // generic terminal icon in dev mode without an explicit icon path because
+  // the dev binary isn't a real .app bundle. In prod the bundle's app icon
+  // would also work, but passing the path explicitly keeps both paths
+  // consistent.
+  let notificationIcon: string | undefined;
+  try {
+    notificationIcon = await resolveResource("icons/128x128.png");
+  } catch (e) {
+    console.warn("could not resolve notification icon:", e);
+  }
 
   // Hook the router up with a real Routing implementation.
   setRoutingForTesting({
@@ -205,6 +218,7 @@ export async function wireClaudeNotifications(): Promise<void> {
             sendNotification({
               title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
               body,
+              icon: notificationIcon,
             });
             pendingFocus = {
               tabId: req.tabId,

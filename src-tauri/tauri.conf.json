@@ -42,7 +42,8 @@
     "resources": [
       "resources/shell/kimbo-init.zsh",
       "resources/shell/kimbo-init.bash",
-      "resources/shell/kimbo-init.fish"
+      "resources/shell/kimbo-init.fish",
+      "icons/128x128.png"
     ],
     "externalBin": [
       "binaries/kimbo-claude-statusline",
