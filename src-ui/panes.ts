@@ -586,6 +586,41 @@ async function maybeAutoInstall(): Promise<void> {
   }
 }
 
+let notifyAutoInstallAttempted = false;
+
+async function maybeAutoInstallNotifications(): Promise<void> {
+  if (notifyAutoInstallAttempted) return;
+  notifyAutoInstallAttempted = true;
+
+  const { getPrefs, setPref } = await import("./ui-prefs");
+  const prefs = getPrefs();
+
+  // Skip if either pref has already been decided (true / false / "dismissed").
+  if (prefs.notifyOnStop !== undefined || prefs.notifyOnPermission !== undefined) return;
+
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { showToast } = await import("./toast");
+
+  try {
+    await invoke("claude_notifications_install");
+    setPref("notifyOnStop", true);
+    setPref("notifyOnPermission", true);
+    showToast({
+      kind: "success",
+      message: "Kimbo enabled Claude notifications.",
+      detail: "Disable in Settings → Claude Code → Notifications.",
+    });
+  } catch (e) {
+    setPref("notifyOnStop", "dismissed");
+    setPref("notifyOnPermission", "dismissed");
+    showToast({
+      kind: "error",
+      message: "Couldn't enable Claude notifications",
+      detail: String(e),
+    });
+  }
+}
+
 async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: number): Promise<void> {
   const { claudeStatus } = await import("./claude-status");
   const { getAccountInfo } = await import("./claude-account");
@@ -603,6 +638,7 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: n
   if (status) {
     setSessionPane(status.session_id, paneId);
     void maybeAutoInstall();
+    void maybeAutoInstallNotifications();
   }
 
   const prefs = getPrefs();
