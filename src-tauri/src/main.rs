@@ -215,6 +215,13 @@ fn main() {
                 }
             }
 
+            if let Ok(sidecar) = commands::claude_notifications::sidecar_path() {
+                let path_str = sidecar.to_string_lossy().to_string();
+                if let Err(e) = commands::claude_notifications::rewrite_wrapper(&path_str) {
+                    log::warn!("notify rewrite_wrapper failed: {e}");
+                }
+            }
+
             // Notify-socket listener — receives events from kimbo-claude-notify hooks.
             {
                 let app_handle = app.handle().clone();
@@ -255,6 +262,9 @@ fn main() {
             commands::claude_rate_limits::claude_rate_limits,
             commands::claude_rate_limits::claude_rate_limits_install,
             commands::claude_rate_limits::claude_rate_limits_uninstall,
+            commands::claude_notifications::claude_notifications_install,
+            commands::claude_notifications::claude_notifications_uninstall,
+            commands::claude_notifications::claude_notifications_status,
             quit_app,
             set_window_theme,
         ])

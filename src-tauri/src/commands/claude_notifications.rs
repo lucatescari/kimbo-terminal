@@ -307,3 +307,83 @@ mod wrapper_tests {
         assert!(s.contains("\"$@\""));
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind")]
+pub enum InstallOutcome {
+    Installed,
+    NoOp,
+}
+
+#[tauri::command]
+pub fn claude_notifications_install(_app: tauri::AppHandle) -> Result<InstallOutcome, String> {
+    let sidecar = sidecar_path().map_err(|e| format!("resolve sidecar: {e}"))?;
+    let sidecar_abs = sidecar.to_string_lossy().to_string();
+    let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
+    let settings_p = settings_path().map_err(|e| e.to_string())?;
+
+    let current = read_optional(&settings_p);
+    let was_already = matches!(
+        compute_status(current.as_deref(), wrapper_p.to_string_lossy().as_ref()),
+        InstallStatus::Installed
+    );
+
+    // Write/refresh wrapper.
+    let body = render_wrapper_script(&sidecar_abs);
+    std::fs::create_dir_all(wrapper_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&wrapper_p).map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&wrapper_p, perms).map_err(|e| e.to_string())?;
+    }
+
+    // Patch settings.json.
+    let new_settings = install_hooks_into_settings(
+        current.as_deref(),
+        wrapper_p.to_string_lossy().as_ref(),
+    )?;
+    std::fs::create_dir_all(settings_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
+
+    Ok(if was_already { InstallOutcome::NoOp } else { InstallOutcome::Installed })
+}
+
+#[tauri::command]
+pub fn claude_notifications_uninstall() -> Result<(), String> {
+    let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
+    let settings_p = settings_path().map_err(|e| e.to_string())?;
+
+    let current = read_optional(&settings_p);
+    if current.is_some() {
+        let new_settings = uninstall_hooks_from_settings(
+            current.as_deref(),
+            wrapper_p.to_string_lossy().as_ref(),
+        )?;
+        std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
+    }
+    let _ = std::fs::remove_file(&wrapper_p);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn claude_notifications_status() -> Result<InstallStatus, String> {
+    let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
+    let settings_p = settings_path().map_err(|e| e.to_string())?;
+    let current = read_optional(&settings_p);
+    Ok(compute_status(current.as_deref(), wrapper_p.to_string_lossy().as_ref()))
+}
+
+/// Called from app setup on every launch. If the wrapper exists, rewrite it
+/// so its `exec` line points at the currently-installed sidecar (handles
+/// kimbo upgrades that move the bundled binary).
+pub fn rewrite_wrapper(sidecar_abs_path: &str) -> Result<(), String> {
+    let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
+    if !wrapper_p.exists() {
+        return Ok(());
+    }
+    let body = render_wrapper_script(sidecar_abs_path);
+    std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())
+}
