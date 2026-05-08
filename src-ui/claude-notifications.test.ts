@@ -3,6 +3,7 @@ import {
   handleNotifyEvent,
   setRoutingForTesting,
   type NotifyEvent,
+  type PaintRequest,
   type Routing,
 } from "./claude-notifications";
 
@@ -18,10 +19,10 @@ function ev(overrides: Partial<NotifyEvent> = {}): NotifyEvent {
 
 describe("claude-notifications: routing", () => {
   let routing: Routing;
-  let onPaint: ReturnType<typeof vi.fn>;
+  let onPaint: ReturnType<typeof vi.fn<(req: PaintRequest) => void>>;
 
   beforeEach(() => {
-    onPaint = vi.fn();
+    onPaint = vi.fn<(req: PaintRequest) => void>();
     routing = {
       paneForSession: (id) => (id === "sess-1" ? 7 : null),
       tabForPane: (paneId) => (paneId === 7 ? 3 : null),
