@@ -251,3 +251,59 @@ mod status_tests {
         }
     }
 }
+
+use std::path::{Path, PathBuf};
+
+/// Pure: produce the wrapper script body for a given absolute sidecar path.
+/// The wrapper is what we put in `~/.claude/settings.json` so the path stored
+/// there stays stable across kimbo updates; each launch we rewrite the
+/// wrapper to point at the current sidecar location.
+pub fn render_wrapper_script(sidecar_abs_path: &str) -> String {
+    format!(
+        "#!/bin/sh\n# Kimbo Claude notify wrapper — auto-generated, do not edit.\n# Rewritten by kimbo on every launch with the current sidecar path.\nexec \"{sidecar_abs_path}\" \"$@\"\n"
+    )
+}
+
+fn home_dir() -> std::io::Result<PathBuf> {
+    dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home dir"))
+}
+
+pub fn settings_path() -> std::io::Result<PathBuf> {
+    Ok(home_dir()?.join(".claude").join("settings.json"))
+}
+
+pub fn wrapper_path() -> std::io::Result<PathBuf> {
+    Ok(home_dir()?.join(".claude").join("kimbo-notify.sh"))
+}
+
+/// Resolve the bundled `kimbo-claude-notify` sidecar relative to the running
+/// kimbo executable. Same scheme as `claude_rate_limits::sidecar_path`.
+pub fn sidecar_path() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let dir = exe.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "current_exe has no parent")
+    })?;
+    let bin_name = if cfg!(windows) {
+        "kimbo-claude-notify.exe"
+    } else {
+        "kimbo-claude-notify"
+    };
+    Ok(dir.join(bin_name))
+}
+
+fn read_optional(p: &Path) -> Option<String> {
+    std::fs::read_to_string(p).ok()
+}
+
+#[cfg(test)]
+mod wrapper_tests {
+    use super::*;
+
+    #[test]
+    fn render_wrapper_script_is_executable_sh_with_exec() {
+        let s = render_wrapper_script("/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-notify");
+        assert!(s.starts_with("#!/bin/sh\n"));
+        assert!(s.contains("exec \"/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-notify\""));
+        assert!(s.contains("\"$@\""));
+    }
+}
