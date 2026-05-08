@@ -95,6 +95,10 @@
 
   --selection: color-mix(in oklab, var(--accent) 24%, transparent);
   --focus-ring: 0 0 0 3px var(--accent-tint);
+
+  /* Claude pane notification accent stripe colors. */
+  --kimbo-notify-stop: #5b9bd5;
+  --kimbo-notify-perm: #e8a33d;
 }
 
 /* Density — toggled from settings via data-density on <html>. */
@@ -2168,4 +2172,12 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast--leaving { animation-duration: 1ms; }
+}
+
+.toast--accent-stop {
+  border-left: 3px solid var(--kimbo-notify-stop);
+}
+
+.toast--accent-perm {
+  border-left: 3px solid var(--kimbo-notify-perm);
 }

@@ -101,4 +101,16 @@ describe("showToast", () => {
     expect(toast.classList.contains("toast--actionable")).toBe(false);
     expect(toast.querySelector(".toast__chevron")).toBeNull();
   });
+
+  it("applies stop accent class when accent is 'stop'", () => {
+    showToast({ message: "x", accent: "stop" });
+    const el = document.querySelector(".toast");
+    expect(el?.classList.contains("toast--accent-stop")).toBe(true);
+  });
+
+  it("applies perm accent class when accent is 'perm'", () => {
+    showToast({ message: "x", accent: "perm" });
+    const el = document.querySelector(".toast");
+    expect(el?.classList.contains("toast--accent-perm")).toBe(true);
+  });
 });
