@@ -2200,6 +2200,17 @@ body {
   background: var(--kimbo-notify-perm);
 }
 
+/* Chevron tabs clip the top-right corner with a polygon — push the dot
+   inward so it doesn't get cut off by the clip-path. */
+#tab-bar[data-style="chevron"] .tab--badge::after {
+  right: 20px;
+}
+/* Pill tabs have a smaller usable area; nudge the dot in slightly. */
+#tab-bar[data-style="pill"] .tab--badge::after {
+  top: 4px;
+  right: 4px;
+}
+
 /* ---------------------------------------------------------------------------
    Pane head badge (Task 20)
    --------------------------------------------------------------------------- */
