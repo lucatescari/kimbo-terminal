@@ -1124,7 +1124,7 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
   statusLabel.style.cssText = "font-size: 12px; color: var(--fg-muted);";
   switch (installStatus.kind) {
     case "Installed":         statusLabel.textContent = "Installed"; break;
-    case "PartiallyInstalled": statusLabel.textContent = `Partial (missing: ${installStatus.missing?.join(", ") ?? "?"}`; break;
+    case "PartiallyInstalled": statusLabel.textContent = `Partial (missing: ${installStatus.missing?.join(", ") ?? "?"})`; break;
     case "NotInstalled":      statusLabel.textContent = "Not installed"; break;
     default:                  statusLabel.textContent = "Unknown"; break;
   }
