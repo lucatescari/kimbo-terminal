@@ -101,7 +101,7 @@ export async function wireClaudeNotifications(): Promise<void> {
     activePaneId: () => getActivePaneId(),
     windowFocused: () => document.hasFocus(),
     prefs: () => {
-      const p = getPrefs() as any;
+      const p = getPrefs();
       return {
         notifyOnStop: p.notifyOnStop === true,
         notifyOnPermission: p.notifyOnPermission === true,

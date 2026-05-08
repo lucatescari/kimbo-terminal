@@ -63,6 +63,16 @@ export interface UiPrefs {
    *   - "dismissed" → auto-install was blocked (existing statusLine), user
    *                   chose not to replace it. */
   claudeRateLimitsEnabled?: boolean | "dismissed";
+  /** Claude Code → Notifications. Tri-state like claudeRateLimitsEnabled:
+   *   - undefined  → never decided; triggers smart auto-install (Task 24).
+   *   - true       → user explicitly enabled.
+   *   - false      → user explicitly disabled.
+   *   - "dismissed" → auto-install was offered but the user dismissed. */
+  notifyOnStop?: boolean | "dismissed";
+  notifyOnPermission?: boolean | "dismissed";
+  /** Claude Code → Notifications → play sound on the macOS notification.
+   *  Silent by default. */
+  notifySoundEnabled: boolean;
 }
 
 const DEFAULTS: UiPrefs = {
@@ -83,6 +93,7 @@ const DEFAULTS: UiPrefs = {
   claudeHudEnabled: true,
   claudeHudExtended: false,
   claudeHudShowPlan: false,
+  notifySoundEnabled: false,
 };
 
 let cache: UiPrefs | null = null;
