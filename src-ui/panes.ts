@@ -34,6 +34,36 @@ let activePaneId = -1;
 let rootEl: HTMLElement;
 let installAttempted = false;
 
+type PaneBadgeKind = "stop" | "perm" | null;
+const paneBadge: Map<number, PaneBadgeKind> = new Map();
+
+export function setPaneBadge(paneId: number, kind: PaneBadgeKind): void {
+  if (kind === null) {
+    paneBadge.delete(paneId);
+  } else {
+    const existing = paneBadge.get(paneId);
+    if (existing === "perm") return; // perm wins
+    paneBadge.set(paneId, kind);
+  }
+  if (!tree) return;
+  const leaf = findLeaf(tree, paneId);
+  if (leaf) {
+    const head = leaf.element.querySelector<HTMLElement>(":scope > .pane-head");
+    if (head) applyPaneBadgeClass(head, kind);
+  }
+}
+
+function applyPaneBadgeClass(head: HTMLElement, kind: PaneBadgeKind): void {
+  head.classList.remove("pane-head--badge", "pane-head--badge-stop", "pane-head--badge-perm");
+  if (kind) {
+    head.classList.add("pane-head--badge", `pane-head--badge-${kind}`);
+  }
+}
+
+export function getPaneBadge(paneId: number): PaneBadgeKind {
+  return paneBadge.get(paneId) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -416,6 +446,14 @@ function updatePaneHead(head: HTMLElement, paneId: number, ptyId: number, cwd: s
 
 export function setActivePane(id: number) {
   activePaneId = id;
+  paneBadge.delete(id);
+  if (tree) {
+    const leaf = findLeaf(tree, id);
+    if (leaf) {
+      const head = leaf.element.querySelector<HTMLElement>(":scope > .pane-head");
+      if (head) applyPaneBadgeClass(head, null);
+    }
+  }
   if (!tree) return;
 
   // Update active styling on all leaves.

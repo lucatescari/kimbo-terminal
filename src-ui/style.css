@@ -2199,3 +2199,22 @@ body {
 .tab--badge-perm::after {
   background: var(--kimbo-notify-perm);
 }
+
+/* ---------------------------------------------------------------------------
+   Pane head badge (Task 20)
+   --------------------------------------------------------------------------- */
+.pane-head--badge { position: relative; }
+.pane-head--badge::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kimbo-notify-stop);
+}
+.pane-head--badge-perm::after {
+  background: var(--kimbo-notify-perm);
+}
