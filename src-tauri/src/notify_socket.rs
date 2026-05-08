@@ -112,7 +112,7 @@ where
                 if let Some(ev) = parse_event_line(&line) {
                     on_event(ev);
                 } else {
-                    log::warn!("notify-socket: dropped unparseable line");
+                    log::warn!("notify-socket: dropped event (line did not parse): {line:?}");
                 }
             });
         }
