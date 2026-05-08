@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build:frontend && cargo build --release -p kimbo-claude-statusline"
+    "beforeBuildCommand": "npm run build:frontend && cargo build --release -p kimbo-claude-statusline && cargo build --release -p kimbo-claude-notify"
   },
   "app": {
     "windows": [
@@ -45,7 +45,8 @@
       "resources/shell/kimbo-init.fish"
     ],
     "externalBin": [
-      "binaries/kimbo-claude-statusline"
+      "binaries/kimbo-claude-statusline",
+      "binaries/kimbo-claude-notify"
     ],
     "macOS": {
       "entitlements": "entitlements.plist"
