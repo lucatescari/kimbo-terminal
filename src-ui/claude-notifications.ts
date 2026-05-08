@@ -81,3 +81,78 @@ export function handleNotifyEvent(ev: NotifyEvent): void {
     playSound: prefs.notifySoundEnabled && !routing.windowFocused(),
   });
 }
+
+import { showToast } from "./toast";
+import { setTabBadge, switchTab, getActiveTab, findTabIdByPaneId } from "./tabs";
+import { setPaneBadge, getActivePaneId, setActivePane } from "./panes";
+import { paneForSession as paneForSessionLookup } from "./claude-session-map";
+import { getPrefs } from "./ui-prefs";
+
+export async function wireClaudeNotifications(): Promise<void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const { sendNotification, isPermissionGranted, requestPermission } =
+    await import("@tauri-apps/plugin-notification");
+
+  // Hook the router up with a real Routing implementation.
+  setRoutingForTesting({
+    paneForSession: paneForSessionLookup,
+    tabForPane: findTabIdByPaneId,
+    activeTabId: () => getActiveTab()?.id ?? -1,
+    activePaneId: () => getActivePaneId(),
+    windowFocused: () => document.hasFocus(),
+    prefs: () => {
+      const p = getPrefs() as any;
+      return {
+        notifyOnStop: p.notifyOnStop === true,
+        notifyOnPermission: p.notifyOnPermission === true,
+        notifySoundEnabled: p.notifySoundEnabled === true,
+      };
+    },
+    paint: async (req: PaintRequest) => {
+      const focusPane = () => {
+        switchTab(req.tabId);
+        requestAnimationFrame(() => setActivePane(req.paneId));
+      };
+
+      // 1. Tab badge — only paint when not on that tab.
+      if (getActiveTab()?.id !== req.tabId) {
+        setTabBadge(req.tabId, req.kind === "notification" ? "perm" : "stop");
+      }
+
+      // 2. Pane head badge — only paint when on that tab but not that pane.
+      if (getActiveTab()?.id === req.tabId && getActivePaneId() !== req.paneId) {
+        setPaneBadge(req.paneId, req.kind === "notification" ? "perm" : "stop");
+      }
+
+      // 3. Toast — always.
+      showToast({
+        kind: "info",
+        accent: req.kind === "notification" ? "perm" : "stop",
+        message:
+          req.kind === "notification" ? "Claude needs permission" : "Claude finished",
+        detail: req.message ?? undefined,
+        durationMs: 30_000,
+        onClick: focusPane,
+      });
+
+      // 4. macOS notification — only when window unfocused.
+      if (req.fireMacOsNotification) {
+        let granted = await isPermissionGranted();
+        if (!granted) {
+          granted = (await requestPermission()) === "granted";
+        }
+        if (granted) {
+          sendNotification({
+            title: req.kind === "notification" ? "Claude needs permission" : "Claude finished",
+            body: req.message ?? "",
+          });
+        }
+      }
+    },
+  });
+
+  // Listen for backend socket events and route them.
+  await listen<NotifyEvent>("claude-notify", (msg) => {
+    handleNotifyEvent(msg.payload);
+  });
+}

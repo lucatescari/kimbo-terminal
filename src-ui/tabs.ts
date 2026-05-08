@@ -621,3 +621,19 @@ function treeContainsSession(node: any, sessionId: number): boolean {
   }
   return false;
 }
+
+/** Find the tabId that owns a given paneId. Used by claude-notifications.ts
+ *  to route socket events to the right tab. */
+export function findTabIdByPaneId(paneId: number): number | null {
+  for (const t of tabs) {
+    const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
+    if (treeContainsPane(tree, paneId)) return t.id;
+  }
+  return null;
+}
+
+function treeContainsPane(node: any, paneId: number): boolean {
+  if (!node) return false;
+  if (node.type === "leaf") return node.paneId === paneId;
+  return treeContainsPane(node.first, paneId) || treeContainsPane(node.second, paneId);
+}
