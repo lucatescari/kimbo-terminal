@@ -30,6 +30,25 @@ export function attachOsc1337Renderer(
   let multipartBytes = 0;
   let multipartAborted = false;
 
+  // Track every live <img> we own so we can hide them the instant the
+  // alternate screen buffer activates. xterm's BufferDecorationRenderer sets
+  // display:none on the decoration container, but only on its next refresh
+  // cycle (see node_modules/@xterm/xterm/src/browser/decorations/BufferDecorationRenderer.ts:
+  // onBufferActivate just flips an internal flag; the style flip waits for
+  // the following onRenderedViewportChange). Apps like Claude Code enter
+  // alt-screen and pause before drawing, leaving a window where the image
+  // overlays the alt buffer. Toggling each <img> directly on
+  // term.buffer.onBufferChange closes that window regardless of render
+  // timing.
+  const liveImages = new Set<HTMLImageElement>();
+  const isAltActive = (): boolean => term.buffer.active.type === "alternate";
+  const applyBufferVisibility = (img: HTMLImageElement): void => {
+    img.style.display = isAltActive() ? "none" : "block";
+  };
+  const bufferChangeDisposable = term.buffer.onBufferChange(() => {
+    for (const img of liveImages) applyBufferVisibility(img);
+  });
+
   const fallbackMarker = (
     parsed: NonNullable<ReturnType<typeof parseOsc1337InlineImage>>,
     reason?: string,
@@ -104,10 +123,11 @@ export function attachOsc1337Renderer(
 
     img.style.width = `${layout.pxWidth}px`;
     img.style.height = `${layout.pxHeight}px`;
-    img.style.display = "block";
+    applyBufferVisibility(img);
     img.style.pointerEvents = "none";
     img.style.userSelect = "none";
     img.alt = parsed.name || "inline image";
+    liveImages.add(img);
 
     const decoration = term.registerDecoration({
       marker,
@@ -136,6 +156,7 @@ export function attachOsc1337Renderer(
     });
 
     decoration.onDispose(() => {
+      liveImages.delete(img);
       URL.revokeObjectURL(blobUrl);
     });
   };
@@ -215,6 +236,8 @@ export function attachOsc1337Renderer(
 
   return () => {
     oscDisposable.dispose();
+    bufferChangeDisposable.dispose();
+    liveImages.clear();
     // Decorations/markers are tracked by xterm and are cleaned up when
     // the terminal disposes. No manual overlay teardown to do.
   };
