@@ -79,8 +79,23 @@ let communityResolved = false;
 let communityCatalogSize = 0;
 let activeCategory: SettingsCategory = "appearance";
 let overlayEl: HTMLElement | null = null;
+// Persistent refs so a nav-bar click can refresh just the main content
+// without recreating .settings — recreation replays the rise-in CSS
+// animation and the user perceives it as the modal flashing closed and
+// reopening on every section change.
+let panelEl: HTMLElement | null = null;
+let sideEl: HTMLElement | null = null;
+let mainEl: HTMLElement | null = null;
 let themesEventUnlisten: UnlistenFn | null = null;
 let escapeHandler: ((e: KeyboardEvent) => void) | null = null;
+// Re-entrancy guard for toggleSettings. Without this, two rapid invocations
+// (macOS native menu accelerator + the webview keydown handler, or any
+// duplicate listener registration) interleave: call 1 enters showSettings,
+// flips visible=true, awaits invoke("get_config"); call 2 sees visible=true
+// and runs hideSettings (no-op since the overlay isn't mounted yet); call 1
+// then mounts the overlay with visible=false, leaving the modal visible but
+// flagged as hidden. Same shape as the closeInFlight guard in tabs.ts.
+let toggleInFlight = false;
 
 /** Mount target for modal overlays. Using #modal-root inside #app-frame means
  *  overlays get clipped by the frame's border-radius (since #app-frame has
@@ -100,6 +115,12 @@ export function initSettings(_terminalArea: HTMLElement): void {
 }
 
 export async function toggleSettings(): Promise<void> {
+  if (toggleInFlight) return;
+  toggleInFlight = true;
+  // Reset on the next animation frame — long enough to swallow a paired
+  // menu-event/keydown dispatch from a single Cmd+, press, short enough
+  // that an intentional second press still toggles.
+  requestAnimationFrame(() => { toggleInFlight = false; });
   if (visible) hideSettings();
   else await showSettings();
 }
@@ -116,6 +137,9 @@ export function hideSettings(): void {
     overlayEl.remove();
     overlayEl = null;
   }
+  panelEl = null;
+  sideEl = null;
+  mainEl = null;
   setKimboInConsoleView(true);
   if (themesEventUnlisten) { themesEventUnlisten(); themesEventUnlisten = null; }
   if (escapeHandler) { document.removeEventListener("keydown", escapeHandler, true); escapeHandler = null; }
@@ -216,23 +240,24 @@ function render(): void {
   if (!overlayEl || !config) return;
   overlayEl.innerHTML = "";
 
-  const panel = document.createElement("div");
-  panel.className = "settings";
-  panel.addEventListener("click", (e) => e.stopPropagation());
+  panelEl = document.createElement("div");
+  panelEl.className = "settings";
+  panelEl.addEventListener("click", (e) => e.stopPropagation());
 
   // Sidebar
-  const side = document.createElement("div");
-  side.className = "side";
+  sideEl = document.createElement("div");
+  sideEl.className = "side";
 
   const head = document.createElement("div");
   head.className = "side-head";
   head.textContent = "Settings";
-  side.appendChild(head);
+  sideEl.appendChild(head);
 
   for (const n of NAV) {
     const btn = document.createElement("button");
     btn.className = "nav" + (activeCategory === n.id ? " active" : "");
     btn.type = "button";
+    btn.dataset.navId = n.id;
     const ic = document.createElement("span");
     ic.className = "ic";
     ic.appendChild(icon(n.icon, 13));
@@ -247,10 +272,14 @@ function render(): void {
       btn.appendChild(dot);
     }
     btn.addEventListener("click", () => {
+      if (activeCategory === n.id) return;
       activeCategory = n.id;
-      render();
+      // Refresh just the main content + the active class on the sidebar.
+      // Recreating .settings here would replay the rise-in animation and
+      // the user perceives it as the modal flashing closed and reopening.
+      renderActive();
     });
-    side.appendChild(btn);
+    sideEl.appendChild(btn);
   }
 
   const foot = document.createElement("div");
@@ -261,27 +290,38 @@ function render(): void {
   close.textContent = "Close · esc";
   close.addEventListener("click", hideSettings);
   foot.appendChild(close);
-  side.appendChild(foot);
+  sideEl.appendChild(foot);
 
   // Main
-  const main = document.createElement("div");
-  main.className = "main";
+  mainEl = document.createElement("div");
+  mainEl.className = "main";
+  renderActive();
 
-  switch (activeCategory) {
-    case "general":    renderGeneral(main); break;
-    case "appearance": renderAppearance(main); break;
-    case "font":       renderFont(main); break;
-    case "workspaces": renderWorkspaces(main); break;
-    case "keybinds":   renderKeybinds(main); break;
-    case "kimbo":       void renderKimbo(main); break;
-    case "claude-code": void renderClaudeCode(main); break;
-    case "advanced":    renderAdvanced(main); break;
-    case "about":      void renderAbout(main); break;
+  panelEl.appendChild(sideEl);
+  panelEl.appendChild(mainEl);
+  overlayEl.appendChild(panelEl);
+}
+
+/** Re-render the active category into the existing .main element and
+ *  update the sidebar's active class. Keeps .modal-overlay and .settings
+ *  in place so their CSS animations don't replay. */
+function renderActive(): void {
+  if (!mainEl || !sideEl) return;
+  for (const btn of sideEl.querySelectorAll<HTMLButtonElement>(".nav")) {
+    btn.classList.toggle("active", btn.dataset.navId === activeCategory);
   }
-
-  panel.appendChild(side);
-  panel.appendChild(main);
-  overlayEl.appendChild(panel);
+  mainEl.innerHTML = "";
+  switch (activeCategory) {
+    case "general":     renderGeneral(mainEl); break;
+    case "appearance":  renderAppearance(mainEl); break;
+    case "font":        renderFont(mainEl); break;
+    case "workspaces":  renderWorkspaces(mainEl); break;
+    case "keybinds":    renderKeybinds(mainEl); break;
+    case "kimbo":       void renderKimbo(mainEl); break;
+    case "claude-code": void renderClaudeCode(mainEl); break;
+    case "advanced":    renderAdvanced(mainEl); break;
+    case "about":       void renderAbout(mainEl); break;
+  }
 }
 
 // ===========================================================================
@@ -900,20 +940,6 @@ function renderKeybinds(el: HTMLElement): void {
   }
   sec.appendChild(table);
 
-  const btnRow = document.createElement("div");
-  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 12px;";
-  const reset = button("Reset to defaults", () => alert("Coming soon."));
-  reset.classList.add("ghost", "coming-soon");
-  btnRow.appendChild(reset);
-  const exp = button("Export keymap", () => {
-    const data = BINDS_DEFAULT.map((b) => `${b.label}\t${b.keys.join("+")}`).join("\n");
-    void navigator.clipboard.writeText(data);
-    alert("Keymap copied to clipboard.");
-  });
-  exp.classList.add("ghost");
-  btnRow.appendChild(exp);
-  sec.appendChild(btnRow);
-
   el.appendChild(sec);
 }
 
@@ -1163,9 +1189,10 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
   el.appendChild(notifySec);
 
   const accountSec = section("Account");
-  const refreshBtn = button("Refresh", () => {});
-  refreshBtn.classList.add("ghost");
-  refreshBtn.removeEventListener("click", () => {});
+  const refreshBtn = document.createElement("button");
+  refreshBtn.type = "button";
+  refreshBtn.className = "btn ghost";
+  refreshBtn.textContent = "Refresh";
   refreshBtn.addEventListener("click", async () => {
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Refreshing\u2026";
@@ -1275,8 +1302,17 @@ function renderAdvanced(el: HTMLElement): void {
     "Config file",
     "~/.config/kimbo/config.toml",
     button("Open in editor", async () => {
-      try { await openUrl(`file://${await invoke<string>("get_config_path").catch(() => "/tmp/kimbo-config.toml")}`); }
-      catch { alert("Open your config at ~/.config/kimbo/config.toml"); }
+      try {
+        await invoke("open_config_in_editor");
+      } catch (e) {
+        const path = await invoke<string>("get_config_path").catch(() => "~/.config/kimbo/config.toml");
+        const { showToast } = await import("./toast");
+        showToast({
+          kind: "error",
+          message: "Couldn't open config in editor",
+          detail: `${path}\n${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
     }),
   ));
   const resetBtn = button("Reset…", () => {

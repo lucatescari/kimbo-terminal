@@ -256,6 +256,8 @@ fn main() {
             commands::theme::delete_theme,
             commands::config::get_config,
             commands::config::save_config,
+            commands::config::get_config_path,
+            commands::config::open_config_in_editor,
             commands::kimbo::write_kimbo_shell_scripts,
             commands::workspace::list_projects,
             commands::update::check_for_updates,
