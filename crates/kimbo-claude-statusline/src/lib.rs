@@ -48,12 +48,28 @@ pub fn write_cache(path: &Path, cache: &RateLimits) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Minimum Claude Code version that emits the `rate_limits` field.
+const MIN_RATE_LIMITS_VERSION: (u32, u32, u32) = (2, 1, 80);
+
+/// Parse a "MAJOR.MINOR.PATCH" version string. Trailing pre-release/build
+/// metadata is ignored. Returns `None` if any of the three components is
+/// missing or non-numeric.
+fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    let core = s.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
 /// Parse the JSON Claude Code pipes into the statusLine command.
 /// Returns `Err` only on malformed JSON. Missing optional fields are tolerated.
 ///
 /// Real Claude Code 2.1.112 sends:
 /// ```json
 /// {
+///   "version": "2.1.112",
 ///   "rate_limits": {
 ///     "five_hour": { "used_percentage": 22, "resets_at": 1777902000 },
 ///     "seven_day": { "used_percentage": 2,  "resets_at": 1778234400 }
@@ -61,12 +77,21 @@ pub fn write_cache(path: &Path, cache: &RateLimits) -> std::io::Result<()> {
 /// }
 /// ```
 /// `resets_at` is a Unix timestamp in seconds (an integer, not a string).
+/// `rate_limits` may be omitted by recent Claude Code (e.g. before the first
+/// turn or on certain auth modes), so we gate `version_too_old` on the
+/// `version` field rather than inferring it from a missing `rate_limits`.
 /// The JSON does not contain the user's email, so we don't capture one.
 pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
     let v: serde_json::Value = serde_json::from_str(stdin)?;
 
     let rate_limits = v.get("rate_limits");
-    let version_too_old = rate_limits.is_none();
+    let version_too_old = match v.get("version").and_then(|x| x.as_str()).and_then(parse_semver) {
+        Some(parsed) => parsed < MIN_RATE_LIMITS_VERSION,
+        // No parseable `version` field — fall back to the old heuristic so
+        // genuinely ancient clients (no `version`, no `rate_limits`) still
+        // surface the upgrade pill.
+        None => rate_limits.is_none(),
+    };
 
     let extract_window = |key: &str| -> Option<LimitWindow> {
         let w = rate_limits?.get(key)?;
@@ -164,6 +189,54 @@ mod tests {
         assert!(p.five_hour.is_none());
         assert!(p.seven_day.is_none());
         assert!(!p.version_too_old);
+    }
+
+    #[test]
+    fn version_field_overrides_missing_rate_limits() {
+        // Claude Code 2.1.112 may omit `rate_limits` (e.g. before the first
+        // turn / on certain auth modes) while still being new enough to
+        // emit them eventually. Trust the version field.
+        let s = r#"{ "version": "2.1.112" }"#;
+        let p = parse_input(s).unwrap();
+        assert!(!p.version_too_old);
+    }
+
+    #[test]
+    fn version_below_minimum_marks_version_too_old() {
+        let s = r#"{ "version": "2.1.79" }"#;
+        let p = parse_input(s).unwrap();
+        assert!(p.version_too_old);
+    }
+
+    #[test]
+    fn version_at_exact_minimum_is_not_too_old() {
+        let s = r#"{ "version": "2.1.80" }"#;
+        let p = parse_input(s).unwrap();
+        assert!(!p.version_too_old);
+    }
+
+    #[test]
+    fn version_with_lower_major_marks_version_too_old() {
+        let s = r#"{ "version": "1.99.0" }"#;
+        let p = parse_input(s).unwrap();
+        assert!(p.version_too_old);
+    }
+
+    #[test]
+    fn version_with_higher_major_is_not_too_old() {
+        let s = r#"{ "version": "3.0.0" }"#;
+        let p = parse_input(s).unwrap();
+        assert!(!p.version_too_old);
+    }
+
+    #[test]
+    fn unparseable_version_falls_back_to_rate_limits_heuristic() {
+        // Bad version string with rate_limits present → not too old.
+        let with_rl = r#"{ "version": "garbage", "rate_limits": {} }"#;
+        assert!(!parse_input(with_rl).unwrap().version_too_old);
+        // Bad version string and no rate_limits → fall back to old heuristic.
+        let without_rl = r#"{ "version": "garbage" }"#;
+        assert!(parse_input(without_rl).unwrap().version_too_old);
     }
 }
 
