@@ -3,7 +3,7 @@
 Ideas for post-v1 releases. These came up during initial design but are out of scope for the first version.
 
 ## Claude Code Deep Integration
-Detect when Claude Code is running in a pane. Show status indicators, progress bars, and enable cross-pane command orchestration (e.g., send a command to Claude from another pane).
+Detect when Claude Code is running in a pane. **(Done — see HUD + per-pane notifications.)** Future ideas: progress bars, cross-pane command orchestration (e.g., send a command to Claude from another pane).
 
 ## Cross-Pane Awareness
 The app understands what's happening in each pane and can coordinate actions. For example, "run tests in pane 3 when the build in pane 1 finishes."

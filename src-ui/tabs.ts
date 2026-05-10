@@ -50,6 +50,27 @@ let scrollRegionEl: HTMLElement | null = null;
 let leftArrowEl: HTMLElement | null = null;
 let rightArrowEl: HTMLElement | null = null;
 
+type BadgeKind = "stop" | "perm" | null;
+const tabBadge: Map<number, BadgeKind> = new Map();
+
+/** Set the badge state for a tab. Permission wins over stop when both apply.
+ *  Pass null to clear. Triggers a tab-bar re-render. */
+export function setTabBadge(tabId: number, kind: BadgeKind): void {
+  if (kind === null) {
+    tabBadge.delete(tabId);
+  } else {
+    const existing = tabBadge.get(tabId);
+    if (existing === "perm") return; // perm wins; don't downgrade
+    tabBadge.set(tabId, kind);
+  }
+  renderTabBar();
+}
+
+/** Read-only — used by claude-notifications.ts. */
+export function getTabBadge(tabId: number): BadgeKind {
+  return tabBadge.get(tabId) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -136,6 +157,7 @@ export function switchTab(id: number) {
 
   tab.container.style.display = "flex";
   activeTabId = id;
+  tabBadge.delete(id);
 
   // Restore pane tree for this tab.
   initPanes(tab.container);
@@ -313,6 +335,10 @@ export function getActiveTab(): Tab | undefined {
   return tabs.find((t) => t.id === activeTabId);
 }
 
+export function findTabById(tabId: number): Tab | undefined {
+  return tabs.find((t) => t.id === tabId);
+}
+
 /** Snapshot of every open tab for session persistence. Returns the active
  *  tab's index and each tab's first-leaf cwd (what we'll restore to on
  *  next launch). Panes/splits collapse to a single cwd — restoring the
@@ -470,7 +496,9 @@ function renderTabBar() {
 
   tabs.forEach((tab, i) => {
     const el = document.createElement("button");
-    el.className = "tab" + (tab.id === activeTabId ? " active" : "");
+    const badge = tabBadge.get(tab.id) ?? null;
+    const badgeCls = badge ? ` tab--badge tab--badge-${badge}` : "";
+    el.className = "tab" + (tab.id === activeTabId ? " active" : "") + badgeCls;
     el.type = "button";
     el.dataset.tabId = String(tab.id);
     el.dataset.tabIndex = String(i);
@@ -596,4 +624,20 @@ function treeContainsSession(node: any, sessionId: number): boolean {
     return treeContainsSession(node.first, sessionId) || treeContainsSession(node.second, sessionId);
   }
   return false;
+}
+
+/** Find the tabId that owns a given paneId. Used by claude-notifications.ts
+ *  to route socket events to the right tab. */
+export function findTabIdByPaneId(paneId: number): number | null {
+  for (const t of tabs) {
+    const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
+    if (treeContainsPane(tree, paneId)) return t.id;
+  }
+  return null;
+}
+
+function treeContainsPane(node: any, paneId: number): boolean {
+  if (!node) return false;
+  if (node.type === "leaf") return node.paneId === paneId;
+  return treeContainsPane(node.first, paneId) || treeContainsPane(node.second, paneId);
 }

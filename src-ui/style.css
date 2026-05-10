@@ -95,6 +95,10 @@
 
   --selection: color-mix(in oklab, var(--accent) 24%, transparent);
   --focus-ring: 0 0 0 3px var(--accent-tint);
+
+  /* Claude pane notification accent stripe colors. */
+  --kimbo-notify-stop: #5b9bd5;
+  --kimbo-notify-perm: #e8a33d;
 }
 
 /* Density — toggled from settings via data-density on <html>. */
@@ -2168,4 +2172,63 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast--leaving { animation-duration: 1ms; }
+}
+
+.toast--accent-stop {
+  border-left: 3px solid var(--kimbo-notify-stop);
+}
+
+.toast--accent-perm {
+  border-left: 3px solid var(--kimbo-notify-perm);
+}
+
+/* ---------------------------------------------------------------------------
+   Tab pill badge (Task 19)
+   --------------------------------------------------------------------------- */
+.tab.tab--badge { position: relative; }
+.tab--badge::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kimbo-notify-stop);
+}
+.tab--badge-perm::after {
+  background: var(--kimbo-notify-perm);
+}
+
+/* Chevron tabs clip the top-right corner with a polygon — push the dot
+   inward so it doesn't get cut off by the clip-path. */
+#tab-bar[data-style="chevron"] .tab--badge::after {
+  right: 20px;
+}
+/* Pill tabs have a smaller usable area; nudge the dot in slightly. */
+#tab-bar[data-style="pill"] .tab--badge::after {
+  top: 4px;
+  right: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Pane head badge (Task 20)
+   --------------------------------------------------------------------------- */
+.pane-head--badge { position: relative; }
+.pane-head.pane-head--badge {
+  padding-right: 18px;
+}
+.pane-head--badge::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kimbo-notify-stop);
+}
+.pane-head--badge-perm::after {
+  background: var(--kimbo-notify-perm);
 }

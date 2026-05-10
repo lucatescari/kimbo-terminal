@@ -274,7 +274,7 @@ function render(): void {
     case "workspaces": renderWorkspaces(main); break;
     case "keybinds":   renderKeybinds(main); break;
     case "kimbo":       void renderKimbo(main); break;
-    case "claude-code": renderClaudeCode(main); break;
+    case "claude-code": void renderClaudeCode(main); break;
     case "advanced":    renderAdvanced(main); break;
     case "about":      void renderAbout(main); break;
   }
@@ -1031,7 +1031,7 @@ async function renderKimbo(el: HTMLElement): Promise<void> {
 // Claude Code
 // ===========================================================================
 
-function renderClaudeCode(el: HTMLElement): void {
+async function renderClaudeCode(el: HTMLElement): Promise<void> {
   el.appendChild(header(
     "Claude Code",
     "Surface session info from <code>claude</code> in the pane chrome while it's running. All data is local — read from <code>~/.claude/</code> or <code>claude auth status</code>.",
@@ -1080,6 +1080,88 @@ function renderClaudeCode(el: HTMLElement): void {
   ));
   el.appendChild(hudSec);
 
+  // ---- Notifications subsection ----
+  const notifySec = section("Notifications");
+
+  const notifyBothOff = prefs.notifyOnStop !== true && prefs.notifyOnPermission !== true;
+
+  notifySec.appendChild(row(
+    "Notify on turn finished",
+    "macOS notification when Claude finishes a turn.",
+    toggle(prefs.notifyOnStop === true, async (v) => {
+      setPref("notifyOnStop", v);
+      await syncHookInstall();
+      render();
+    }),
+  ));
+  notifySec.appendChild(row(
+    "Notify on permission needed",
+    "macOS notification when Claude is waiting for your approval.",
+    toggle(prefs.notifyOnPermission === true, async (v) => {
+      setPref("notifyOnPermission", v);
+      await syncHookInstall();
+      render();
+    }),
+  ));
+  notifySec.appendChild(row(
+    "Play sound on macOS notification",
+    "Plays the default macOS alert sound with each notification.",
+    toggle(prefs.notifySoundEnabled, (v) => setPref("notifySoundEnabled", v), notifyBothOff),
+  ));
+
+  // Status row — async: query hook install state and render a button.
+  let installStatus: { kind: string; missing?: string[] } = { kind: "Unknown" };
+  try {
+    installStatus = await invoke<{ kind: string; missing?: string[] }>("claude_notifications_status");
+  } catch (e) {
+    console.warn("claude_notifications_status failed:", e);
+  }
+
+  const statusCtl = document.createElement("div");
+  statusCtl.style.cssText = "display: flex; align-items: center; gap: 10px;";
+
+  const statusLabel = document.createElement("span");
+  statusLabel.style.cssText = "font-size: 12px; color: var(--fg-muted);";
+  switch (installStatus.kind) {
+    case "Installed":         statusLabel.textContent = "Installed"; break;
+    case "PartiallyInstalled": statusLabel.textContent = `Partial (missing: ${installStatus.missing?.join(", ") ?? "?"})`; break;
+    case "NotInstalled":      statusLabel.textContent = "Not installed"; break;
+    default:                  statusLabel.textContent = "Unknown"; break;
+  }
+  statusCtl.appendChild(statusLabel);
+
+  const actionBtnLabel =
+    installStatus.kind === "Installed"            ? "Uninstall"
+    : installStatus.kind === "PartiallyInstalled" ? "Reinstall"
+    : "Install";
+  const actionBtn = button(actionBtnLabel, async () => {
+    actionBtn.disabled = true;
+    actionBtn.textContent = actionBtnLabel === "Uninstall" ? "Uninstalling\u2026" : "Installing\u2026";
+    try {
+      if (actionBtnLabel === "Uninstall") {
+        await invoke("claude_notifications_uninstall");
+      } else {
+        await invoke("claude_notifications_install");
+        const { ensureNotificationPermission } = await import("./claude-notifications");
+        void ensureNotificationPermission();
+      }
+    } catch (e) {
+      const { showToast } = await import("./toast");
+      showToast({ kind: "error", message: `Couldn't ${actionBtnLabel.toLowerCase()} Claude hooks`, detail: String(e) });
+    }
+    render();
+  });
+  actionBtn.classList.add("ghost", "small");
+  statusCtl.appendChild(actionBtn);
+
+  notifySec.appendChild(row(
+    "Hooks install state",
+    "Kimbo hooks into Claude Code\u2019s <code>Stop</code> and <code>Notification</code> events.",
+    statusCtl,
+  ));
+
+  el.appendChild(notifySec);
+
   const accountSec = section("Account");
   const refreshBtn = button("Refresh", () => {});
   refreshBtn.classList.add("ghost");
@@ -1110,6 +1192,38 @@ function renderClaudeCode(el: HTMLElement): void {
     refreshBtn,
   ));
   el.appendChild(accountSec);
+}
+
+// ---------------------------------------------------------------------------
+// syncHookInstall — called after toggling notifyOnStop / notifyOnPermission.
+// Installs hooks when either notify pref is enabled, uninstalls when both off.
+// ---------------------------------------------------------------------------
+
+async function syncHookInstall(): Promise<void> {
+  const prefs = getPrefs();
+  const wantsHooks = prefs.notifyOnStop === true || prefs.notifyOnPermission === true;
+  let status: { kind: string };
+  try {
+    status = await invoke<{ kind: string }>("claude_notifications_status");
+  } catch (e) {
+    console.warn("syncHookInstall: status query failed:", e);
+    return;
+  }
+  if (wantsHooks && status.kind !== "Installed") {
+    try {
+      await invoke("claude_notifications_install");
+    } catch (e) {
+      const { showToast } = await import("./toast");
+      showToast({ kind: "error", message: "Couldn't install Claude hooks", detail: String(e) });
+    }
+  } else if (!wantsHooks && status.kind !== "NotInstalled") {
+    try {
+      await invoke("claude_notifications_uninstall");
+    } catch (e) {
+      const { showToast } = await import("./toast");
+      showToast({ kind: "error", message: "Couldn't uninstall Claude hooks", detail: String(e) });
+    }
+  }
 }
 
 // ===========================================================================

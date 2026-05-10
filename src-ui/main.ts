@@ -119,6 +119,11 @@ async function init() {
   // before openInitialTabs awaits its first createTab.
   startSessionAutosave(() => snapshotOpenTabs());
 
+  // Wire claude-notify events to toast/badges/macOS notifications.
+  import("./claude-notifications").then(({ wireClaudeNotifications }) =>
+    wireClaudeNotifications()
+  );
+
   // Enable file drag-drop → paste paths into target pane.
   try {
     await initDragDrop();

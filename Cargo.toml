@@ -6,10 +6,11 @@ members = [
     "crates/kimbo-config",
     "crates/kimbo-workspace",
     "crates/kimbo-claude-statusline",
+    "crates/kimbo-claude-notify",
 ]
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/lucatescari/kimbo-terminal"

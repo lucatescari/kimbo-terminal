@@ -31,6 +31,9 @@ export interface ToastOptions {
    *  callback and then dismisses the toast. A right-edge chevron is
    *  rendered as an affordance. Without this, click still dismisses. */
   onClick?: () => void;
+  /** Optional accent for "Claude needs you" notifications. Applies a
+   *  left-edge color stripe via a `.toast--accent-<name>` class. */
+  accent?: "stop" | "perm";
 }
 
 const ICONS: Record<ToastKind, string> = {
@@ -63,6 +66,7 @@ export function showToast(opts: ToastOptions): void {
   const toast = document.createElement("div");
   toast.className = `toast toast--${kind}`;
   if (actionable) toast.classList.add("toast--actionable");
+  if (opts.accent) toast.classList.add(`toast--accent-${opts.accent}`);
 
   const icon = document.createElement("span");
   icon.className = "toast__icon";

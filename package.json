@@ -1,6 +1,6 @@
 {
   "name": "kimbo-terminal",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "A fast, themeable terminal emulator built with Rust and Tauri",
   "author": "Luca Tescari",
   "license": "MIT",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod notify_socket;
 mod pty_manager;
 
 use pty_manager::PtyManager;
@@ -16,6 +17,9 @@ fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
     // run BEFORE app.exit; SIGHUP is synchronous, the 150ms SIGKILL
     // escalation runs in detached threads per session.
     manager.kill_all();
+    if let Some(sock_path) = notify_socket::socket_path() {
+        let _ = std::fs::remove_file(&sock_path);
+    }
     app.exit(0);
 }
 
@@ -48,6 +52,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(PtyManager::new())
         .manage(commands::claude::ClaudeAccountCache::default())
         .manage(ThemeState::default())
@@ -211,6 +216,27 @@ fn main() {
                 }
             }
 
+            if let Ok(sidecar) = commands::claude_notifications::sidecar_path() {
+                let path_str = sidecar.to_string_lossy().to_string();
+                if let Err(e) = commands::claude_notifications::rewrite_wrapper(&path_str) {
+                    log::warn!("notify rewrite_wrapper failed: {e}");
+                }
+            }
+
+            // Notify-socket listener — receives events from kimbo-claude-notify hooks.
+            {
+                let app_handle = app.handle().clone();
+                if let Some(sock_path) = notify_socket::socket_path() {
+                    notify_socket::spawn_listener(sock_path, move |ev| {
+                        if let Err(e) = app_handle.emit("claude-notify", &ev) {
+                            log::warn!("emit claude-notify failed: {e}");
+                        }
+                    });
+                } else {
+                    log::warn!("notify-socket: $HOME unset; skipping listener");
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -237,6 +263,9 @@ fn main() {
             commands::claude_rate_limits::claude_rate_limits,
             commands::claude_rate_limits::claude_rate_limits_install,
             commands::claude_rate_limits::claude_rate_limits_uninstall,
+            commands::claude_notifications::claude_notifications_install,
+            commands::claude_notifications::claude_notifications_uninstall,
+            commands::claude_notifications::claude_notifications_status,
             quit_app,
             set_window_theme,
         ])

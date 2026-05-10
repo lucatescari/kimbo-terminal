@@ -34,6 +34,32 @@ let activePaneId = -1;
 let rootEl: HTMLElement;
 let installAttempted = false;
 
+type PaneBadgeKind = "stop" | "perm" | null;
+const paneBadge: Map<number, PaneBadgeKind> = new Map();
+
+export function setPaneBadge(paneId: number, kind: PaneBadgeKind): void {
+  if (kind === null) {
+    paneBadge.delete(paneId);
+  } else {
+    const existing = paneBadge.get(paneId);
+    if (existing === "perm") return; // perm wins
+    paneBadge.set(paneId, kind);
+  }
+  if (!tree) return;
+  const leaf = findLeaf(tree, paneId);
+  if (leaf) {
+    const head = leaf.element.querySelector<HTMLElement>(":scope > .pane-head");
+    if (head) applyPaneBadgeClass(head, kind);
+  }
+}
+
+function applyPaneBadgeClass(head: HTMLElement, kind: PaneBadgeKind): void {
+  head.classList.remove("pane-head--badge", "pane-head--badge-stop", "pane-head--badge-perm");
+  if (kind) {
+    head.classList.add("pane-head--badge", `pane-head--badge-${kind}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -235,6 +261,7 @@ export function closeActive(): void {
   } catch (e) {
     console.warn("pane session dispose failed:", e);
   }
+  import("./claude-session-map").then(({ removePane }) => removePane(leaf.paneId));
 
   requestAnimationFrame(() => fitAll(tree!));
 }
@@ -320,6 +347,7 @@ export function disposeTree(node: PaneTree | null): void {
     // walk and leak the rest of the subtree's PTYs (same failure shape as
     // the closeActive() zombie-pane bug).
     try { node.session.dispose(); } catch (e) { console.warn("pane session dispose failed:", e); }
+    import("./claude-session-map").then(({ removePane }) => removePane(node.paneId));
     return;
   }
   disposeTree(node.first);
@@ -396,7 +424,7 @@ async function createLeaf(opts: {
       return;
     }
     updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
-    await refreshClaudeHudFor(el, session.ptyId);
+    await refreshClaudeHudFor(el, session.ptyId, paneId);
   }, 2000);
 
   return { type: "leaf", paneId, session, element: el };
@@ -414,6 +442,14 @@ function updatePaneHead(head: HTMLElement, paneId: number, ptyId: number, cwd: s
 
 export function setActivePane(id: number) {
   activePaneId = id;
+  paneBadge.delete(id);
+  if (tree) {
+    const leaf = findLeaf(tree, id);
+    if (leaf) {
+      const head = leaf.element.querySelector<HTMLElement>(":scope > .pane-head");
+      if (head) applyPaneBadgeClass(head, null);
+    }
+  }
   if (!tree) return;
 
   // Update active styling on all leaves.
@@ -426,6 +462,16 @@ export function setActivePane(id: number) {
       leaf.element.classList.remove("active");
     }
   }
+}
+
+export function paneCwdBasename(paneId: number): string | null {
+  if (!tree) return null;
+  const leaf = findLeaf(tree, paneId);
+  if (!leaf) return null;
+  const cwd = leaf.session?.cwd;
+  if (!cwd) return null;
+  const trimmed = cwd.replace(/\/$/, "");
+  return trimmed.split("/").pop() ?? null;
 }
 
 function findLeaf(node: PaneTree, id: number): LeafNode | null {
@@ -546,12 +592,54 @@ async function maybeAutoInstall(): Promise<void> {
   }
 }
 
-async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<void> {
+let notifyAutoInstallAttempted = false;
+
+async function maybeAutoInstallNotifications(): Promise<void> {
+  if (notifyAutoInstallAttempted) return;
+  notifyAutoInstallAttempted = true;
+
+  const { getPrefs, setPref } = await import("./ui-prefs");
+  const prefs = getPrefs();
+
+  // Skip if either pref has already been decided (true / false / "dismissed").
+  if (prefs.notifyOnStop !== undefined || prefs.notifyOnPermission !== undefined) return;
+
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { showToast } = await import("./toast");
+
+  try {
+    await invoke("claude_notifications_install");
+    setPref("notifyOnStop", true);
+    setPref("notifyOnPermission", true);
+    showToast({
+      kind: "success",
+      message: "Kimbo enabled Claude notifications.",
+      detail: "Disable in Settings → Claude Code → Notifications.",
+    });
+    const { ensureNotificationPermission } = await import("./claude-notifications");
+    void ensureNotificationPermission();
+  } catch (e) {
+    // Transient failures (FS errors, permission denied, etc.) — leave the
+    // prefs undefined so the next claude-detect retries. The Settings UI
+    // status row exposes the current install state independently.
+    // Note: "dismissed" is NOT set here — it is only reachable via explicit
+    // user action in the Settings panel (if that flow is added later).
+    notifyAutoInstallAttempted = false;
+    showToast({
+      kind: "error",
+      message: "Couldn't enable Claude notifications",
+      detail: String(e),
+    });
+  }
+}
+
+async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: number): Promise<void> {
   const { claudeStatus } = await import("./claude-status");
   const { getAccountInfo } = await import("./claude-account");
   const { renderClaudeHud } = await import("./claude-hud");
   const { getPrefs } = await import("./ui-prefs");
   const { getRateLimits } = await import("./claude-rate-limits");
+  const { setSessionPane } = await import("./claude-session-map");
 
   const [status, account, rateLimits] = await Promise.all([
     claudeStatus(ptyId),
@@ -560,7 +648,9 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number): Promise<
   ]);
 
   if (status) {
+    setSessionPane(status.session_id, paneId);
     void maybeAutoInstall();
+    void maybeAutoInstallNotifications();
   }
 
   const prefs = getPrefs();
