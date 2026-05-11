@@ -87,6 +87,7 @@ vi.mock("./ui-prefs", () => ({
     flushIntervalMs: 16,
     telemetry: false,
     releaseChannel: "stable",
+    themePickerMode: "all",
   }),
   setPref: vi.fn(),
   applyRoot: vi.fn(),

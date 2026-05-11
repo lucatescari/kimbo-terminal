@@ -18,6 +18,7 @@ import { buildDropdown } from "./dropdown";
 import { buildThemeCard } from "./theme-card";
 import { getPrefs, setPref, applyRoot, type Density, type TabStyle } from "./ui-prefs";
 import { isMacOS } from "./platform";
+import { filterThemes, type ThemeMode } from "./theme-filter";
 import {
   getCachedUpdate,
   forceCheckUpdate,
@@ -78,6 +79,10 @@ let communityResolved = false;
 /** Total entries in the community manifest, regardless of install state. */
 let communityCatalogSize = 0;
 let activeCategory: SettingsCategory = "appearance";
+// Held outside renderAppearance so the search query survives re-renders of
+// the panel (e.g. after activating a theme). Cleared when the settings
+// modal closes — see `hideSettings()`.
+let themeSearchQuery = "";
 let overlayEl: HTMLElement | null = null;
 // Persistent refs so a nav-bar click can refresh just the main content
 // without recreating .settings — recreation replays the rise-in CSS
@@ -145,6 +150,7 @@ export function hideSettings(): void {
   if (escapeHandler) { document.removeEventListener("keydown", escapeHandler, true); escapeHandler = null; }
   communityResolved = false;
   communityCatalogSize = 0;
+  themeSearchQuery = "";
 }
 
 export function isSettingsVisible(): boolean {
@@ -439,20 +445,112 @@ function renderAppearance(el: HTMLElement): void {
 
   // Theme section
   const themeSec = section("Theme");
-  const yours = unifiedThemes.filter((t) => t.source !== "Available");
-  const available = unifiedThemes.filter((t) => t.source === "Available");
 
-  if (yours.length > 0) {
+  const yoursAll = unifiedThemes.filter((t) => t.source !== "Available");
+  const availableAll = unifiedThemes.filter((t) => t.source === "Available");
+
+  // Grid containers. `galleryContainer` is assigned later when the
+  // Community gallery section is built; we declare it up front so the
+  // rebuild closure (created next) captures a stable binding.
+  const yoursContainer = document.createElement("div");
+  let galleryContainer: HTMLElement | null = null;
+
+  function emptyMsg(text: string): HTMLElement {
+    const d = document.createElement("div");
+    d.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
+    d.textContent = text;
+    return d;
+  }
+
+  function buildYoursInto(container: HTMLElement): void {
+    const mode = getPrefs().themePickerMode;
+    const filtered = filterThemes(yoursAll, themeSearchQuery, mode);
+    container.replaceChildren();
+    if (yoursAll.length === 0) {
+      container.appendChild(emptyMsg("Loading themes…"));
+      return;
+    }
+    if (filtered.length === 0) {
+      container.appendChild(emptyMsg("No themes match your search."));
+      return;
+    }
     const grid = document.createElement("div");
     grid.className = "theme-grid";
-    for (const t of yours) grid.appendChild(themeCard(t, t.slug === active));
-    themeSec.appendChild(grid);
-  } else {
-    const empty = document.createElement("div");
-    empty.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
-    empty.textContent = "Loading themes…";
-    themeSec.appendChild(empty);
+    for (const t of filtered) grid.appendChild(themeCard(t, t.slug === active));
+    container.appendChild(grid);
   }
+
+  function buildAvailableInto(container: HTMLElement): void {
+    const mode = getPrefs().themePickerMode;
+    const filtered = filterThemes(availableAll, themeSearchQuery, mode);
+    container.replaceChildren();
+    if (!communityResolved) {
+      container.appendChild(emptyMsg("Loading community themes…"));
+      return;
+    }
+    if (communityCatalogSize === 0) {
+      container.appendChild(emptyMsg("Community themes unavailable (offline?)"));
+      return;
+    }
+    if (availableAll.length === 0) {
+      const n = communityCatalogSize;
+      const noun = n === 1 ? "theme" : "themes";
+      const verb = n === 1 ? "is" : "are";
+      container.appendChild(emptyMsg(
+        `All ${n} community ${noun} ${verb} installed. Uninstall any theme above (hover → ×) to see it in the gallery again.`,
+      ));
+      return;
+    }
+    if (filtered.length === 0) {
+      container.appendChild(emptyMsg("No themes match your search."));
+      return;
+    }
+    const grid = document.createElement("div");
+    grid.className = "theme-grid";
+    for (const t of filtered) grid.appendChild(themeCard(t, false));
+    container.appendChild(grid);
+  }
+
+  // Defined as a function declaration so it's hoisted — safe to reference
+  // from the search input + mode dropdown callbacks even though they're
+  // attached before galleryContainer is assigned.
+  function rebuildGrids(): void {
+    buildYoursInto(yoursContainer);
+    if (galleryContainer) buildAvailableInto(galleryContainer);
+  }
+
+  // Search + mode controls row.
+  const controlsRow = document.createElement("div");
+  controlsRow.style.cssText = "display: flex; gap: 8px; align-items: center; margin-bottom: 10px;";
+
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.className = "input";
+  searchInput.placeholder = "Search themes by name, author, or color…";
+  searchInput.value = themeSearchQuery;
+  searchInput.style.flex = "1";
+  searchInput.spellcheck = false;
+  searchInput.autocapitalize = "off";
+  searchInput.autocomplete = "off";
+  searchInput.addEventListener("input", () => {
+    themeSearchQuery = searchInput.value;
+    rebuildGrids();
+  });
+  controlsRow.appendChild(searchInput);
+
+  const modeCtl = segCtl(
+    getPrefs().themePickerMode,
+    [["all", "All"], ["dark", "Dark"], ["light", "Light"]],
+    (v) => {
+      setPref("themePickerMode", v as ThemeMode);
+      rebuildGrids();
+    },
+  );
+  controlsRow.appendChild(modeCtl);
+  themeSec.appendChild(controlsRow);
+
+  themeSec.appendChild(yoursContainer);
+  buildYoursInto(yoursContainer);
 
   const btnRow = document.createElement("div");
   btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 16px;";
@@ -567,38 +665,9 @@ function renderAppearance(el: HTMLElement): void {
   // Community gallery
   const gallery = section("Community gallery");
   gallery.classList.add("gallery");
-  const galleryMsg = (text: string): HTMLElement => {
-    const d = document.createElement("div");
-    d.textContent = text;
-    d.style.cssText = "color: var(--fg-muted); font-size: 12px; padding: 6px 0;";
-    return d;
-  };
-  if (!communityResolved && communityCatalogSize === 0) {
-    // Fetch in progress OR fetch failed (no cache, no network response yet).
-    gallery.appendChild(galleryMsg("Loading community themes…"));
-  } else if (!communityResolved) {
-    // Resolved=false but we have a catalog size from a prior successful
-    // fetch — shouldn't happen in practice, same UX as loading.
-    gallery.appendChild(galleryMsg("Loading community themes…"));
-  } else if (communityCatalogSize === 0) {
-    // Actually offline or catalog empty.
-    gallery.appendChild(galleryMsg("Community themes unavailable (offline?)"));
-  } else if (available.length === 0) {
-    // Fetch succeeded and all themes in catalog are already installed.
-    {
-      const n = communityCatalogSize;
-      const noun = n === 1 ? "theme" : "themes";
-      const verb = n === 1 ? "is" : "are";
-      gallery.appendChild(galleryMsg(
-        `All ${n} community ${noun} ${verb} installed. Uninstall any theme above (hover → ×) to see it in the gallery again.`,
-      ));
-    }
-  } else {
-    const grid = document.createElement("div");
-    grid.className = "theme-grid";
-    for (const t of available) grid.appendChild(themeCard(t, false));
-    gallery.appendChild(grid);
-  }
+  galleryContainer = document.createElement("div");
+  gallery.appendChild(galleryContainer);
+  buildAvailableInto(galleryContainer);
   el.appendChild(gallery);
 }
 
