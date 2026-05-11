@@ -445,6 +445,7 @@ function renderAppearance(el: HTMLElement): void {
 
   // Theme section
   const themeSec = section("Theme");
+  themeSec.classList.add("themes");
 
   const yoursAll = unifiedThemes.filter((t) => t.source !== "Available");
   const availableAll = unifiedThemes.filter((t) => t.source === "Available");
@@ -586,7 +587,6 @@ function renderAppearance(el: HTMLElement): void {
   importBtn.classList.add("ghost");
   btnRow.appendChild(importBtn);
   themeSec.appendChild(btnRow);
-  el.appendChild(themeSec);
 
   // Accent / density / tab style
   const accentSec = section("Accent");
@@ -661,6 +661,7 @@ function renderAppearance(el: HTMLElement): void {
     ], (v) => setPref("tabStyle", v as TabStyle)),
   ));
   el.appendChild(accentSec);
+  el.appendChild(themeSec);
 
   // Community gallery
   const gallery = section("Community gallery");
