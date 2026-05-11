@@ -132,3 +132,27 @@ describe("filterThemes — empty query + mode", () => {
     expect(filterThemes([], "", "all")).toEqual([]);
   });
 });
+
+describe("filterThemes — name + author substring", () => {
+  const forest = mkTheme({ slug: "forest", name: "Forest", author: "@aria" });
+  const dracula = mkTheme({ slug: "dracula", name: "Dracula", author: "@zenorocha" });
+  const all = [forest, dracula];
+
+  it("matches a name substring case-insensitively", () => {
+    expect(filterThemes(all, "fore", "all")).toEqual([forest]);
+    expect(filterThemes(all, "FOREST", "all")).toEqual([forest]);
+  });
+
+  it("matches an author substring case-insensitively", () => {
+    expect(filterThemes(all, "zeno", "all")).toEqual([dracula]);
+  });
+
+  it("matches author with or without the leading @", () => {
+    expect(filterThemes(all, "@aria", "all")).toEqual([forest]);
+    expect(filterThemes(all, "aria", "all")).toEqual([forest]);
+  });
+
+  it("returns empty when no theme matches the query", () => {
+    expect(filterThemes(all, "nothing-matches", "all")).toEqual([]);
+  });
+});

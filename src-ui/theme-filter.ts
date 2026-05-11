@@ -83,6 +83,14 @@ export function filterThemes(
   }
   const q = query.trim().toLowerCase();
   if (q.length === 0) return out;
-  // Query matching arrives in the next task.
-  return out;
+  const tokens = q.split(/\s+/);
+  return out.filter((t) => tokens.every((tok) => matchToken(t, tok)));
+}
+
+function matchToken(t: UnifiedTheme, token: string): boolean {
+  if (t.name.toLowerCase().includes(token)) return true;
+  const author = t.author.replace(/^@/, "").toLowerCase();
+  // Also try the raw author (with @) so a query of "@aria" still matches.
+  if (author.includes(token.replace(/^@/, ""))) return true;
+  return false;
 }
