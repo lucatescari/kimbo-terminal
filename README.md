@@ -28,7 +28,9 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 - **Tabbed windows** — each tab has its own independent pane layout, drag-and-drop to reorder
 - **Command palette** — unified launcher for commands and projects (Cmd+K)
 - **Find in scrollback** — search terminal output with regex and case-sensitive modes (Cmd+F)
-- **Themeable** — JSON themes (VS Code format), 3 built-in + community theme repo
+- **Themeable** — JSON themes (VS Code format), 2 built-in (Kimbo Dark / Light) + one-click install from the community theme repo
+- **Inline images** — renders iTerm2-style OSC 1337 images directly in the terminal (works with `imgcat`, `fastfetch`)
+- **Claude Code HUD** — per-pane detection of Claude Code with a rate-limit status line (5h / 7d windows + reset times)
 - **True color (24-bit)** — full color support for modern CLI tools
 - **Settings UI** — built-in settings panel (Cmd+,) for theme, font, keybindings, workspaces
 - **Configurable keybindings** — all shortcuts customizable via settings or config file
@@ -43,15 +45,6 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 <p align="center">
   <img src="assets/kimbo-cmd-k.gif" alt="Kimbo command palette demo" width="720" />
 </p>
-
-## What's New in `feat/osc1337-inline-images`
-
-This branch focuses on better media and rendering behavior in the terminal, plus the latest updates merged from `dev`.
-
-- **Inline images (imgcat / OSC 1337)** — renders iTerm-style inline images directly inside the terminal viewport
-- **OSC 1337 cursor-advance preprocessing** — keeps cursor math correct after inline image output (important for tools like `fastfetch`)
-- **Transparent ANSI background filtering** — rewrites problematic black background ANSI sequences to preserve window transparency
-- **Settings and UX additions from `dev`** — includes recent upstream improvements merged from Luca's `dev` branch
 
 ### `imgcat`
 
@@ -151,15 +144,14 @@ All keybindings are customizable in Settings > Keybindings.
 
 ## Themes
 
-Kimbo uses JSON themes in VS Code format. Three built-in themes are included:
+Kimbo uses JSON themes in VS Code format. Two built-in themes ship with the app:
 
 - **Kimbo Dark** — default dark theme
-- **Catppuccin Mocha** — warm dark pastels
-- **Catppuccin Latte** — warm light pastels
+- **Kimbo Light** — default light theme
 
-Community themes are available in Settings > Appearance. You can also create your own — see the [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo for the format and how to contribute.
+More themes (including Catppuccin Mocha and Latte) install with one click from **Settings → Appearance**. You can also create your own — see [`docs/themes.md`](docs/themes.md) for the schema and the [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo for community submissions.
 
-Install custom themes by placing `.json` files in `~/.config/kimbo/themes/`.
+Manual install: drop `.json` files in `~/.config/kimbo/themes/`.
 
 ## Scripts
 
@@ -178,9 +170,11 @@ kimbo-terminal/
   src-tauri/          # Rust backend (Tauri app, PTY management, commands)
   src-ui/             # TypeScript frontend (xterm.js, tabs, settings, etc.)
   crates/
-    kimbo-terminal/   # Raw PTY wrapper (spawn, read/write, resize, CWD)
-    kimbo-config/     # Config loading, JSON themes, keybinding definitions
-    kimbo-workspace/  # Project detection and directory scanning
+    kimbo-terminal/            # Raw PTY wrapper (spawn, read/write, resize, CWD)
+    kimbo-config/              # Config loading, JSON themes, keybinding definitions
+    kimbo-workspace/           # Project detection and directory scanning
+    kimbo-claude-statusline/   # Claude Code rate-limit status line (5h / 7d + reset time)
+    kimbo-claude-notify/       # Claude Code per-pane notifications
 ```
 
 ## Platform Support
