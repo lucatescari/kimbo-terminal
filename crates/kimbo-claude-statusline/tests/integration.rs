@@ -10,8 +10,16 @@ fn end_to_end_writes_cache_and_prints_status() {
 
     let bin = env!("CARGO_BIN_EXE_kimbo-claude-statusline");
 
+    // Pin "now" so the rendered durations are deterministic.
+    // FRESH_JSON has five_hour.resets_at = 1777902000 and
+    // seven_day.resets_at = 1778234400.
+    // now = 1_777_893_000 → 5h delta is 9_000s = 2h30m,
+    //                       Wk delta is 341_400s = 3d 22h50m → "3d 22h".
+    let now_secs: u64 = 1_777_893_000;
+
     let mut child = Command::new(bin)
         .env("KIMBO_APP_DATA", dir.path())
+        .env("KIMBO_NOW_SECS", now_secs.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -23,7 +31,10 @@ fn end_to_end_writes_cache_and_prints_status() {
     let out = child.wait_with_output().unwrap();
 
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "5h 47% · Wk 23%");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "5h 47% (2h30m) · Wk 23% (3d 22h)",
+    );
     assert!(cache_path.exists(), "expected cache at {cache_path:?}");
 
     let cache_bytes = std::fs::read(&cache_path).unwrap();
