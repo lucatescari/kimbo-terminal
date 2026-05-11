@@ -215,3 +215,58 @@ describe("filterThemes — color-word matching", () => {
     expect(filterThemes(all, "forest", "all")).toEqual([forest]);
   });
 });
+
+describe("filterThemes — multi-token AND", () => {
+  const forestDark = mkTheme({
+    slug: "forest-dark",
+    name: "Forest Dark",
+    author: "@aria",
+    theme_type: "dark",
+    swatches: {
+      background: "#101010",
+      foreground: "#eeeeee",
+      accent: "#6ABE6A",
+      cursor: "#6ABE6A",
+    },
+  });
+  const oceanDark = mkTheme({
+    slug: "ocean-dark",
+    name: "Ocean Dark",
+    author: "@bob",
+    theme_type: "dark",
+    swatches: {
+      background: "#101010",
+      foreground: "#eeeeee",
+      accent: "#3050E0",   // blue
+      cursor: "#3050E0",
+    },
+  });
+  const forestLight = mkTheme({
+    slug: "forest-light",
+    name: "Forest Light",
+    author: "@aria",
+    theme_type: "light",
+    swatches: {
+      background: "#fafafa",
+      foreground: "#202020",
+      accent: "#6ABE6A",
+      cursor: "#6ABE6A",
+    },
+  });
+  const all = [forestDark, oceanDark, forestLight];
+
+  it("'green forest' requires both tokens to match (intersection)", () => {
+    // forestDark: name has 'forest', accent is green → matches both
+    // oceanDark: accent is not green → fails 'green'
+    // forestLight: name has 'forest', accent is green → matches both
+    expect(filterThemes(all, "green forest", "all")).toEqual([forestDark, forestLight]);
+  });
+
+  it("'green ocean' matches nothing because no theme has green accent and 'ocean' in name", () => {
+    expect(filterThemes(all, "green ocean", "all")).toEqual([]);
+  });
+
+  it("AND composes with mode filter", () => {
+    expect(filterThemes(all, "forest", "dark")).toEqual([forestDark]);
+  });
+});
