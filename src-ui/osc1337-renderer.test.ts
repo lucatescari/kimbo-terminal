@@ -126,6 +126,33 @@ describe("osc1337-renderer bitmap pipeline", () => {
   });
 });
 
+describe("osc1337-renderer alt-buffer visibility", () => {
+  // xterm's BufferDecorationRenderer flips display:none on the decoration
+  // container only on the next render after onBufferActivate fires, which
+  // leaves a visible window where an image painted in the normal buffer
+  // bleeds over alt-buffer content (e.g. claude code). We hide the <img>
+  // directly via term.buffer.onBufferChange so visibility flips
+  // synchronously with the buffer switch.
+  it("subscribes to term.buffer.onBufferChange", () => {
+    expect(source).toMatch(/term\.buffer\.onBufferChange\s*\(/);
+  });
+
+  it("tracks live <img> elements so they can be toggled on buffer change", () => {
+    expect(source).toMatch(/liveImages/);
+    expect(source).toMatch(/liveImages\.add\s*\(\s*img\s*\)/);
+    expect(source).toMatch(/liveImages\.delete\s*\(\s*img\s*\)/);
+  });
+
+  it("flips display based on buffer.active.type", () => {
+    expect(source).toMatch(/term\.buffer\.active\.type\s*===\s*["']alternate["']/);
+  });
+
+  it("disposes the buffer-change listener and clears the set on teardown", () => {
+    expect(source).toMatch(/bufferChangeDisposable\.dispose\s*\(/);
+    expect(source).toMatch(/liveImages\.clear\s*\(/);
+  });
+});
+
 describe("osc1337-renderer cell measurement", () => {
   it("reads cell dimensions from xterm's render service (works for WebGL and DOM)", () => {
     // The decoration API positions its element in pixels using xterm's

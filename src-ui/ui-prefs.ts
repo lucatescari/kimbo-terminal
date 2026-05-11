@@ -5,6 +5,8 @@
 // "coming soon" placeholders) live here so we don't have to migrate the Rust
 // schema just to flip a class name.
 
+import type { ThemeMode } from "./theme-filter";
+
 const KEY = "kimbo-ui-prefs-v1";
 
 export type Density = "compact" | "comfortable" | "roomy";
@@ -73,6 +75,10 @@ export interface UiPrefs {
   /** Claude Code → Notifications → play sound on the macOS notification.
    *  Silent by default. */
   notifySoundEnabled: boolean;
+  /** Appearance → Themes grid. Hard filter applied to both the
+   *  built-in/installed grid and the community gallery. Persisted so a
+   *  user who only wants dark themes doesn't re-pick on each open. */
+  themePickerMode: ThemeMode;
 }
 
 const DEFAULTS: UiPrefs = {
@@ -94,6 +100,7 @@ const DEFAULTS: UiPrefs = {
   claudeHudExtended: false,
   claudeHudShowPlan: false,
   notifySoundEnabled: false,
+  themePickerMode: "all",
 };
 
 let cache: UiPrefs | null = null;

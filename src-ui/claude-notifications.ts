@@ -43,6 +43,19 @@ export interface Routing {
 const COALESCE_WINDOW_MS = 500;
 const lastNotificationByTs = new Map<string, number>();
 
+// Claude Code's `Notification` hook fires for two distinct subtypes (see the
+// claude-pane-notifications design spec): real permission requests
+// (message: "Claude needs your permission to use <Tool>") and the 60s
+// prompt-idle ping (message: "Claude is waiting for your input"). Only the
+// first should drive the "Claude needs permission" UI — the idle ping is
+// noise after a Stop already told the user Claude finished, and it surfaces
+// even when `--dangerously-skip-permissions` is set (which is what made it
+// look like spurious permission prompts).
+function isPermissionRequest(message: string | null): boolean {
+  if (!message) return false;
+  return message.toLowerCase().includes("permission");
+}
+
 interface PendingFocus {
   tabId: number;
   paneId: number;
@@ -93,6 +106,14 @@ export function handleNotifyEvent(ev: NotifyEvent): void {
   const prefs = routing.prefs();
   const enabled = ev.kind === "stop" ? prefs.notifyOnStop : prefs.notifyOnPermission;
   if (!enabled) return;
+
+  // Filter non-permission notifications (idle pings, unknown future variants)
+  // before they enter the coalesce window — otherwise an idle ping at t+60s
+  // would (a) paint a wrong "needs permission" UI and (b) get recorded in
+  // lastNotificationByTs, potentially swallowing a legit Stop later.
+  if (ev.kind === "notification" && !isPermissionRequest(ev.message)) {
+    return;
+  }
 
   // Coalesce: drop a `stop` that arrives within COALESCE_WINDOW_MS after a
   // `notification` for the same session — common when the user denies

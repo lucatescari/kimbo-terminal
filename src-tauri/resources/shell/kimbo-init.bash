@@ -25,3 +25,27 @@ fi
 if [[ "$PROMPT_COMMAND" != *"_kimbo_precmd"* ]]; then
     PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_kimbo_precmd"
 fi
+
+# imgcat — render a local image inline using the iTerm2 OSC 1337 protocol
+# that Kimbo's renderer parses. Skipped if an `imgcat` binary is already on
+# PATH (e.g. iTerm2's bundled one) so we don't shadow a richer impl.
+if ! command -v imgcat >/dev/null 2>&1; then
+    imgcat() {
+        if [[ $# -eq 0 ]]; then
+            echo "usage: imgcat <file>..." >&2
+            return 1
+        fi
+        local file name b64name b64data size
+        for file in "$@"; do
+            if [[ ! -f "$file" ]]; then
+                echo "imgcat: not found: $file" >&2
+                continue
+            fi
+            name=$(basename -- "$file")
+            size=$(wc -c < "$file" | tr -d ' ')
+            b64name=$(printf %s "$name" | base64 | tr -d '\n')
+            b64data=$(base64 < "$file" | tr -d '\n')
+            printf '\e]1337;File=name=%s;inline=1;size=%d:%s\a\n' "$b64name" "$size" "$b64data"
+        done
+    }
+fi
