@@ -89,8 +89,13 @@ export function filterThemes(
 
 function matchToken(t: UnifiedTheme, token: string): boolean {
   if (t.name.toLowerCase().includes(token)) return true;
+  // Strip a leading @ from both sides so "@aria" and "aria" both match
+  // an author of "@aria".
   const author = t.author.replace(/^@/, "").toLowerCase();
-  // Also try the raw author (with @) so a query of "@aria" still matches.
   if (author.includes(token.replace(/^@/, ""))) return true;
+  if (isColorWord(token)) {
+    if (swatchMatchesColor(t.swatches.accent, token)) return true;
+    if (swatchMatchesColor(t.swatches.cursor, token)) return true;
+  }
   return false;
 }

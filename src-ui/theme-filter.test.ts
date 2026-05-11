@@ -156,3 +156,62 @@ describe("filterThemes — name + author substring", () => {
     expect(filterThemes(all, "nothing-matches", "all")).toEqual([]);
   });
 });
+
+describe("filterThemes — color-word matching", () => {
+  const forest = mkTheme({
+    slug: "forest",
+    name: "Forest",
+    author: "@aria",
+    swatches: {
+      background: "#101010",
+      foreground: "#eeeeee",
+      accent: "#6ABE6A",   // green
+      cursor: "#6ABE6A",
+    },
+  });
+  const ember = mkTheme({
+    slug: "ember",
+    name: "Ember",
+    author: "@aria",
+    swatches: {
+      background: "#101010",
+      foreground: "#eeeeee",
+      accent: "#E03030",   // red / warm
+      cursor: "#E03030",
+    },
+  });
+  const ashes = mkTheme({
+    slug: "ashes",
+    name: "Ashes",
+    author: "@aria",
+    swatches: {
+      background: "#101010",
+      foreground: "#eeeeee",
+      accent: "#888888",   // grey — no hue
+      cursor: "#888888",
+    },
+  });
+  const all = [forest, ember, ashes];
+
+  it("'green' finds a theme with a green accent even when the name doesn't contain 'green'", () => {
+    expect(filterThemes(all, "green", "all")).toEqual([forest]);
+  });
+
+  it("'warm' matches the red theme but not the green one", () => {
+    expect(filterThemes(all, "warm", "all")).toEqual([ember]);
+  });
+
+  it("'cool' matches the green theme but not the red one", () => {
+    expect(filterThemes(all, "cool", "all")).toEqual([forest]);
+  });
+
+  it("grey-only theme matches no color word", () => {
+    expect(filterThemes(all, "blue", "all")).toEqual([]);
+    expect(filterThemes(all, "red", "all")).toEqual([ember]); // sanity: red still finds ember
+  });
+
+  it("falls back to name/author when the token is not a color word", () => {
+    // 'forest' is not in COLOR_RANGES — must match by name only.
+    expect(filterThemes(all, "forest", "all")).toEqual([forest]);
+  });
+});
