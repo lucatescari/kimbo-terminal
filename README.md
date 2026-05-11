@@ -53,23 +53,15 @@ This branch focuses on better media and rendering behavior in the terminal, plus
 - **Transparent ANSI background filtering** — rewrites problematic black background ANSI sequences to preserve window transparency
 - **Settings and UX additions from `dev`** — includes recent upstream improvements merged from Luca's `dev` branch
 
-### `imgcat` quick setup
+### `imgcat`
 
-Kimbo can render OSC 1337 inline images, but the `imgcat` command must be installed separately.
+Kimbo's shell init scripts (`kimbo-init.zsh` / `.bash` / `.fish`) define an `imgcat` function that emits the OSC 1337 sequence Kimbo renders. Once you've sourced the init script in your shell rc, it just works:
 
 ```bash
-# iTerm2 bundles imgcat; add it to PATH once
-mkdir -p ~/.local/bin
-ln -sf "/Applications/iTerm.app/Contents/Resources/utilities/imgcat" ~/.local/bin/imgcat
-
-# reload shell
-exec zsh
-
-# test
 imgcat /path/to/image.png
 ```
 
-Kimbo supports both default multipart `imgcat` output and legacy `imgcat -l`.
+The function is skipped if you already have an `imgcat` binary on `PATH` (e.g. iTerm2's bundled one), so it never shadows a richer impl. Kimbo also supports the multipart variant emitted by iTerm2's `imgcat` and by `fastfetch`.
 
 ## Tech Stack
 
