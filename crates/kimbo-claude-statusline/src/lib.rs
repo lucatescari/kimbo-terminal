@@ -263,44 +263,92 @@ pub fn format_remaining(now_secs: u64, resets_at: u64) -> String {
 }
 
 /// Render the one-line status string Claude Code displays in its TUI.
-pub fn render_statusline(parsed: &ParsedInput) -> String {
-    let pct = |w: &Option<LimitWindow>| -> String {
-        w.as_ref().map_or_else(|| "—%".to_string(), |w| format!("{}%", w.used_percentage))
+/// `now_secs` is the current Unix time in seconds — supplied by the caller
+/// so the function stays pure and easy to test.
+pub fn render_statusline(parsed: &ParsedInput, now_secs: u64) -> String {
+    let segment = |label: &str, w: &Option<LimitWindow>| -> String {
+        match w {
+            None => format!("{label} —%"),
+            Some(w) => format!(
+                "{label} {}% ({})",
+                w.used_percentage,
+                format_remaining(now_secs, w.resets_at),
+            ),
+        }
     };
-    format!("5h {} · Wk {}", pct(&parsed.five_hour), pct(&parsed.seven_day))
+    format!(
+        "{} · {}",
+        segment("5h", &parsed.five_hour),
+        segment("Wk", &parsed.seven_day),
+    )
 }
 
 #[cfg(test)]
 mod statusline_tests {
     use super::*;
 
-    fn p(used_5h: u8, used_7d: u8) -> ParsedInput {
-        ParsedInput {
-            five_hour: Some(LimitWindow { used_percentage: used_5h, resets_at: 0 }),
-            seven_day: Some(LimitWindow { used_percentage: used_7d, resets_at: 0 }),
-            version_too_old: false,
-        }
+    const NOW: u64 = 1_777_900_000;
+
+    fn window(used: u8, resets_at: u64) -> LimitWindow {
+        LimitWindow { used_percentage: used, resets_at }
     }
 
     #[test]
-    fn renders_both_windows_with_separator() {
-        assert_eq!(render_statusline(&p(47, 23)), "5h 47% · Wk 23%");
-    }
-
-    #[test]
-    fn renders_dash_for_missing_windows() {
-        let parsed = ParsedInput { five_hour: None, seven_day: None, ..Default::default() };
-        assert_eq!(render_statusline(&parsed), "5h —% · Wk —%");
-    }
-
-    #[test]
-    fn renders_dash_only_for_the_missing_window() {
+    fn renders_both_windows_with_reset_parentheticals() {
         let parsed = ParsedInput {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 0 }),
-            seven_day: None,
-            ..Default::default()
+            five_hour: Some(window(47, NOW + 2 * 3600 + 30 * 60)),
+            seven_day: Some(window(23, NOW + 5 * 24 * 3600 + 12 * 3600)),
+            version_too_old: false,
         };
-        assert_eq!(render_statusline(&parsed), "5h 47% · Wk —%");
+        assert_eq!(
+            render_statusline(&parsed, NOW),
+            "5h 47% (2h30m) · Wk 23% (5d 12h)",
+        );
+    }
+
+    #[test]
+    fn past_five_hour_reset_renders_recycle_symbol() {
+        let parsed = ParsedInput {
+            five_hour: Some(window(47, NOW - 1)),
+            seven_day: Some(window(23, NOW + 5 * 24 * 3600 + 12 * 3600)),
+            version_too_old: false,
+        };
+        assert_eq!(
+            render_statusline(&parsed, NOW),
+            "5h 47% (↻) · Wk 23% (5d 12h)",
+        );
+    }
+
+    #[test]
+    fn missing_five_hour_omits_its_parenthetical() {
+        let parsed = ParsedInput {
+            five_hour: None,
+            seven_day: Some(window(23, NOW + 5 * 24 * 3600 + 12 * 3600)),
+            version_too_old: false,
+        };
+        assert_eq!(
+            render_statusline(&parsed, NOW),
+            "5h —% · Wk 23% (5d 12h)",
+        );
+    }
+
+    #[test]
+    fn both_missing_renders_dashes_without_parentheticals() {
+        let parsed = ParsedInput { five_hour: None, seven_day: None, ..Default::default() };
+        assert_eq!(render_statusline(&parsed, NOW), "5h —% · Wk —%");
+    }
+
+    #[test]
+    fn missing_seven_day_omits_its_parenthetical() {
+        let parsed = ParsedInput {
+            five_hour: Some(window(47, NOW + 2 * 3600 + 30 * 60)),
+            seven_day: None,
+            version_too_old: false,
+        };
+        assert_eq!(
+            render_statusline(&parsed, NOW),
+            "5h 47% (2h30m) · Wk —%",
+        );
     }
 }
 
