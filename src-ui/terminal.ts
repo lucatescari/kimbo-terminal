@@ -202,6 +202,12 @@ export async function createTerminalSession(
 
   /** Native window focus — DOM `window` focus does not always track Cmd-Tab in Tauri/WKWebView. */
   let unlistenTauriFocus: (() => void) | undefined;
+  // `disposed` covers the race where dispose() runs BEFORE onFocusChanged's
+  // Promise resolves: without it, the eventually-arriving unlisten function
+  // would be stored into `unlistenTauriFocus` after dispose already read it,
+  // and the Tauri-side listener would leak (kept a closure over the dead
+  // `fit`/`term`, throwing on every subsequent window focus).
+  let disposed = false;
   try {
     // `getCurrentWindow()` reads `__TAURI_INTERNALS__.metadata` and throws
     // synchronously when the bridge isn't installed (vitest browser tests).
@@ -212,7 +218,11 @@ export async function createTerminalSession(
         if (focused) restoreWebglAfterContextLoss();
       })
       .then((unlisten) => {
-        unlistenTauriFocus = unlisten;
+        if (disposed) {
+          try { unlisten(); } catch { /* ignore */ }
+        } else {
+          unlistenTauriFocus = unlisten;
+        }
       })
       .catch(() => {
         /* onFocusChanged rejected (event channel not ready). */
@@ -385,6 +395,7 @@ export async function createTerminalSession(
       // closePty is fire-and-forget here: the Tauri invoke message reaches
       // Rust whether or not the JS Promise is awaited, so dispose() stays
       // synchronous and callers don't have to change.
+      disposed = true;
       closePty(ptyId).catch((e) => console.warn("closePty failed:", e));
 
       try { disposeInlineImages(); } catch (e) { console.warn("disposeInlineImages:", e); }

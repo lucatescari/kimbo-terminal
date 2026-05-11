@@ -36,6 +36,22 @@ export function clipLinkRangeForLine(
   };
 }
 
+/** Cap on the number of OSC 8 hyperlinks tracked per Terminal. Without a cap,
+    `ranges` grew unboundedly over a long session — tools like `eza`,
+    `ls --hyperlink`, `git`, and `claude` emit OSC 8 constantly. The
+    accumulated array stayed live for the Terminal's lifetime and slowed every
+    hover-triggered `provideLinks` callback (flatMap over N entries per line).
+    With a cap, oldest entries fall off via FIFO eviction; in practice that
+    drops links to scrollback rows the user is unlikely to revisit, while
+    keeping anything emitted recently. */
+const MAX_TRACKED_RANGES = 5_000;
+
+export interface Osc8LinkHandle {
+  /** Current number of tracked link ranges. Bounded by MAX_TRACKED_RANGES.
+      Used by tests to verify the cap; production code can ignore it. */
+  size(): number;
+}
+
 /** Hook OSC 8 hyperlinks (`\x1b]8;params;url\x07text\x1b]8;;\x07`) on a
     terminal. Tracks link ranges as they are written and registers a link
     provider so xterm shows the underline on hover and routes clicks to
@@ -45,9 +61,14 @@ export function clipLinkRangeForLine(
 export function attachOsc8Links(
   term: Terminal,
   onActivate: (event: MouseEvent, uri: string) => void,
-): void {
+): Osc8LinkHandle {
   const ranges: LinkRange[] = [];
   let openLink: { url: string; startY: number; startX: number } | null = null;
+
+  function pushRange(r: LinkRange): void {
+    ranges.push(r);
+    if (ranges.length > MAX_TRACKED_RANGES) ranges.shift();
+  }
 
   term.parser.registerOscHandler(8, (data) => {
     // OSC 8 payload format: "params;url" for open, ";" or "" for close.
@@ -62,7 +83,7 @@ export function attachOsc8Links(
         startX: cursor.cursorX,
       };
     } else if (!url && openLink) {
-      ranges.push({
+      pushRange({
         url: openLink.url,
         startY: openLink.startY,
         startX: openLink.startX,
@@ -73,7 +94,7 @@ export function attachOsc8Links(
     } else if (url && openLink) {
       // Tool emitted a new open without closing the previous one — close it
       // implicitly at the current position and start fresh. Defensive.
-      ranges.push({
+      pushRange({
         url: openLink.url,
         startY: openLink.startY,
         startX: openLink.startX,
@@ -106,4 +127,8 @@ export function attachOsc8Links(
       callback(links);
     },
   });
+
+  return {
+    size: () => ranges.length,
+  };
 }

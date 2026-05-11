@@ -180,9 +180,8 @@ function galleryCards(): NodeListOf<HTMLElement> {
 }
 
 function topGridCards(): NodeListOf<HTMLElement> {
-  // The "Theme" section is the first section in the appearance panel.
-  const panels = document.querySelectorAll<HTMLElement>(".settings .main .section");
-  return panels[0].querySelectorAll<HTMLElement>(".theme-card");
+  const themes = document.querySelector<HTMLElement>(".settings .main .themes");
+  return themes!.querySelectorAll<HTMLElement>(".theme-card");
 }
 
 // ----------------------------------------------------------------------------
