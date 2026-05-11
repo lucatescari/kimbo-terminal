@@ -21,7 +21,8 @@ fn main() -> ExitCode {
         }
     };
 
-    let line = render_statusline(&parsed);
+    let now_secs = resolve_now_secs();
+    let line = render_statusline(&parsed, now_secs);
 
     let cache = RateLimits {
         five_hour: parsed.five_hour,
@@ -45,6 +46,20 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Resolve the current Unix-seconds clock. Honors the `KIMBO_NOW_SECS`
+/// environment variable so integration tests can pin time without mocking
+/// `SystemTime`.
+fn resolve_now_secs() -> u64 {
+    if let Some(override_secs) = std::env::var("KIMBO_NOW_SECS").ok().and_then(|s| s.parse().ok()) {
+        return override_secs;
+    }
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
         .unwrap_or(0)
 }
 
