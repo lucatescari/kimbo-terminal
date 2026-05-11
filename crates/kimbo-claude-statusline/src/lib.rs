@@ -241,7 +241,7 @@ mod tests {
 }
 
 /// Format the time until `resets_at` (Unix seconds) as a compact human
-/// string. Buckets: `Xm` under an hour, `XhYm` under a day, `XdYh`
+/// string. Buckets: `Xm` under an hour, `XhYm` under a day, `Xd Yh`
 /// otherwise. Returns `"↻"` when the reset is at or before `now_secs`.
 pub fn format_remaining(now_secs: u64, resets_at: u64) -> String {
     if resets_at <= now_secs {
