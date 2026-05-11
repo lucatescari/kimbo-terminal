@@ -1,6 +1,10 @@
 // Pure helpers for filtering the Appearances theme grids by name, author,
 // or color. No DOM access — unit-testable in isolation.
 
+import type { UnifiedTheme } from "./settings-types";
+
+export type ThemeMode = "all" | "dark" | "light";
+
 /** Convert "#RRGGBB" (with or without the leading #) to HSL where h is
  *  0–360, s and l are 0–100. Returns null for malformed input. */
 export function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
@@ -58,4 +62,27 @@ export function swatchMatchesColor(hex: string, color: string): boolean {
   const check = COLOR_RANGES[color];
   if (!check) return false;
   return check(hsl.h);
+}
+
+/** Filter a theme list by free-text query plus a hard mode chip.
+ *  - mode "all" passes every theme through.
+ *  - mode "dark"/"light" drops themes whose theme_type doesn't match.
+ *  - empty query (after trim) returns the mode-filtered list as-is.
+ *  - non-empty query: split on whitespace, theme matches iff EVERY token
+ *    matches via name/author substring OR color-word against accent/cursor.
+ *  All comparisons are case-insensitive.
+ */
+export function filterThemes(
+  themes: UnifiedTheme[],
+  query: string,
+  mode: ThemeMode,
+): UnifiedTheme[] {
+  let out = themes;
+  if (mode !== "all") {
+    out = out.filter((t) => t.theme_type === mode);
+  }
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return out;
+  // Query matching arrives in the next task.
+  return out;
 }
