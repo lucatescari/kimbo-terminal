@@ -24,3 +24,38 @@ export function hexToHsl(hex: string): { h: number; s: number; l: number } | nul
   }
   return { h, s: s * 100, l: l * 100 };
 }
+
+// Color-word → HSL hue predicate. Saturation gate keeps grey backgrounds /
+// foregrounds from accidentally matching every color word.
+const MIN_SATURATION = 25;
+
+const COLOR_RANGES: Record<string, (h: number) => boolean> = {
+  red:    (h) => h >= 345 || h <= 15,
+  orange: (h) => h > 15 && h <= 45,
+  yellow: (h) => h > 45 && h <= 65,
+  green:  (h) => h > 65 && h <= 170,
+  cyan:   (h) => h > 170 && h <= 200,
+  blue:   (h) => h > 200 && h <= 250,
+  purple: (h) => h > 250 && h <= 290,
+  pink:   (h) => h > 290 && h < 345,
+  warm:   (h) => (h >= 0 && h <= 65) || h >= 340,
+  cool:   (h) => h > 65 && h <= 250,
+};
+
+/** True iff `color` is one of the bucket words the search recognises.
+ *  Exact-token only — `greenish` returns false. */
+export function isColorWord(color: string): boolean {
+  return Object.prototype.hasOwnProperty.call(COLOR_RANGES, color);
+}
+
+/** True iff the swatch's hue falls in `color`'s range AND its saturation
+ *  is at least MIN_SATURATION. Returns false for unknown colors and for
+ *  malformed hex input. */
+export function swatchMatchesColor(hex: string, color: string): boolean {
+  const hsl = hexToHsl(hex);
+  if (!hsl) return false;
+  if (hsl.s < MIN_SATURATION) return false;
+  const check = COLOR_RANGES[color];
+  if (!check) return false;
+  return check(hsl.h);
+}
