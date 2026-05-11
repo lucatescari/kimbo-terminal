@@ -53,6 +53,17 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 import { createTerminalSession } from "./terminal";
 
+/** xterm.js schedules its initial viewport `syncScrollArea` on a RAF queued
+    during `term.open()`. Disposing before that RAF runs makes it touch the
+    nulled RenderService and throw — unrelated to what we're testing, but it
+    pollutes the test output with unhandled errors. Wait two frames so the
+    initial layout settles before any dispose. The race we want to exercise
+    (dispose vs. Tauri Promise resolution) is unaffected because our mock
+    never resolves the Promise on its own; the test still drives that timing. */
+async function letXtermSettle(): Promise<void> {
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+}
+
 describe("Tauri focus-listener race in createTerminalSession", () => {
   let parent: HTMLElement;
 
@@ -71,6 +82,7 @@ describe("Tauri focus-listener race in createTerminalSession", () => {
 
   it("calls the Tauri unlisten when dispose() runs BEFORE onFocusChanged resolves", async () => {
     const session = await createTerminalSession(parent);
+    await letXtermSettle();
 
     // The session is alive but the Tauri Promise hasn't resolved yet — this
     // is the race window. Dispose now.
@@ -91,6 +103,7 @@ describe("Tauri focus-listener race in createTerminalSession", () => {
 
   it("calls the Tauri unlisten on dispose() when it resolved BEFORE dispose (no regression)", async () => {
     const session = await createTerminalSession(parent);
+    await letXtermSettle();
 
     // Resolve the Promise FIRST so the unlisten lands in the normal slot.
     resolveFocus!(tauriUnlistenSpy);
