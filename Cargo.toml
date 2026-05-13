@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.13.7"
+version = "0.13.8"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/lucatescari/kimbo-terminal"

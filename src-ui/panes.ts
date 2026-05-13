@@ -1,5 +1,6 @@
 import { createTerminalSession, TerminalSession } from "./terminal";
 import { getCwd } from "./pty";
+import { attachSplitHandleDrag } from "./split-handle-drag";
 
 // ---------------------------------------------------------------------------
 // Split tree types
@@ -117,6 +118,7 @@ export async function splitActive(axis: SplitAxis): Promise<void> {
 
   const handle = document.createElement("div");
   handle.className = `split-handle ${axis}`;
+  attachSplitHandleDrag(handle, axis);
 
   // Replace the leaf's element in the DOM with the split container.
   const parent = leaf.element.parentElement!;
@@ -186,6 +188,7 @@ export async function splitLeaf(
 
   const handle = document.createElement("div");
   handle.className = `split-handle ${axis}`;
+  attachSplitHandleDrag(handle, axis);
 
   const parent = leaf.element.parentElement!;
   parent.replaceChild(splitEl, leaf.element);
