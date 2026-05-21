@@ -1,6 +1,6 @@
 [package]
 name = "kimbo-app"
-version = "0.13.8"
+version = "0.13.9"
 edition = "2021"
 build = "build.rs"
 
