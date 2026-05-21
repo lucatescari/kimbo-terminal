@@ -302,27 +302,6 @@ export function getSessionByPaneId(id: number): TerminalSession | undefined {
   return leaf?.session;
 }
 
-/**
- * Hit-test the panes at the given client (CSS-pixel) coordinates. Returns the
- * paneId of the innermost `.pane` element under the point, or `null` if the
- * point doesn't land on a pane (e.g. tab bar, split handle, overlay).
- */
-export function findPaneIdAtPoint(clientX: number, clientY: number): number | null {
-  const hit = document.elementFromPoint(clientX, clientY);
-  let cur: Element | null = hit;
-  while (cur) {
-    if (cur instanceof HTMLElement && cur.classList.contains("pane")) {
-      const raw = cur.dataset.paneId;
-      if (raw != null) {
-        const id = Number(raw);
-        if (!Number.isNaN(id)) return id;
-      }
-    }
-    cur = cur.parentElement;
-  }
-  return null;
-}
-
 export function fitActivePane(): void {
   if (!tree) return;
   const leaf = findLeaf(tree, activePaneId);

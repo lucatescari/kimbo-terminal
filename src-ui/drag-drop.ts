@@ -40,7 +40,6 @@ export function resolveTargetPaneId(
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
-  findPaneIdAtPoint,
   getActivePaneId,
   getSessionByPaneId,
   setActivePane,
@@ -95,13 +94,55 @@ function hintText(n: number): string {
   return `📎 Drop to paste ${n} path${n === 1 ? "" : "s"}`;
 }
 
+/**
+ * Walk every visible `.pane` and return the one whose bounding rect contains
+ * the CSS-pixel point. Panes inside a hidden tab container (display:none)
+ * collapse to a zero-area rect and skip themselves out below.
+ *
+ * Why not `document.elementFromPoint`? During an OS-level file drag macOS
+ * paints an overlay on top of the webview that can intercept the hit-test,
+ * making elementFromPoint return null or the overlay. Bounding-rect math
+ * doesn't go through the hit-test machinery, so it survives the overlay.
+ */
+function paneIdContaining(cssX: number, cssY: number): number | null {
+  const panes = document.querySelectorAll<HTMLElement>(".pane[data-pane-id]");
+  for (const pane of panes) {
+    const r = pane.getBoundingClientRect();
+    // Hidden panes (other tab containers are display:none) collapse to a
+    // zero-area rect — skip them so the hit-test only sees visible panes.
+    if (r.width === 0 || r.height === 0) continue;
+    if (cssX >= r.left && cssX < r.right && cssY >= r.top && cssY < r.bottom) {
+      const id = Number(pane.dataset.paneId);
+      if (!Number.isNaN(id)) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Map a Tauri drag-drop position to a pane id.
+ *
+ * The Tauri v2 type annotates the payload as `PhysicalPosition`, but in
+ * practice the same platform can deliver either physical or CSS pixels
+ * depending on the webview/runtime build (a long-standing Tauri quirk on
+ * macOS). Blindly dividing by `devicePixelRatio` halves the coords on retina
+ * when the platform is already sending CSS px — every drop then lands in the
+ * top-left quadrant, which on a vertical split is always pane 1. That was
+ * the symptom of the "always drops on first pane" bug.
+ *
+ * Strategy: try the coords as-is first; if no pane contains the point, try
+ * the divided-by-DPR interpretation. Whichever finds a pane wins. If neither
+ * does (drop landed on the tab bar / split handle / outside the window) fall
+ * back to the active pane.
+ */
 function resolvePaneIdFromPosition(x: number, y: number): number | null {
+  const raw = paneIdContaining(x, y);
+  if (raw != null) return raw;
   const dpr = window.devicePixelRatio || 1;
-  // Tauri v2 reports position in physical pixels; elementFromPoint wants CSS px.
-  const cssX = x / dpr;
-  const cssY = y / dpr;
-  const hit = findPaneIdAtPoint(cssX, cssY);
-  if (hit != null) return hit;
+  if (dpr !== 1) {
+    const scaled = paneIdContaining(x / dpr, y / dpr);
+    if (scaled != null) return scaled;
+  }
   const active = getActivePaneId();
   return active === -1 ? null : active;
 }
