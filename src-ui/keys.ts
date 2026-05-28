@@ -12,7 +12,7 @@ import {
 } from "./tabs";
 import { toggleSettings, isSettingsVisible, hideSettings } from "./settings";
 import { toggleFindBar, isFindBarVisible, hideFindBar } from "./find-bar";
-import { toggleCommandPalette, isCommandPaletteVisible, hideCommandPalette } from "./command-palette";
+import { toggleCommandPalette, toggleProjectsPalette, isCommandPaletteVisible, hideCommandPalette } from "./command-palette";
 import { confirmAndQuit } from "./quit-confirm";
 import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
 
@@ -64,6 +64,7 @@ const shortcuts: Shortcut[] = [
 
   // Command palette
   { key: "k", meta: true, action: () => toggleCommandPalette() },
+  { key: "o", meta: true, action: () => toggleProjectsPalette() },
 ];
 
 function matchShortcut(e: KeyboardEvent): Shortcut | undefined {
