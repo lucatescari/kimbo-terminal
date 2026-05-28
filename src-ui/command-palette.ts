@@ -149,7 +149,7 @@ export function initCommandPalette(): void {
     id: "workspace",
     label: "Open project…",
     icon: "folder",
-    hint: "projects",
+    hint: "⌘O",
     keywords: ["workspace", "project", "launcher", "directory", "repo", "git"],
     keepOpen: true,
     run: () => { void enterProjectsMode(); },
@@ -208,6 +208,13 @@ let filteredProjects: ProjectInfo[] = [];
 let projectsCache: ProjectInfo[] = [];
 let projectsLoaded = false;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
+// True between a keyboard-driven layout change (arrow nav, scrollIntoView,
+// list rebuild from typing/mode-switch) and the next real mouse movement.
+// Cleared on `mousemove` inside the palette. Stops synthetic `mouseenter`
+// events — fired when a row moves under the stationary cursor due to a
+// scroll or DOM rebuild — from yanking the selection back to wherever the
+// mouse happens to rest.
+let suppressMouseSelect = false;
 
 // Light-grey text shown on the "Open project…" command and in the projects
 // mode's placeholder, centralised so renames stay consistent.
@@ -221,6 +228,18 @@ export function isCommandPaletteVisible(): boolean {
 export function toggleCommandPalette(): void {
   if (overlay) hideCommandPalette();
   else showCommandPalette();
+}
+
+// ⌘O entry point — opens the palette straight into projects mode, or closes
+// it if we're already in projects mode. If the palette is open in commands
+// mode, jump to projects (so ⌘O always means "show me my projects").
+export function toggleProjectsPalette(): void {
+  if (overlay && mode === "projects") {
+    hideCommandPalette();
+    return;
+  }
+  if (!overlay) showCommandPalette();
+  void enterProjectsMode();
 }
 
 export function hideCommandPalette(): void {
@@ -241,6 +260,7 @@ export function hideCommandPalette(): void {
     document.removeEventListener("keydown", keyHandler, true);
     keyHandler = null;
   }
+  suppressMouseSelect = false;
 }
 
 export function showCommandPalette(): void {
@@ -251,6 +271,7 @@ export function showCommandPalette(): void {
   overlay.addEventListener("mousedown", (e) => {
     if (e.target === overlay) hideCommandPalette();
   });
+  overlay.addEventListener("mousemove", () => { suppressMouseSelect = false; });
 
   const panel = document.createElement("div");
   panel.className = "palette";
@@ -279,6 +300,7 @@ export function showCommandPalette(): void {
   inputEl.spellcheck = false;
   inputEl.addEventListener("input", () => {
     selected = 0;
+    suppressMouseSelect = true;
     renderList();
   });
   inputRow.appendChild(inputEl);
@@ -306,11 +328,13 @@ export function showCommandPalette(): void {
       const len = currentListLength();
       if (len === 0) return;
       selected = Math.min(selected + 1, len - 1);
-      renderList();
+      suppressMouseSelect = true;
+      updateSelection(true);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       selected = Math.max(selected - 1, 0);
-      renderList();
+      suppressMouseSelect = true;
+      updateSelection(true);
     } else if (e.key === "Enter") {
       e.preventDefault();
       runSelected();
@@ -332,6 +356,7 @@ async function enterProjectsMode(): Promise<void> {
   inputEl.placeholder = PROJECTS_PLACEHOLDER;
   modeBadge.classList.remove("hidden");
   selected = 0;
+  suppressMouseSelect = true;
 
   // Show a momentary "Loading projects…" state so the palette doesn't
   // flash empty while list_projects walks the filesystem.
@@ -357,6 +382,7 @@ function enterCommandsMode(): void {
   inputEl.placeholder = COMMANDS_PLACEHOLDER;
   modeBadge.classList.add("hidden");
   selected = 0;
+  suppressMouseSelect = true;
   inputEl.focus();
   renderList();
 }
@@ -373,6 +399,18 @@ function runSelected(): void {
     const p = filteredProjects[selected];
     if (p) openProject(p);
   }
+}
+
+// Updates the `.sel` class on existing rows without rebuilding the list.
+// Rebuilding on every arrow-key press wipes and re-creates DOM nodes, which
+// fires synthetic `mouseenter` events on whichever row appears under the
+// stationary cursor — that's the "selection jumps to where my mouse is" bug.
+// Optional `scroll` keeps the selected row in view during keyboard nav.
+function updateSelection(scroll: boolean): void {
+  if (!listEl) return;
+  const rows = listEl.querySelectorAll<HTMLElement>(".p-row");
+  rows.forEach((row, i) => row.classList.toggle("sel", i === selected));
+  if (scroll) rows[selected]?.scrollIntoView({ block: "nearest" });
 }
 
 function renderList(): void {
@@ -414,9 +452,10 @@ function renderCommandList(): void {
     const row = document.createElement("div");
     row.className = "p-row" + (i === selected ? " sel" : "");
     row.addEventListener("mouseenter", () => {
+      if (suppressMouseSelect) return;
       if (selected === i) return;
       selected = i;
-      renderList();
+      updateSelection(false);
     });
     row.addEventListener("click", () => runCommand(cmd));
 
@@ -457,9 +496,10 @@ function renderProjectList(): void {
     const row = document.createElement("div");
     row.className = "p-row" + (i === selected ? " sel" : "");
     row.addEventListener("mouseenter", () => {
+      if (suppressMouseSelect) return;
       if (selected === i) return;
       selected = i;
-      renderList();
+      updateSelection(false);
     });
     row.addEventListener("click", () => openProject(p));
 
