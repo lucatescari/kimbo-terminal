@@ -181,6 +181,7 @@ const FRESH_LIMITS: RateLimits = {
   seven_day: { used_percentage: 23, resets_at: FUTURE_SEC },
   captured_at_ms: Date.now(),
   version_too_old: false,
+  account_email: "luca@tescari.dev",
 };
 
 const STALE_LIMITS: RateLimits = {
@@ -193,6 +194,7 @@ const VERSION_TOO_OLD: RateLimits = {
   seven_day: null,
   captured_at_ms: Date.now(),
   version_too_old: true,
+  account_email: "luca@tescari.dev",
 };
 
 const STATUS_RL = {
@@ -234,6 +236,27 @@ describe("renderClaudeHud with rateLimits", () => {
     expect(limits!.getAttribute("title")).toMatch(/last seen \d+ min ago/);
   });
 
+  // Bug #8: when out of tokens / idle, the cache freezes at its last value
+  // (no new turn rewrites it). There is no live local usage source, so the
+  // honest fix is to flag staleness much sooner than 60min and *visibly* —
+  // the number itself isn't live, and a hover-only title doesn't convey that.
+  it("visibly flags data only a few minutes old as stale", () => {
+    const sixMinOld: RateLimits = { ...FRESH_LIMITS, captured_at_ms: Date.now() - 6 * 60 * 1000 };
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, sixMinOld, PREFS_RL)!;
+    const limits = el.querySelector(".claude-hud__limits")!;
+    expect(limits.classList.contains("claude-hud__limits--stale")).toBe(true);
+    // The staleness is in the visible strip text, not just a hover title.
+    expect(limits.textContent ?? "").toMatch(/stale/i);
+  });
+
+  it("does not flag very recent data as stale", () => {
+    const oneMinOld: RateLimits = { ...FRESH_LIMITS, captured_at_ms: Date.now() - 60 * 1000 };
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, oneMinOld, PREFS_RL)!;
+    const limits = el.querySelector(".claude-hud__limits")!;
+    expect(limits.classList.contains("claude-hud__limits--stale")).toBe(false);
+    expect(limits.textContent ?? "").not.toMatch(/stale/i);
+  });
+
   it("applies warn class at 80-94% and danger class at 95+%", () => {
     const warn: RateLimits = { ...FRESH_LIMITS, five_hour: { used_percentage: 80, resets_at: FUTURE_SEC } };
     const elWarn = renderClaudeHud(STATUS_RL, ACCOUNT_RL, warn, PREFS_RL)!;
@@ -251,6 +274,40 @@ describe("renderClaudeHud with rateLimits", () => {
     };
     const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, past, PREFS_RL)!;
     expect(el.querySelector(".claude-hud__limits")!.textContent).toContain("↻");
+  });
+
+  // Regression for issues #8/#9: after a login switch the rate-limit cache
+  // still holds the *previous* account's numbers until that account's next
+  // turn rewrites it. Showing them as the current user's usage is wrong, so
+  // the HUD must suppress limits when the cache's account_email doesn't match
+  // the logged-in account, and fall back to tokens/cost.
+  it("falls back to tokens/cost when cached limits belong to a different account", () => {
+    const otherAccount: RateLimits = { ...FRESH_LIMITS, account_email: "previous@user.com" };
+    const el = renderClaudeHud(
+      STATUS_RL,
+      { logged_in: true, email: "current@user.com", subscription_type: "max" },
+      otherAccount,
+      PREFS_RL,
+    )!;
+    expect(el.querySelector(".claude-hud__limits")).toBeNull();
+    expect(el.querySelector(".claude-hud__tokens")).toBeTruthy();
+  });
+
+  it("shows limits when the cached account matches the current account", () => {
+    const sameAccount: RateLimits = { ...FRESH_LIMITS, account_email: "current@user.com" };
+    const el = renderClaudeHud(
+      STATUS_RL,
+      { logged_in: true, email: "current@user.com", subscription_type: "max" },
+      sameAccount,
+      PREFS_RL,
+    )!;
+    expect(el.querySelector(".claude-hud__limits")).toBeTruthy();
+  });
+
+  it("shows limits when account_email is null (older cache — can't verify, stay lenient)", () => {
+    const noAccount: RateLimits = { ...FRESH_LIMITS, account_email: null };
+    const el = renderClaudeHud(STATUS_RL, ACCOUNT_RL, noAccount, PREFS_RL)!;
+    expect(el.querySelector(".claude-hud__limits")).toBeTruthy();
   });
 
   it("falls back to tokens/cost AND emits upgrade pill when version_too_old", () => {
