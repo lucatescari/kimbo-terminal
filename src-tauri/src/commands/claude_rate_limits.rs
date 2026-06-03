@@ -272,6 +272,7 @@ mod tests {
             seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
             captured_at_ms: 1714478531000,
             version_too_old: false,
+            account_email: Some("luca@x.com".to_string()),
         }
     }
 

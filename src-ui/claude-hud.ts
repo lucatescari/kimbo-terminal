@@ -4,7 +4,13 @@ import type { RateLimits } from "./claude-rate-limits";
 import { estimateCost } from "./claude-pricing";
 import { showToast } from "./toast";
 
-const STALE_THRESHOLD_MS = 60 * 60 * 1000;
+// Rate-limit numbers only change when Claude Code runs a turn (which rewrites
+// the statusline cache). When the user is idle or out of tokens, no turn fires
+// and the cache freezes — so a snapshot more than a few minutes old may no
+// longer reflect real usage. There's no live local source to reconcile against
+// (issue #8), so we flag staleness early and visibly rather than imply the
+// number is current. Tunable.
+const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
 export interface ClaudeHudPrefs {
   hudEnabled: boolean;
@@ -70,12 +76,18 @@ export function renderClaudeHud(
     root.appendChild(modelSpan);
   }
 
-  // Decide limits-vs-tokens path. Show limits whenever we have fresh data
-  // and the version is supported. Claude Code's statusline JSON doesn't
-  // expose the account email, so we don't gate on a per-account match —
-  // the cache is naturally invalidated when the user runs a turn after
-  // switching accounts.
-  const showLimits = rateLimits != null && !rateLimits.version_too_old;
+  // Decide limits-vs-tokens path. Show limits when we have version-supported
+  // data for the *current* account. The rate-limit cache is stamped with the
+  // account it was captured under (sidecar reads ~/.claude.json); after a
+  // login switch the stale cache still holds the previous account's numbers
+  // until that account's next turn rewrites it, so we suppress them on a known
+  // mismatch and fall back to tokens/cost. A null cached email (older cache)
+  // can't be verified — stay lenient and show it.
+  const accountMismatch =
+    account?.email != null &&
+    rateLimits?.account_email != null &&
+    account.email !== rateLimits.account_email;
+  const showLimits = rateLimits != null && !rateLimits.version_too_old && !accountMismatch;
 
   if (showLimits && rateLimits) {
     root.appendChild(sep());
@@ -190,14 +202,21 @@ function renderLimits(rl: RateLimits): HTMLElement {
   const span = document.createElement("span");
   span.className = "claude-hud__limits";
   const ageMs = Date.now() - rl.captured_at_ms;
-  if (ageMs > STALE_THRESHOLD_MS) {
-    span.classList.add("claude-hud__limits--stale");
-    const mins = Math.floor(ageMs / 60_000);
-    span.title = `last seen ${mins} min ago`;
-  }
+  const stale = ageMs > STALE_THRESHOLD_MS;
   appendWindow(span, "5h", rl.five_hour);
   span.appendChild(document.createTextNode(" \u00b7 "));
   appendWindow(span, "Wk", rl.seven_day);
+  if (stale) {
+    span.classList.add("claude-hud__limits--stale");
+    const mins = Math.floor(ageMs / 60_000);
+    span.title = `last seen ${mins} min ago \u2014 may be out of date`;
+    // Visible marker: a hover-only title doesn't tell the user the number
+    // isn't live (issue #8). Show the age inline.
+    const marker = document.createElement("span");
+    marker.className = "claude-hud__limits-stale-age";
+    marker.textContent = ` \u00b7 stale ${formatDuration(ageMs)}`;
+    span.appendChild(marker);
+  }
   return span;
 }
 
