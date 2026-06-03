@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kimbo_claude_statusline::{
-    parse_input, render_statusline, write_cache, RateLimits,
+    default_claude_json_path, parse_input, read_account_email_from, render_statusline,
+    write_cache, RateLimits,
 };
 
 fn main() -> ExitCode {
@@ -24,11 +25,18 @@ fn main() -> ExitCode {
     let now_secs = resolve_now_secs();
     let line = render_statusline(&parsed, now_secs);
 
+    // The statusLine JSON doesn't carry the account email, but we run on the
+    // user's machine — read it straight from ~/.claude.json so the cache is
+    // stamped with the account these numbers belong to. `KIMBO_CLAUDE_JSON`
+    // overrides the path so integration tests can pin a fixture.
+    let account_email = resolve_claude_json_path().and_then(|p| read_account_email_from(&p));
+
     let cache = RateLimits {
         five_hour: parsed.five_hour,
         seven_day: parsed.seven_day,
         captured_at_ms: now_ms(),
         version_too_old: parsed.version_too_old,
+        account_email,
     };
 
     let cache_path = resolve_cache_path();
@@ -61,6 +69,15 @@ fn resolve_now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Resolve the Claude config path, honoring `KIMBO_CLAUDE_JSON` (set by tests)
+/// and falling back to `$HOME/.claude.json`.
+fn resolve_claude_json_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("KIMBO_CLAUDE_JSON") {
+        return Some(PathBuf::from(p));
+    }
+    default_claude_json_path()
 }
 
 fn resolve_cache_path() -> PathBuf {

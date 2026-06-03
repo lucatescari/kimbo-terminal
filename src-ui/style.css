@@ -751,6 +751,14 @@ body {
   opacity: 0.55;
 }
 
+/* Inline "stale Nm" marker — tells the user the numbers aren't live (the
+   cache only updates when Claude runs a turn). Italic + muted so it reads as
+   an annotation rather than part of the percentages. */
+.claude-hud__limits-stale-age {
+  font-style: italic;
+  color: var(--accent-muted, #8a8a8a);
+}
+
 .claude-hud__upgrade-pill {
   margin-left: 0.5em;
   padding: 0 6px;

@@ -1,6 +1,25 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Read the currently-logged-in account email from a Claude config file
+/// (`~/.claude.json`). Claude Code stores it at `oauthAccount.emailAddress`.
+/// The statusLine JSON piped on stdin does NOT contain the email, but the
+/// sidecar runs on the user's machine and can read this file directly — so
+/// the rate-limit cache can be stamped with the account it belongs to.
+/// Returns `None` when the file is missing, unparseable, or has no email.
+pub fn read_account_email_from(claude_json_path: &Path) -> Option<String> {
+    let bytes = std::fs::read(claude_json_path).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.pointer("/oauthAccount/emailAddress")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Resolve the default Claude config path (`$HOME/.claude.json`).
+pub fn default_claude_json_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude.json"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitWindow {
     pub used_percentage: u8,
@@ -21,6 +40,12 @@ pub struct RateLimits {
     pub seven_day: Option<LimitWindow>,
     pub captured_at_ms: u64,
     pub version_too_old: bool,
+    /// The account this snapshot belongs to (read from `~/.claude.json`'s
+    /// `oauthAccount.emailAddress` when captured). Lets the HUD suppress a
+    /// previous account's stale numbers after a login switch. `#[serde(default)]`
+    /// so cache files written before this field existed still parse (→ `None`).
+    #[serde(default)]
+    pub account_email: Option<String>,
 }
 
 /// Write the cache file atomically (write to a uniquely-named .tmp sibling,
@@ -109,6 +134,45 @@ pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
 }
 
 #[cfg(test)]
+mod account_email_tests {
+    use super::*;
+
+    #[test]
+    fn reads_email_from_oauth_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".claude.json");
+        std::fs::write(
+            &p,
+            r#"{"numStartups": 7, "oauthAccount": {"accountUuid": "x", "emailAddress": "userB@x.com"}}"#,
+        )
+        .unwrap();
+        assert_eq!(read_account_email_from(&p), Some("userB@x.com".to_string()));
+    }
+
+    #[test]
+    fn returns_none_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read_account_email_from(&dir.path().join("nope.json")), None);
+    }
+
+    #[test]
+    fn returns_none_when_no_oauth_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".claude.json");
+        std::fs::write(&p, r#"{"numStartups": 7}"#).unwrap();
+        assert_eq!(read_account_email_from(&p), None);
+    }
+
+    #[test]
+    fn returns_none_on_corrupt_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".claude.json");
+        std::fs::write(&p, b"{ not json").unwrap();
+        assert_eq!(read_account_email_from(&p), None);
+    }
+}
+
+#[cfg(test)]
 mod cache_tests {
     use super::*;
     use std::fs;
@@ -122,6 +186,7 @@ mod cache_tests {
             seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
             captured_at_ms: 1714478531000,
             version_too_old: false,
+            account_email: Some("luca@x.com".to_string()),
         };
         write_cache(&path, &cache).unwrap();
 
@@ -139,6 +204,7 @@ mod cache_tests {
             seven_day: None,
             captured_at_ms: 0,
             version_too_old: true,
+            account_email: None,
         };
         write_cache(&path, &cache).unwrap();
         assert!(path.exists());

@@ -44,6 +44,39 @@ fn end_to_end_writes_cache_and_prints_status() {
 }
 
 #[test]
+fn end_to_end_stamps_account_email_from_claude_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache_path = dir.path().join("claude-rate-limits.json");
+    let claude_json = dir.path().join(".claude.json");
+    std::fs::write(
+        &claude_json,
+        r#"{"oauthAccount":{"emailAddress":"fake@test.com"}}"#,
+    )
+    .unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_kimbo-claude-statusline");
+    let mut child = Command::new(bin)
+        .env("KIMBO_APP_DATA", dir.path())
+        .env("KIMBO_CLAUDE_JSON", &claude_json)
+        .env("KIMBO_NOW_SECS", "1777893000")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(FRESH_JSON.as_bytes()).unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+
+    let cache_str = String::from_utf8(std::fs::read(&cache_path).unwrap()).unwrap();
+    assert!(
+        cache_str.contains("\"account_email\": \"fake@test.com\""),
+        "cache should be stamped with the account email, got: {cache_str}"
+    );
+}
+
+#[test]
 fn malformed_input_exits_non_zero_and_writes_no_cache() {
     let dir = tempfile::tempdir().unwrap();
     let cache_path = dir.path().join("claude-rate-limits.json");

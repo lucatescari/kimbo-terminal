@@ -58,11 +58,37 @@ struct AuthStatusRaw {
     subscription_type: Option<String>,
 }
 
-/// Cache for account info. Loaded once at app start (or on first
-/// command invocation), refreshed on demand via `force_refresh`.
+/// A cached `claude auth status` result plus the account-email "signal" read
+/// from `~/.claude.json` at the time it was fetched. The signal lets us detect
+/// a login switch cheaply (no shell-out) and refetch only when it changes.
+pub struct CacheEntry {
+    /// The fetched account info. `None` means the fetch ran but the user was
+    /// logged out / claude wasn't available — distinct from "never fetched".
+    pub info: Option<AccountInfo>,
+    /// `oauthAccount.emailAddress` from `~/.claude.json` when this was fetched.
+    pub signal: Option<String>,
+}
+
+/// Cache for account info. The first call (or any call whose account-email
+/// signal differs from the cached one, or `force_refresh`) shells out and
+/// refreshes; otherwise the cached value is returned. This auto-invalidates
+/// on a login switch without polling `claude auth status` (issue #9).
 #[derive(Default)]
 pub struct ClaudeAccountCache {
-    inner: Mutex<Option<AccountInfo>>,
+    inner: Mutex<Option<CacheEntry>>,
+}
+
+/// Pure cache-decision: should we re-run `claude auth status`?
+/// Refetch when forced, when we've never fetched, or when the current account
+/// signal differs from the one captured at the last fetch.
+fn should_refetch(entry: Option<&CacheEntry>, current_signal: Option<&str>, force: bool) -> bool {
+    if force {
+        return true;
+    }
+    match entry {
+        None => true,
+        Some(e) => e.signal.as_deref() != current_signal,
+    }
 }
 
 fn fetch_account_info() -> Option<AccountInfo> {
@@ -94,9 +120,50 @@ pub fn claude_account_info(
     force_refresh: bool,
     cache: State<'_, ClaudeAccountCache>,
 ) -> Result<Option<AccountInfo>, String> {
+    let current_signal = kimbo_claude_statusline::default_claude_json_path()
+        .and_then(|p| kimbo_claude_statusline::read_account_email_from(&p));
     let mut guard = cache.inner.lock().unwrap();
-    if guard.is_none() || force_refresh {
-        *guard = fetch_account_info();
+    if should_refetch(guard.as_ref(), current_signal.as_deref(), force_refresh) {
+        *guard = Some(CacheEntry { info: fetch_account_info(), signal: current_signal });
     }
-    Ok(guard.clone())
+    Ok(guard.as_ref().and_then(|e| e.info.clone()))
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    fn info(email: &str) -> AccountInfo {
+        AccountInfo { logged_in: true, email: Some(email.to_string()), subscription_type: None }
+    }
+    fn entry(signal: &str) -> CacheEntry {
+        CacheEntry { info: Some(info(signal)), signal: Some(signal.to_string()) }
+    }
+
+    #[test]
+    fn refetches_when_never_fetched() {
+        assert!(should_refetch(None, Some("a@x.com"), false));
+    }
+
+    #[test]
+    fn no_refetch_when_signal_unchanged() {
+        assert!(!should_refetch(Some(&entry("a@x.com")), Some("a@x.com"), false));
+    }
+
+    #[test]
+    fn refetches_when_signal_changes() {
+        // The login-switch case behind issue #9.
+        assert!(should_refetch(Some(&entry("a@x.com")), Some("b@x.com"), false));
+    }
+
+    #[test]
+    fn refetches_on_force_even_when_signal_unchanged() {
+        assert!(should_refetch(Some(&entry("a@x.com")), Some("a@x.com"), true));
+    }
+
+    #[test]
+    fn refetches_when_signal_goes_from_some_to_none() {
+        // Logout: oauthAccount disappears from ~/.claude.json.
+        assert!(should_refetch(Some(&entry("a@x.com")), None, false));
+    }
 }

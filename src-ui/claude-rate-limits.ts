@@ -11,6 +11,10 @@ export interface RateLimits {
   seven_day: LimitWindow | null;
   captured_at_ms: number;
   version_too_old: boolean;
+  /** Account this snapshot was captured under (from `~/.claude.json`).
+   *  Null for caches written before this field existed. Used by the HUD to
+   *  suppress a previous account's stale numbers after a login switch. */
+  account_email: string | null;
 }
 
 export type InstallOutcome =
