@@ -30,7 +30,7 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 - **Find in scrollback** — search terminal output with regex and case-sensitive modes (Cmd+F)
 - **Themeable** — JSON themes (VS Code format), 2 built-in (Kimbo Dark / Light) + one-click install from the community theme repo
 - **Inline images** — renders iTerm2-style OSC 1337 images directly in the terminal (works with `imgcat`, `fastfetch`)
-- **Claude Code HUD** — per-pane detection of Claude Code with a rate-limit status line (5h / 7d windows + reset times)
+- **Claude Code HUD** — per-pane detection of Claude Code showing the logged-in account email, model, and session id alongside a rate-limit status line (5h / 7d windows + reset times)
 - **True color (24-bit)** — full color support for modern CLI tools
 - **Settings UI** — built-in settings panel (Cmd+,) for theme, font, keybindings, workspaces
 - **Configurable keybindings** — all shortcuts customizable via settings or config file
@@ -90,7 +90,7 @@ The built app is at `target/release/bundle/macos/Kimbo.app`.
 
 ### Download
 
-macOS builds will be available on the [Releases](https://github.com/lucatescari/kimbo-terminal/releases) page soon.
+Signed macOS builds (`.dmg` and `.app.tar.gz`, Apple Silicon) are available on the [Releases](https://github.com/lucatescari/kimbo-terminal/releases) page. Kimbo also self-updates via the in-app updater.
 
 ## Configuration
 
