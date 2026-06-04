@@ -41,6 +41,7 @@ export function attachOsc1337Renderer(
   // term.buffer.onBufferChange closes that window regardless of render
   // timing.
   const liveImages = new Set<HTMLImageElement>();
+  const liveBlobUrls = new Set<string>();
   const isAltActive = (): boolean => term.buffer.active.type === "alternate";
   const applyBufferVisibility = (img: HTMLImageElement): void => {
     img.style.display = isAltActive() ? "none" : "block";
@@ -81,6 +82,7 @@ export function attachOsc1337Renderer(
 
     const blob = new Blob([bytes as BlobPart], { type: `image/${format}` });
     const blobUrl = URL.createObjectURL(blob);
+    liveBlobUrls.add(blobUrl);
     const img = document.createElement("img");
     const naturalReady = new Promise<{ width: number; height: number }>((resolve, reject) => {
       img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
@@ -157,6 +159,7 @@ export function attachOsc1337Renderer(
 
     decoration.onDispose(() => {
       liveImages.delete(img);
+      liveBlobUrls.delete(blobUrl);
       URL.revokeObjectURL(blobUrl);
     });
   };
@@ -238,8 +241,12 @@ export function attachOsc1337Renderer(
     oscDisposable.dispose();
     bufferChangeDisposable.dispose();
     liveImages.clear();
-    // Decorations/markers are tracked by xterm and are cleaned up when
-    // the terminal disposes. No manual overlay teardown to do.
+    // Revoke any blob URLs that survived decoration disposal (e.g. if the
+    // terminal was destroyed before all decorations fired onDispose).
+    for (const url of liveBlobUrls) {
+      URL.revokeObjectURL(url);
+    }
+    liveBlobUrls.clear();
   };
 }
 

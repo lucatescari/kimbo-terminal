@@ -153,6 +153,35 @@ describe("osc1337-renderer alt-buffer visibility", () => {
   });
 });
 
+describe("osc1337-renderer blob URL lifecycle (memory leak regression)", () => {
+  // Blob URLs created by URL.createObjectURL retain their underlying Blob in
+  // memory until URL.revokeObjectURL is called. If a terminal is disposed
+  // before all xterm decorations fire their onDispose callbacks, those blob
+  // URLs leak. The fix tracks every blob URL in a Set and revokes any
+  // survivors when the terminal-level cleanup function runs.
+
+  it("tracks blob URLs in a dedicated liveBlobUrls Set", () => {
+    expect(source).toMatch(/liveBlobUrls\s*=\s*new Set/);
+  });
+
+  it("adds each blob URL to the tracking set on creation", () => {
+    expect(source).toMatch(/liveBlobUrls\.add\s*\(\s*blobUrl\s*\)/);
+  });
+
+  it("removes from tracking set when a decoration disposes normally", () => {
+    expect(source).toMatch(/liveBlobUrls\.delete\s*\(\s*blobUrl\s*\)/);
+  });
+
+  it("revokes all surviving blob URLs in the cleanup function", () => {
+    const cleanupStart = source.lastIndexOf("return () => {");
+    expect(cleanupStart).toBeGreaterThan(-1);
+    const cleanupBody = source.slice(cleanupStart, cleanupStart + 400);
+    expect(cleanupBody).toMatch(/for\s*\(\s*const url of liveBlobUrls\s*\)/);
+    expect(cleanupBody).toMatch(/revokeObjectURL\s*\(\s*url\s*\)/);
+    expect(cleanupBody).toMatch(/liveBlobUrls\.clear\s*\(\s*\)/);
+  });
+});
+
 describe("osc1337-renderer cell measurement", () => {
   it("reads cell dimensions from xterm's render service (works for WebGL and DOM)", () => {
     // The decoration API positions its element in pixels using xterm's
