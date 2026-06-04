@@ -38,6 +38,14 @@ function startPolling(): void {
   }, 2000);
 }
 
+/** Stop the CWD polling interval. Called on teardown. */
+export function stopStatusBarPolling(): void {
+  if (refreshTimer != null) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
 function render(): void {
   if (!root) return;
   root.innerHTML = "";

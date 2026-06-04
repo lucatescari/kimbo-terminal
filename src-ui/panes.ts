@@ -400,14 +400,25 @@ async function createLeaf(opts: {
 
   // Refresh head when OSC 7 lands a new cwd. Poll lightly to avoid coupling
   // to the OSC 7 parser — cheap and bounded to the visible panes.
+  let pollStopped = false;
   const poll = window.setInterval(async () => {
-    if (!document.body.contains(head)) {
+    if (pollStopped || !document.body.contains(head)) {
       clearInterval(poll);
       return;
     }
     updatePaneHead(head, paneId, session.ptyId, session.cwd ?? null);
     await refreshClaudeHudFor(el, session.ptyId, paneId);
   }, 2000);
+
+  // Wrap session.dispose so closing the pane also stops the poll immediately.
+  // Without this, the interval survives until the next tick's DOM check — and
+  // any async work in-flight at disposal time keeps closures alive longer.
+  const originalDispose = session.dispose;
+  session.dispose = () => {
+    pollStopped = true;
+    clearInterval(poll);
+    originalDispose();
+  };
 
   return { type: "leaf", paneId, session, element: el };
 }

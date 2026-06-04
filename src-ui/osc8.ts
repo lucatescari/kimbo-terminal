@@ -115,15 +115,24 @@ export function attachOsc8Links(
       // bufferLineNumber is 1-based absolute buffer line (same coordinate
       // system as IBufferCellPosition.y). See xterm's WebLinkProvider for
       // reference. NOT viewport-relative.
-      const links = ranges.flatMap((r) => {
+      //
+      // Plain for-loop instead of flatMap: avoids creating N intermediate
+      // singleton/empty arrays on every hover event (called frequently).
+      const links: Array<{
+        range: { start: { x: number; y: number }; end: { x: number; y: number } };
+        text: string;
+        activate: (event: MouseEvent, text: string) => void;
+      }> = [];
+      for (const r of ranges) {
         const clipped = clipLinkRangeForLine(r, bufferLineNumber, term.cols);
-        if (!clipped) return [];
-        return [{
-          range: clipped,
-          text: r.url,
-          activate: (event: MouseEvent, _text: string) => onActivate(event, r.url),
-        }];
-      });
+        if (clipped) {
+          links.push({
+            range: clipped,
+            text: r.url,
+            activate: (event: MouseEvent) => onActivate(event, r.url),
+          });
+        }
+      }
       callback(links);
     },
   });

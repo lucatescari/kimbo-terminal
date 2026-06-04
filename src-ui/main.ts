@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
-import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActiveOrTab, switchToTab, snapshotOpenTabs, reopenLastClosedTab } from "./tabs";
+import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActiveOrTab, switchToTab, snapshotOpenTabs, reopenLastClosedTab, disposeTabs } from "./tabs";
 import { initKeys } from "./keys";
 import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY } from "./theme";
 import { initSettings, toggleSettings } from "./settings";
@@ -15,7 +15,7 @@ import { setTabTitleHandler } from "./terminal";
 import { setTabTitle } from "./tabs";
 import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
-import { initStatusBar } from "./status-bar";
+import { initStatusBar, stopStatusBarPolling } from "./status-bar";
 import { initCommandPalette } from "./command-palette";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
 import { loadSession, startSessionAutosave } from "./session-state";
@@ -117,7 +117,15 @@ async function init() {
   // first snapshot the poller sees is a real session and we don't blow the
   // saved state away with a "zero tabs" write during the split-second
   // before openInitialTabs awaits its first createTab.
-  startSessionAutosave(() => snapshotOpenTabs());
+  const stopSessionAutosave = startSessionAutosave(() => snapshotOpenTabs());
+
+  // Tear down polling intervals on page unload so closures and Tauri IPC
+  // references don't survive into the shutdown phase.
+  window.addEventListener("beforeunload", () => {
+    stopSessionAutosave();
+    disposeTabs();
+    stopStatusBarPolling();
+  });
 
   // Wire claude-notify events to toast/badges/macOS notifications.
   import("./claude-notifications").then(({ wireClaudeNotifications }) =>

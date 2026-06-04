@@ -75,6 +75,8 @@ export function getTabBadge(tabId: number): BadgeKind {
 // Public API
 // ---------------------------------------------------------------------------
 
+let tabNamePoller: ReturnType<typeof setInterval> | null = null;
+
 export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   tabBarEl = tabBar;
   terminalAreaEl = terminalArea;
@@ -88,6 +90,34 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   }
 
   initTabDrag(tabBarEl);
+
+  // Periodically update active tab name from shell CWD.
+  if (tabNamePoller !== null) clearInterval(tabNamePoller);
+  tabNamePoller = setInterval(async () => {
+    const session = getActiveSession();
+    const tab = getActiveTab();
+    if (!session || !tab) return;
+    if (tab.titleOverride != null) return;
+    try {
+      const cwd = await getCwd(session.ptyId);
+      if (cwd) {
+        const home = cwd.replace(/^\/Users\/[^/]+/, "~");
+        const name = home === "~" ? "~" : home.split("/").pop() || "~";
+        if (tab.name !== name) {
+          tab.name = name;
+          renderTabBar();
+        }
+      }
+    } catch (_) { /* ignore */ }
+  }, 2000);
+}
+
+/** Stop the tab-name polling interval. Called on teardown. */
+export function disposeTabs(): void {
+  if (tabNamePoller !== null) {
+    clearInterval(tabNamePoller);
+    tabNamePoller = null;
+  }
 }
 
 export async function createTab(
@@ -579,25 +609,6 @@ function scrollActiveTabIntoView() {
     active.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
   }
 }
-
-// Periodically update active tab name from shell CWD.
-setInterval(async () => {
-  const session = getActiveSession();
-  const tab = getActiveTab();
-  if (!session || !tab) return;
-  if (tab.titleOverride != null) return;
-  try {
-    const cwd = await getCwd(session.ptyId);
-    if (cwd) {
-      const home = cwd.replace(/^\/Users\/[^/]+/, "~");
-      const name = home === "~" ? "~" : home.split("/").pop() || "~";
-      if (tab.name !== name) {
-        tab.name = name;
-        renderTabBar();
-      }
-    }
-  } catch (_) { /* ignore */ }
-}, 2000);
 
 /** Override or clear the title for a given session's tab. Pass null to revert
     to the default tab name. The argument is the *terminal session* id (not
