@@ -146,3 +146,82 @@ describe("claude-notifications: notification subtype (permission vs idle)", () =
     expect(onPaint).toHaveBeenCalledWith(expect.objectContaining({ kind: "stop" }));
   });
 });
+
+// Regression: lastNotificationByTs was a Map<string, number> that NEVER got
+// pruned. Every notification event from a unique Claude session added an entry
+// that persisted for the lifetime of the app. Over hours with many Claude Code
+// instances this grew unboundedly. The fix adds a pruneNotificationMap()
+// function that caps the map at MAX_NOTIFICATION_ENTRIES (500) and drops old
+// entries when exceeded.
+describe("claude-notifications: notification timestamp map bounded growth", () => {
+  let routing: Routing;
+  let onPaint: ReturnType<typeof vi.fn<(req: PaintRequest) => void>>;
+
+  beforeEach(() => {
+    onPaint = vi.fn<(req: PaintRequest) => void>();
+    routing = {
+      paneForSession: () => 7,
+      tabForPane: () => 3,
+      tabName: () => "test-tab",
+      cwdBasename: () => "test-dir",
+      windowFocused: () => true,
+      prefs: () => ({ notifyOnStop: true, notifyOnPermission: true, notifySoundEnabled: false }),
+      paint: onPaint,
+    };
+    setRoutingForTesting(routing);
+  });
+
+  it("still coalesces correctly after 600 unique sessions (pruning preserves recent entries)", () => {
+    const baseTs = 1_000_000;
+
+    // Fire 600 notification events from unique sessions. Without pruning,
+    // the map grows to 600 entries; with pruning, it's capped at 500.
+    for (let i = 0; i < 600; i++) {
+      handleNotifyEvent(
+        ev({
+          session_id: `sess-${i}`,
+          kind: "notification",
+          ts: baseTs + i,
+          message: "Claude needs your permission to use Bash",
+        }),
+      );
+    }
+    expect(onPaint).toHaveBeenCalledTimes(600);
+
+    onPaint.mockClear();
+
+    // A stop for the MOST RECENT session should be coalesced (suppressed)
+    // because its timestamp entry survived pruning (recent entries are kept).
+    handleNotifyEvent(
+      ev({ session_id: "sess-599", kind: "stop", ts: baseTs + 599 }),
+    );
+    expect(onPaint).not.toHaveBeenCalled();
+  });
+
+  it("old session entries are pruned (stop for old session is not coalesced)", () => {
+    const baseTs = 1_000_000;
+
+    for (let i = 0; i < 600; i++) {
+      handleNotifyEvent(
+        ev({
+          session_id: `sess-prune-${i}`,
+          kind: "notification",
+          ts: baseTs + i,
+          message: "Claude needs your permission to use Bash",
+        }),
+      );
+    }
+    onPaint.mockClear();
+
+    // A stop for the OLDEST session should NOT be coalesced — its timestamp
+    // entry was dropped by pruning. Pre-fix, this would have been coalesced
+    // because the map retained all entries forever.
+    handleNotifyEvent(
+      ev({ session_id: "sess-prune-0", kind: "stop", ts: baseTs + 1 }),
+    );
+    expect(
+      onPaint,
+      "stop for a pruned session must paint — its coalesce entry was dropped",
+    ).toHaveBeenCalledTimes(1);
+  });
+});

@@ -41,7 +41,29 @@ export interface Routing {
 }
 
 const COALESCE_WINDOW_MS = 500;
+/** Cap the timestamp map so it can't grow unboundedly in long sessions. The
+ *  map only needs entries young enough for the coalesce window to fire, so
+ *  we prune aggressively: when the cap is reached, drop every entry older
+ *  than the coalesce window. If everything is recent, halve the map. */
+const MAX_NOTIFICATION_ENTRIES = 500;
 const lastNotificationByTs = new Map<string, number>();
+
+function pruneNotificationMap(): void {
+  if (lastNotificationByTs.size <= MAX_NOTIFICATION_ENTRIES) return;
+  const cutoff = Date.now() - COALESCE_WINDOW_MS * 2;
+  for (const [key, ts] of lastNotificationByTs) {
+    if (ts < cutoff) lastNotificationByTs.delete(key);
+  }
+  // If still over cap (everything is recent), drop the oldest half.
+  if (lastNotificationByTs.size > MAX_NOTIFICATION_ENTRIES) {
+    const entries = [...lastNotificationByTs.entries()]
+      .sort(([, a], [, b]) => a - b);
+    const toDrop = Math.floor(entries.length / 2);
+    for (let i = 0; i < toDrop; i++) {
+      lastNotificationByTs.delete(entries[i][0]);
+    }
+  }
+}
 
 // Claude Code's `Notification` hook fires for two distinct subtypes (see the
 // claude-pane-notifications design spec): real permission requests
@@ -125,6 +147,7 @@ export function handleNotifyEvent(ev: NotifyEvent): void {
     }
   } else {
     lastNotificationByTs.set(ev.session_id, ev.ts);
+    pruneNotificationMap();
   }
 
   routing.paint({
