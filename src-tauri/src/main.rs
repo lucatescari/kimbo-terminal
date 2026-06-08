@@ -257,6 +257,7 @@ fn main() {
             commands::config::get_config,
             commands::config::save_config,
             commands::config::get_config_path,
+            commands::config::reset_config,
             commands::config::open_config_in_editor,
             commands::kimbo::write_kimbo_shell_scripts,
             commands::path::resolve_existing_path,

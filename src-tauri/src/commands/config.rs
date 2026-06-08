@@ -15,6 +15,16 @@ pub fn get_config_path() -> String {
     AppConfig::config_path().to_string_lossy().to_string()
 }
 
+/// Reset all config-backed settings to defaults by writing a fresh default
+/// config.toml. UI-only preferences (localStorage) are cleared on the frontend,
+/// which then reloads the window so defaults re-apply.
+#[tauri::command]
+pub fn reset_config() -> Result<(), String> {
+    AppConfig::default()
+        .save()
+        .map_err(|e| format!("failed to reset config: {}", e))
+}
+
 /// Opens the user's config.toml in the system's default editor for that
 /// file extension. Materializes the file with current settings first so
 /// `open` doesn't fail on a missing path the very first time the user
