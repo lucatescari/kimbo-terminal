@@ -223,7 +223,11 @@ async function showSettings(): Promise<void> {
         unifiedThemes = e.payload.themes;
         communityCatalogSize = e.payload.community_catalog_size;
         communityResolved = e.payload.community_resolved;
-        if (visible && activeCategory === "appearance") render();
+        // renderActive(), NOT render(): render() does overlayEl.innerHTML = ""
+        // and rebuilds .settings, replaying its `rise-in` animation — the user
+        // perceives the panel popping in a second time. renderActive() swaps
+        // only the .main content in place. Same no-replay rule as nav clicks.
+        if (visible && activeCategory === "appearance") renderActive();
       },
     );
   } catch (_) { /* ignore */ }
@@ -237,7 +241,11 @@ async function showSettings(): Promise<void> {
     const local = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
     if (!eventReceived) {
       unifiedThemes = local;
-      if (activeCategory === "appearance") render();
+      // renderActive() not render() — see the community-ready handler above.
+      // On a cold cache this path fires AFTER the initial render has already
+      // animated .settings in; a full render() here replays `rise-in` and is
+      // the long-standing "settings pops in twice on first open" bug.
+      if (activeCategory === "appearance") renderActive();
     }
   } catch (e) { console.warn("list_unified_themes:", e); }
 }
