@@ -392,24 +392,6 @@ function renderGeneral(el: HTMLElement): void {
 
   const windowSec = section("Window");
   windowSec.appendChild(row(
-    "Window chrome",
-    "How the window frame is drawn.",
-    withComingSoon(segCtl(prefs.windowChrome, [
-      ["native", "Native"],
-      ["flat", "Flat"],
-      ["hidden", "Hidden"],
-    ], (v) => setPref("windowChrome", v as typeof prefs.windowChrome)), true),
-  ));
-  windowSec.appendChild(row(
-    "Open new windows at",
-    "Position on screen for new windows.",
-    withComingSoon(select(prefs.newWindowPosition, [
-      ["cursor", "Under cursor"],
-      ["center", "Screen center"],
-      ["last", "Last position"],
-    ], (v) => setPref("newWindowPosition", v as typeof prefs.newWindowPosition)), true),
-  ));
-  windowSec.appendChild(row(
     "Background opacity",
     "Lower values make the window translucent.",
     withComingSoon(range(prefs.backgroundOpacity, 0, 100, 1,
@@ -798,14 +780,6 @@ function renderFont(el: HTMLElement): void {
       const fp = el.querySelector(".font-preview");
       if (fp) fp.classList.toggle("lig", v);
     }),
-  ));
-  const prefs = getPrefs();
-  rendering.appendChild(row("Font smoothing", "",
-    withComingSoon(segCtl(prefs.fontSmoothing, [
-      ["none", "None"],
-      ["grayscale", "Grayscale"],
-      ["subpixel", "Subpixel"],
-    ], (v) => setPref("fontSmoothing", v as typeof prefs.fontSmoothing)), true),
   ));
   el.appendChild(rendering);
 
@@ -1340,22 +1314,12 @@ function renderAdvanced(el: HTMLElement): void {
 
   const perf = section("Performance");
   perf.appendChild(row(
-    "GPU rendering",
-    "Uses Metal/WebGPU for the terminal renderer. Currently always on.",
-    withComingSoon(toggle(prefs.gpuRendering, (v) => setPref("gpuRendering", v), true), true),
-  ));
-  perf.appendChild(row(
     "Scrollback lines",
     "How many lines Kimbo keeps in memory per pane.",
     numInput(config.scrollback.lines, 1000, 200_000, 1000, (v) => {
       config!.scrollback.lines = v;
       void saveConfig();
     }, "num"),
-  ));
-  perf.appendChild(row(
-    "Flush interval (ms)",
-    "Lower = smoother streaming, higher = better throughput.",
-    withComingSoon(numInput(prefs.flushIntervalMs, 4, 64, 1, (v) => setPref("flushIntervalMs", v), "narrow"), true),
   ));
   el.appendChild(perf);
 
@@ -1541,16 +1505,6 @@ async function renderAbout(el: HTMLElement): Promise<void> {
       config!.updates.auto_check = v;
       void saveConfig();
     }),
-  ));
-  const prefs = getPrefs();
-  upd.appendChild(row(
-    "Release channel",
-    "Pick the update stream Kimbo subscribes to.",
-    withComingSoon(segCtl(prefs.releaseChannel, [
-      ["stable", "Stable"],
-      ["beta", "Beta"],
-      ["nightly", "Nightly"],
-    ], (v) => setPref("releaseChannel", v as typeof prefs.releaseChannel)), true),
   ));
   const row3 = document.createElement("div");
   row3.style.cssText = "padding: var(--density-pad) 0;";

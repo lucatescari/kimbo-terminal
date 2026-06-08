@@ -11,35 +11,19 @@ const KEY = "kimbo-ui-prefs-v1";
 
 export type Density = "compact" | "comfortable" | "roomy";
 export type TabStyle = "underline" | "pill" | "chevron";
-export type WindowChrome = "native" | "flat" | "hidden";
-export type NewWindowPosition = "cursor" | "center" | "last";
-export type FontSmoothing = "none" | "grayscale" | "subpixel";
-export type ReleaseChannel = "stable" | "beta" | "nightly";
 
 export interface UiPrefs {
   density: Density;
   tabStyle: TabStyle;
   /** Accent color hex (e.g. "#8aa9ff"), or "" to defer to the theme accent. */
   accent: string;
-  /** General → Window chrome. Coming soon. */
-  windowChrome: WindowChrome;
   /** General → Confirm quit with active panes. */
   confirmQuit: boolean;
-  /** General → New window position. Coming soon. */
-  newWindowPosition: NewWindowPosition;
   /** General → Background opacity (0–100). Settings slider is enabled on
    *  macOS only; value is always written to --app-alpha by applyRoot(). */
   backgroundOpacity: number;
-  /** Advanced → GPU rendering. Coming soon (xterm already uses WebGL). */
-  gpuRendering: boolean;
-  /** Advanced → Flush interval ms. Coming soon. */
-  flushIntervalMs: number;
-  /** Advanced → Anonymous telemetry. Coming soon (no backend). */
+  /** Advanced → Anonymous telemetry. Coming soon — see issue #10 (Sentry). */
   telemetry: boolean;
-  /** About → Release channel. Coming soon. */
-  releaseChannel: ReleaseChannel;
-  /** Font → Smoothing. Coming soon. */
-  fontSmoothing: FontSmoothing;
   /** General → Open on launch. "last" — restore, "home" — home dir, "workspace" — last workspace. */
   startup: "last" | "home" | "workspace";
   /** Appearance → Treat ANSI black bg as default (transparent).
@@ -85,15 +69,9 @@ const DEFAULTS: UiPrefs = {
   density: "comfortable",
   tabStyle: "underline",
   accent: "",
-  windowChrome: "native",
   confirmQuit: true,
-  newWindowPosition: "last",
   backgroundOpacity: 100,
-  gpuRendering: true,
-  flushIntervalMs: 16,
   telemetry: false,
-  releaseChannel: "stable",
-  fontSmoothing: "subpixel",
   startup: "last",
   transparentBlackBg: true,
   claudeHudEnabled: true,
