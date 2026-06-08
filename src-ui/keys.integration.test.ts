@@ -105,3 +105,18 @@ describe("keys.ts: menu-owned shortcuts are NOT handled by the webview", () => {
     expect(tabs.createTab).not.toHaveBeenCalled();
   });
 });
+
+describe("keys.ts: plain keys pass through to the terminal", () => {
+  // No ⌘ → no shortcut fires; the keystroke must reach xterm unmodified.
+  it.each(["t", "a", "z", "Enter", " ", "ArrowUp"])("plain %s triggers no handler", (key) => {
+    press({ key });
+    expect(tabs.nextTab).not.toHaveBeenCalled();
+    expect(tabs.focusDirection).not.toHaveBeenCalled();
+    expect(palette.toggleCommandPalette).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+T (wrong modifier) triggers no handler", () => {
+    press({ key: "t", ctrlKey: true });
+    expect(tabs.nextTab).not.toHaveBeenCalled();
+  });
+});
