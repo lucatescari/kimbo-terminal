@@ -11,6 +11,19 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Load secrets from an uncommitted .env at the repo root (gitignored). Put
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (and any other release secrets) there so
+# they don't have to be exported by hand. See .env.example. `set -a` exports
+# every assignment made while sourcing so tauri-bundler inherits them.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${REPO_ROOT}/.env"
+  set +a
+  echo -e "${CYAN}Loaded secrets from .env${NC}"
+fi
+
 # Get current version from package.json
 CURRENT=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
