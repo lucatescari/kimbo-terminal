@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub kimbo: KimboConfig,
     pub updates: UpdatesConfig,
     pub welcome: WelcomeConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +84,16 @@ pub struct WelcomeConfig {
     pub show_on_startup: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelemetryConfig {
+    /// Opt-in anonymous crash/error reporting to Sentry. OFF by default.
+    /// Lives in config.toml (not localStorage) so the Rust backend can read it
+    /// at startup to decide whether to initialize Sentry. Takes effect on the
+    /// next launch.
+    pub enabled: bool,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -96,6 +107,7 @@ impl Default for AppConfig {
             kimbo: KimboConfig::default(),
             updates: UpdatesConfig::default(),
             welcome: WelcomeConfig::default(),
+            telemetry: TelemetryConfig::default(),
         }
     }
 }
@@ -176,6 +188,12 @@ impl Default for WelcomeConfig {
     }
 }
 
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 impl AppConfig {
     /// Returns the default configuration directory (~/.config/kimbo/).
     pub fn config_dir() -> PathBuf {
@@ -244,6 +262,8 @@ mod tests {
         assert_eq!(config.workspace.scan_dirs, vec!["~/Projects"]);
         assert!(config.kimbo.enabled);
         assert_eq!(config.kimbo.corner, "bottom_right");
+        // Telemetry is opt-in: OFF by default.
+        assert!(!config.telemetry.enabled);
     }
 
     #[test]

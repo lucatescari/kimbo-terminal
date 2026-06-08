@@ -43,10 +43,40 @@ fn set_window_theme(app: tauri::AppHandle, theme_type: String) {
     }
 }
 
+/// Sentry ingest DSN. A client DSN is a write-only ingest key, safe to embed.
+const SENTRY_DSN: &str = "https://91e26e0fae89dda62952208d70b71c94@o4511292110536704.ingest.de.sentry.io/4511529624076368";
+
 fn main() {
     env_logger::init();
 
+    // Opt-in anonymous crash/error reporting. OFF unless the user enabled it in
+    // Settings → Privacy (persisted to config.toml so we can read it here, before
+    // the webview exists). When disabled, the client gets no DSN → nothing is
+    // ever sent. Takes effect on launch (toggling requires a restart).
+    let telemetry_on = kimbo_config::AppConfig::load()
+        .map(|c| c.telemetry.enabled)
+        .unwrap_or(false);
+    let sentry_client = sentry::init((
+        if telemetry_on { Some(SENTRY_DSN) } else { None },
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            // Never attach IP/username/etc. And scrub the machine hostname,
+            // which the Rust SDK would otherwise auto-fill into server_name.
+            send_default_pii: false,
+            before_send: Some(std::sync::Arc::new(|mut event| {
+                event.server_name = None;
+                event.user = None;
+                Some(event)
+            })),
+            ..Default::default()
+        },
+    ));
+    // Native crash (minidump) capture; no-ops when the client has no DSN.
+    #[cfg(not(target_os = "ios"))]
+    let _sentry_minidump = tauri_plugin_sentry::minidump::init(&sentry_client);
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_sentry::init(&sentry_client))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

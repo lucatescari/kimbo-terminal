@@ -28,6 +28,8 @@ kimbo-config = { path = "../crates/kimbo-config" }
 kimbo-claude-statusline = { path = "../crates/kimbo-claude-statusline" }
 kimbo-terminal = { path = "../crates/kimbo-terminal" }
 kimbo-workspace = { path = "../crates/kimbo-workspace" }
+sentry = "0.42"
+tauri-plugin-sentry = "0.5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
