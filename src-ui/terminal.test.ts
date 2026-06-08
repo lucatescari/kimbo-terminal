@@ -286,9 +286,9 @@ describe("terminal: Find in scrollback (Cmd+F)", () => {
     expect(mainSource).toContain("initFindBar");
   });
 
-  it("keys.ts binds Cmd+F to toggleFindBar", () => {
+  it("keys.ts binds the find action to toggleFindBar", () => {
     expect(keysSource).toContain("toggleFindBar");
-    expect(keysSource).toMatch(/key:\s*"f".*meta:\s*true/);
+    expect(keysSource).toMatch(/find:\s*\(\)\s*=>\s*toggleFindBar/);
   });
 
   it("keys.ts handles Escape to close find-bar", () => {

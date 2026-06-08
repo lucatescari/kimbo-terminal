@@ -10,5 +10,5 @@ pub use theme::ResolvedTheme;
 pub use theme::RemoteThemeEntry;
 pub use theme::JsonTheme;
 pub use theme::JsonResolvedTheme;
-pub use keybindings::{KeybindingSet, KeybindingDef, KEYBINDING_DEFS, display_key};
+pub use keybindings::KeybindingSet;
 pub use watcher::ConfigWatcher;

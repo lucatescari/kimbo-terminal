@@ -17,17 +17,16 @@ const quitConfirmSource = readFileSync(
   "utf-8",
 );
 
+const mainTsSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
+const keybindingsSource = readFileSync(resolve(__dirname, "keybindings.ts"), "utf-8");
+
 describe("Cmd+Q quit behavior", () => {
-  it("keys.ts routes Cmd+Q through confirmAndQuit (not a direct invoke)", () => {
-    // Specifically: the 'q' shortcut's action calls confirmAndQuit().
-    expect(keysSource).toMatch(
-      /\{\s*key:\s*"q"[^}]*action:[^}]*confirmAndQuit\s*\(/,
-    );
-    // And it should NOT invoke quit_app directly anymore — going direct
-    // would bypass the confirm pref, which is what we're fixing.
-    expect(keysSource).not.toMatch(
-      /\{\s*key:\s*"q"[^}]*action:[^}]*invoke\("quit_app"\)/,
-    );
+  it("the quit menu-action is routed through confirmAndQuit (not a direct invoke)", () => {
+    // Quit is a macOS-menu-owned shortcut: the menu emits menu-action "quit"
+    // and main.ts dispatches it to confirmAndQuit() so the confirm pref runs.
+    expect(mainTsSource).toMatch(/case\s+"quit":[^}]*confirmAndQuit\s*\(/);
+    // The webview path (keys.ts) must NOT invoke quit_app directly.
+    expect(keysSource).not.toMatch(/invoke\("quit_app"\)/);
   });
 
   it("keys.ts does NOT import from @tauri-apps/api/window", () => {
@@ -66,7 +65,7 @@ describe("Cmd+Q quit behavior", () => {
     expect(mainRsSource).toContain("quit-requested");
   });
 
-  it("Cmd+Q shortcut is registered with meta: true", () => {
-    expect(keysSource).toMatch(/key:\s*"q".*meta:\s*true/);
+  it("Cmd+Q is the default quit chord", () => {
+    expect(keybindingsSource).toMatch(/id:\s*"quit"[^}]*defaultChord:\s*"cmd-q"/);
   });
 });

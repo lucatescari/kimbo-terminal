@@ -5,15 +5,16 @@ import { resolve } from "path";
 const keysSource = readFileSync(resolve(__dirname, "keys.ts"), "utf-8");
 const mainSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
 const settingsSource = readFileSync(resolve(__dirname, "settings.ts"), "utf-8");
+const keybindingsSource = readFileSync(resolve(__dirname, "keybindings.ts"), "utf-8");
 
 describe("settings: shortcut registration", () => {
-  it("Cmd+, shortcut is registered in keys.ts", () => {
-    expect(keysSource).toMatch(/key:\s*",".*meta:\s*true/);
+  it("Cmd+, is the default settings chord", () => {
+    expect(keybindingsSource).toMatch(/id:\s*"settings"[^}]*defaultChord:\s*"cmd-,"/);
   });
 
-  it("keys.ts imports toggleSettings from settings", () => {
-    expect(keysSource).toContain("toggleSettings");
-    expect(keysSource).toContain('from "./settings"');
+  it("the settings menu-action dispatches to toggleSettings in main.ts", () => {
+    // Settings is macOS-menu-owned, so main.ts (not keys.ts) routes it.
+    expect(mainSource).toMatch(/case\s+"settings":\s*toggleSettings\(\)/);
   });
 
   it("Escape closes settings when visible", () => {
