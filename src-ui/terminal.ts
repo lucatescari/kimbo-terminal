@@ -23,6 +23,7 @@ import { isKimboShellIntegrationEnabled } from "./kimbo";
 import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
+import { attachFilePathLinks } from "./file-path-links";
 import { attachOsc1337Renderer } from "./osc1337-renderer";
 import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
@@ -288,6 +289,11 @@ export async function createTerminalSession(
     if (!event.metaKey) return;
     openUrl(uri).catch((e) => console.error("openUrl failed:", e));
   });
+
+  // Plain-text file paths (incl. relative ones printed by Claude Code et al.):
+  // Cmd+click reveals the file in Finder. getCwd is read lazily so the latest
+  // OSC 7 cwd is used to resolve relative paths at hover time.
+  attachFilePathLinks(term, () => session.cwd);
 
   // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
   // delegated to a dedicated module so terminal.ts stays focused on wiring.
