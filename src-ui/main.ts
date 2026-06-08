@@ -2,6 +2,7 @@ import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActiveOrTab, switchToTab, snapshotOpenTabs, reopenLastClosedTab, disposeTabs } from "./tabs";
 import { initKeys } from "./keys";
+import { initTelemetry } from "./telemetry";
 import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY } from "./theme";
 import { initSettings, toggleSettings } from "./settings";
 import { confirmAndQuit } from "./quit-confirm";
@@ -29,6 +30,7 @@ interface BootConfig {
   updates: { auto_check: boolean };
   welcome: { show_on_startup: boolean };
   keybindings?: { bindings: Record<string, string> };
+  telemetry?: { enabled: boolean };
 }
 
 async function init() {
@@ -61,6 +63,8 @@ async function init() {
   let cfg: BootConfig | null = null;
   try {
     cfg = await invoke<BootConfig>("get_config");
+    // Opt-in error reporting — no-op unless the user enabled it.
+    initTelemetry(cfg.telemetry?.enabled ?? false);
     themeName = cfg.theme.name || themeName;
     applyTerminalOptions({
       fontFamily: cfg.font.family,
