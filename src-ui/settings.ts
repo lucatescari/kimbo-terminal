@@ -1474,30 +1474,13 @@ function renderAdvanced(el: HTMLElement): void {
   el.appendChild(cfg);
 
   const priv = section("Privacy");
-  const telemetryControl = document.createElement("div");
-  telemetryControl.style.cssText = "display: flex; gap: 8px; align-items: center;";
-  telemetryControl.appendChild(toggle(config.telemetry.enabled, (v) => {
-    config!.telemetry.enabled = v;
-    void saveConfig();
-  }));
-  const testBtn = button("Send test report", async () => {
-    const { sendTestEvent } = await import("./telemetry");
-    const { showToast } = await import("./toast");
-    const res = await sendTestEvent();
-    if (!res) {
-      showToast({ kind: "info", message: "Enable crash reports, then restart Kimbo first" });
-    } else if (res.flushed) {
-      showToast({ kind: "info", message: `Sent ✓ — event ${res.id.slice(0, 8)} (search it in Sentry)` });
-    } else {
-      showToast({ kind: "error", message: `Captured ${res.id.slice(0, 8)} but flush failed — see console` });
-    }
-  });
-  testBtn.classList.add("ghost");
-  telemetryControl.appendChild(testBtn);
   priv.appendChild(row(
     "Send anonymous crash reports",
     "Opt-in. Sends crashes and JS errors to Sentry — no command output, no terminal content, no machine name. Takes effect after a restart.",
-    telemetryControl,
+    toggle(config.telemetry.enabled, (v) => {
+      config!.telemetry.enabled = v;
+      void saveConfig();
+    }),
   ));
   el.appendChild(priv);
 }
