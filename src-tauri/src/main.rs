@@ -259,6 +259,7 @@ fn main() {
             commands::config::get_config_path,
             commands::config::open_config_in_editor,
             commands::kimbo::write_kimbo_shell_scripts,
+            commands::path::resolve_existing_path,
             commands::workspace::list_projects,
             commands::update::check_for_updates,
             commands::window::refresh_window_translucency,

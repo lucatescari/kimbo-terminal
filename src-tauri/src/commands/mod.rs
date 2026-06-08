@@ -3,6 +3,7 @@ pub mod claude_notifications;
 pub mod claude_rate_limits;
 pub mod config;
 pub mod kimbo;
+pub mod path;
 pub mod pty;
 pub mod theme;
 pub mod update;
