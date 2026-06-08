@@ -16,7 +16,7 @@ import { showWelcome } from "./welcome-popup";
 import { icon, type IconName } from "./icons";
 import { buildDropdown } from "./dropdown";
 import { buildThemeCard } from "./theme-card";
-import { getPrefs, setPref, applyRoot, type Density, type TabStyle } from "./ui-prefs";
+import { getPrefs, setPref, applyRoot, clearPrefs, type Density, type TabStyle } from "./ui-prefs";
 import { isMacOS } from "./platform";
 import { filterThemes, type ThemeMode } from "./theme-filter";
 import {
@@ -1354,11 +1354,25 @@ function renderAdvanced(el: HTMLElement): void {
       }
     }),
   ));
-  const resetBtn = button("Reset…", () => {
+  const resetBtn = button("Reset…", async () => {
     if (!confirm("Reset all settings to defaults? This cannot be undone.")) return;
-    alert("Coming soon — for now, remove ~/.config/kimbo/config.toml manually.");
+    try {
+      // Write defaults to config.toml (font/theme/cursor/scrollback/kimbo/
+      // updates), wipe the localStorage UI prefs, then reload so everything
+      // re-applies from defaults — no process restart needed.
+      await invoke("reset_config");
+      clearPrefs();
+      window.location.reload();
+    } catch (e) {
+      const { showToast } = await import("./toast");
+      showToast({
+        kind: "error",
+        message: "Couldn't reset settings",
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
   });
-  resetBtn.classList.add("danger", "coming-soon");
+  resetBtn.classList.add("danger");
   cfg.appendChild(row(
     "Reset all settings",
     "Clears your preferences and restarts with defaults.",

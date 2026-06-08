@@ -90,15 +90,9 @@ vi.mock("./ui-prefs", () => ({
     accent: "",
     confirmQuit: true,
     startup: "last",
-    windowChrome: "native",
-    newWindowPosition: "last",
     backgroundOpacity: 100,
     transparentBlackBg: false,
-    fontSmoothing: "subpixel",
-    gpuRendering: true,
-    flushIntervalMs: 16,
     telemetry: false,
-    releaseChannel: "stable",
     claudeHudEnabled: true,
     claudeHudExtended: false,
     claudeHudShowPlan: false,
@@ -109,6 +103,7 @@ vi.mock("./ui-prefs", () => ({
   }),
   setPref: vi.fn(),
   applyRoot: vi.fn(),
+  clearPrefs: vi.fn(),
 }));
 
 import {
@@ -353,5 +348,61 @@ describe("settings: no double-pop on first open (cold theme cache)", () => {
     } finally {
       invokeMock.mockImplementation(originalImpl);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Advanced → Reset all settings (replaces the old "coming soon" stub)
+// ---------------------------------------------------------------------------
+
+describe("settings: Advanced → Reset all settings", () => {
+  function findResetBtn(): HTMLButtonElement | undefined {
+    return Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".modal-overlay .settings .main button"),
+    ).find((b) => b.textContent?.trim().startsWith("Reset"));
+  }
+
+  function stubReload(): ReturnType<typeof vi.fn> {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    return reload;
+  }
+
+  it("on confirm: resets config, clears UI prefs, and reloads", async () => {
+    const { clearPrefs } = await import("./ui-prefs");
+    vi.mocked(clearPrefs).mockClear();
+    const reload = stubReload();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    await openSettingsToCategory("advanced");
+    const reset = findResetBtn();
+    expect(reset, "reset button is rendered").not.toBeUndefined();
+
+    reset!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(invokeMock).toHaveBeenCalledWith("reset_config");
+    expect(vi.mocked(clearPrefs)).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("on cancel: does nothing (no reset, no reload)", async () => {
+    const reload = stubReload();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await openSettingsToCategory("advanced");
+    const reset = findResetBtn()!;
+    invokeMock.mockClear();
+    reset.click();
+    await Promise.resolve();
+
+    expect(invokeMock).not.toHaveBeenCalledWith("reset_config");
+    expect(reload).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

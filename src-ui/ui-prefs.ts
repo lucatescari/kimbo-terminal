@@ -159,3 +159,13 @@ function hexToTint(hex: string, alpha: number): string {
 export function resetCache(): void {
   cache = null;
 }
+
+/** Wipe all UI preferences from localStorage and drop the in-memory cache.
+ *  Used by Settings → Advanced → "Reset all settings"; the caller reloads the
+ *  window afterward so defaults re-apply. */
+export function clearPrefs(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch (_) { /* ignore */ }
+  cache = null;
+}

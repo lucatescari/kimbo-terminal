@@ -79,18 +79,13 @@ vi.mock("./ui-prefs", () => ({
     accent: "",
     confirmQuit: true,
     startup: "last",
-    windowChrome: "native",
-    newWindowPosition: "last",
     backgroundOpacity: 100,
-    fontSmoothing: "subpixel",
-    gpuRendering: true,
-    flushIntervalMs: 16,
     telemetry: false,
-    releaseChannel: "stable",
     themePickerMode: "all",
   }),
   setPref: vi.fn(),
   applyRoot: vi.fn(),
+  clearPrefs: vi.fn(),
 }));
 
 import { toggleSettings, hideSettings, openSettingsToCategory } from "./settings";
