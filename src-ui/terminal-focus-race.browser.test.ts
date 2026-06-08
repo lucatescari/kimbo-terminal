@@ -26,7 +26,7 @@ vi.mock("./pty", () => ({
   onPtyExit: vi.fn().mockResolvedValue(() => {}),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
 
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {

@@ -29,7 +29,7 @@ vi.mock("./pty", () => ({
   onPtyExit: vi.fn().mockResolvedValue(() => {}),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
 
 // Headless Chromium doesn't give WebglAddon a real GL context, and the
 // addon's internal cleanup has a null-deref path when disposed in that
