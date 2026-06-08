@@ -1483,9 +1483,14 @@ function renderAdvanced(el: HTMLElement): void {
   const testBtn = button("Send test report", async () => {
     const { sendTestEvent } = await import("./telemetry");
     const { showToast } = await import("./toast");
-    showToast(sendTestEvent()
-      ? { kind: "info", message: "Test report sent — check your Sentry dashboard" }
-      : { kind: "info", message: "Enable crash reports, then restart Kimbo first" });
+    const res = await sendTestEvent();
+    if (!res) {
+      showToast({ kind: "info", message: "Enable crash reports, then restart Kimbo first" });
+    } else if (res.flushed) {
+      showToast({ kind: "info", message: `Sent ✓ — event ${res.id.slice(0, 8)} (search it in Sentry)` });
+    } else {
+      showToast({ kind: "error", message: `Captured ${res.id.slice(0, 8)} but flush failed — see console` });
+    }
   });
   testBtn.classList.add("ghost");
   telemetryControl.appendChild(testBtn);

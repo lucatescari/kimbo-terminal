@@ -13,6 +13,7 @@
     "process:allow-restart",
     "dialog:allow-open",
     "notification:default",
+    "sentry:default",
     "core:window:allow-start-dragging",
     "core:window:allow-close",
     "core:window:allow-minimize",
