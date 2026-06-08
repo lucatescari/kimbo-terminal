@@ -22,8 +22,6 @@ export interface UiPrefs {
   /** General → Background opacity (0–100). Settings slider is enabled on
    *  macOS only; value is always written to --app-alpha by applyRoot(). */
   backgroundOpacity: number;
-  /** Advanced → Anonymous telemetry. Coming soon — see issue #10 (Sentry). */
-  telemetry: boolean;
   /** General → Open on launch. "last" — restore, "home" — home dir, "workspace" — last workspace. */
   startup: "last" | "home" | "workspace";
   /** Appearance → Treat ANSI black bg as default (transparent).
@@ -71,7 +69,6 @@ const DEFAULTS: UiPrefs = {
   accent: "",
   confirmQuit: true,
   backgroundOpacity: 100,
-  telemetry: false,
   startup: "last",
   transparentBlackBg: true,
   claudeHudEnabled: true,

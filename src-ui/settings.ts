@@ -55,6 +55,7 @@ interface AppConfig {
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
   updates: { auto_check: boolean };
   welcome: { show_on_startup: boolean };
+  telemetry: { enabled: boolean };
 }
 
 export type SettingsCategory =
@@ -1404,8 +1405,6 @@ function renderAdvanced(el: HTMLElement): void {
   if (!config) return;
   el.appendChild(header("Advanced", "Experimental flags and low-level behavior. Handle with care."));
 
-  const prefs = getPrefs();
-
   const perf = section("Performance");
   perf.appendChild(row(
     "Scrollback lines",
@@ -1475,10 +1474,25 @@ function renderAdvanced(el: HTMLElement): void {
   el.appendChild(cfg);
 
   const priv = section("Privacy");
+  const telemetryControl = document.createElement("div");
+  telemetryControl.style.cssText = "display: flex; gap: 8px; align-items: center;";
+  telemetryControl.appendChild(toggle(config.telemetry.enabled, (v) => {
+    config!.telemetry.enabled = v;
+    void saveConfig();
+  }));
+  const testBtn = button("Send test report", async () => {
+    const { sendTestEvent } = await import("./telemetry");
+    const { showToast } = await import("./toast");
+    showToast(sendTestEvent()
+      ? { kind: "info", message: "Test report sent — check your Sentry dashboard" }
+      : { kind: "info", message: "Enable crash reports, then restart Kimbo first" });
+  });
+  testBtn.classList.add("ghost");
+  telemetryControl.appendChild(testBtn);
   priv.appendChild(row(
-    "Send anonymous telemetry",
-    "Crash reports and anonymized usage. No command content. Kimbo does not collect telemetry today.",
-    withComingSoon(toggle(prefs.telemetry, (v) => setPref("telemetry", v), true), true),
+    "Send anonymous crash reports",
+    "Opt-in. Sends crashes and JS errors to Sentry — no command output, no terminal content, no machine name. Takes effect after a restart.",
+    telemetryControl,
   ));
   el.appendChild(priv);
 }
