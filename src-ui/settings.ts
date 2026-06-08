@@ -223,7 +223,11 @@ async function showSettings(): Promise<void> {
         unifiedThemes = e.payload.themes;
         communityCatalogSize = e.payload.community_catalog_size;
         communityResolved = e.payload.community_resolved;
-        if (visible && activeCategory === "appearance") render();
+        // renderActive(), NOT render(): render() does overlayEl.innerHTML = ""
+        // and rebuilds .settings, replaying its `rise-in` animation — the user
+        // perceives the panel popping in a second time. renderActive() swaps
+        // only the .main content in place. Same no-replay rule as nav clicks.
+        if (visible && activeCategory === "appearance") renderActive();
       },
     );
   } catch (_) { /* ignore */ }
@@ -237,7 +241,11 @@ async function showSettings(): Promise<void> {
     const local = await invoke<UnifiedTheme[]>("list_unified_themes", { activeSlug: active });
     if (!eventReceived) {
       unifiedThemes = local;
-      if (activeCategory === "appearance") render();
+      // renderActive() not render() — see the community-ready handler above.
+      // On a cold cache this path fires AFTER the initial render has already
+      // animated .settings in; a full render() here replays `rise-in` and is
+      // the long-standing "settings pops in twice on first open" bug.
+      if (activeCategory === "appearance") renderActive();
     }
   } catch (e) { console.warn("list_unified_themes:", e); }
 }
@@ -553,41 +561,6 @@ function renderAppearance(el: HTMLElement): void {
   themeSec.appendChild(yoursContainer);
   buildYoursInto(yoursContainer);
 
-  const btnRow = document.createElement("div");
-  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 16px;";
-  btnRow.appendChild(button("Browse gallery", () => {
-    const gallery = document.querySelector(".settings .main .gallery");
-    if (gallery) gallery.scrollIntoView({ behavior: "smooth" });
-  }));
-  const create = button("Create theme…", () => {
-    void openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/docs/themes.md");
-  });
-  create.classList.add("ghost");
-  btnRow.appendChild(create);
-  const importBtn = button("Import from file", async () => {
-    try {
-      const selected = await openFileDialog({
-        multiple: false,
-        directory: false,
-        filters: [{ name: "Kimbo theme", extensions: ["json"] }],
-        title: "Import Kimbo theme",
-      });
-      if (typeof selected !== "string") return; // user cancelled
-      const slug = await invoke<string>("install_theme_from_file", {
-        filePath: selected,
-        activeSlug: config?.theme.name ?? null,
-      });
-      // The rust command spawns an emit of `themes://community-ready` which
-      // the gallery listener already picks up; nothing else to do here.
-      console.log(`[kimbo.theme] imported '${slug}' from ${selected}`);
-    } catch (e) {
-      alert(`Could not import theme:\n\n${e instanceof Error ? e.message : String(e)}`);
-    }
-  });
-  importBtn.classList.add("ghost");
-  btnRow.appendChild(importBtn);
-  themeSec.appendChild(btnRow);
-
   // Accent / density / tab style
   const accentSec = section("Accent");
   const prefs = getPrefs();
@@ -670,6 +643,38 @@ function renderAppearance(el: HTMLElement): void {
   gallery.appendChild(galleryContainer);
   buildAvailableInto(galleryContainer);
   el.appendChild(gallery);
+
+  // Page-level theme actions, pinned to the bottom of the Appearance page.
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display: flex; gap: 8px; margin-top: 24px;";
+  const create = button("Create theme…", () => {
+    void openUrl("https://github.com/lucatescari/kimbo-terminal/blob/main/docs/themes.md");
+  });
+  create.classList.add("ghost");
+  btnRow.appendChild(create);
+  const importBtn = button("Import from file", async () => {
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Kimbo theme", extensions: ["json"] }],
+        title: "Import Kimbo theme",
+      });
+      if (typeof selected !== "string") return; // user cancelled
+      const slug = await invoke<string>("install_theme_from_file", {
+        filePath: selected,
+        activeSlug: config?.theme.name ?? null,
+      });
+      // The rust command spawns an emit of `themes://community-ready` which
+      // the gallery listener already picks up; nothing else to do here.
+      console.log(`[kimbo.theme] imported '${slug}' from ${selected}`);
+    } catch (e) {
+      alert(`Could not import theme:\n\n${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+  importBtn.classList.add("ghost");
+  btnRow.appendChild(importBtn);
+  el.appendChild(btnRow);
 }
 
 /** Wrap buildThemeCard with the install / activate / uninstall plumbing

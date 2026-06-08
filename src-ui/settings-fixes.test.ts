@@ -303,3 +303,55 @@ describe("settings: Keybinds buttons cleanup", () => {
     expect(exp).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bug 4: settings "popped in twice" on first open (cold theme cache)
+// ---------------------------------------------------------------------------
+//
+// Distinct from Bug 2, which was a double *dispatch* of toggleSettings. Here a
+// SINGLE open rendered twice: showSettings() mounts .settings (render #1,
+// playing `rise-in`), then the async theme load — on a COLD cache, where the
+// `themes://community-ready` event hasn't fired yet — called the FULL render()
+// again, doing overlayEl.innerHTML = "" and recreating .settings, which
+// replays `rise-in`. The user sees the panel pop in a second time. A warm
+// cache hid it: the community event resolved first and skipped the post-load
+// render. Fix: refresh themes in place via renderActive() — the same
+// no-replay path nav clicks already use (Bug 1) — instead of full render().
+
+describe("settings: no double-pop on first open (cold theme cache)", () => {
+  it("keeps the same .settings panel element across the post-load theme refresh", async () => {
+    // Defer list_unified_themes so we can observe the panel AFTER the initial
+    // render but BEFORE the post-load refresh — the exact window in which the
+    // bug recreated .settings. No community-ready event fires (cold cache).
+    let resolveThemes: (v: unknown[]) => void = () => {};
+    const themesDeferred = new Promise<unknown[]>((r) => { resolveThemes = r; });
+    const originalImpl = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_unified_themes") return themesDeferred;
+      return originalImpl(cmd);
+    });
+
+    try {
+      const open = openSettingsToCategory("appearance");
+
+      // Let get_config + listen resolve so render #1 mounts .settings; we then
+      // park on the deferred list_unified_themes await.
+      let panelBefore: HTMLElement | null = null;
+      for (let i = 0; i < 20 && !panelBefore; i++) {
+        await Promise.resolve();
+        panelBefore = document.querySelector<HTMLElement>(".modal-overlay .settings");
+      }
+      expect(panelBefore, "panel mounts on the initial render").not.toBeNull();
+
+      // Release the theme list → triggers the post-load refresh.
+      resolveThemes([]);
+      await open;
+
+      const panelAfter = document.querySelector<HTMLElement>(".modal-overlay .settings");
+      // Same node = refreshed in place, `rise-in` not replayed.
+      expect(panelAfter).toBe(panelBefore);
+    } finally {
+      invokeMock.mockImplementation(originalImpl);
+    }
+  });
+});
