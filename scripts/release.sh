@@ -24,6 +24,26 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   echo -e "${CYAN}Loaded secrets from .env${NC}"
 fi
 
+# Validate updater signing secrets UP FRONT — before the version bump — so a
+# missing key/password fails fast and never strands a half-bumped tree.
+# TAURI_SIGNING_PRIVATE_KEY can be the raw key contents or a path to the .key
+# file (tauri-bundler accepts both); TAURI_SIGNING_PRIVATE_KEY_PASSWORD unlocks it.
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  KIMBO_KEY_PATH="${HOME}/.tauri/kimbo_updater.key"
+  if [[ -f "$KIMBO_KEY_PATH" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$KIMBO_KEY_PATH"
+  else
+    echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY not set and ${KIMBO_KEY_PATH} not found.${NC}"
+    echo "Run: npm run tauri -- signer generate -w ~/.tauri/kimbo_updater.key"
+    exit 1
+  fi
+fi
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+  echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY_PASSWORD not set.${NC}"
+  echo "Put it in .env (see .env.example) or export it before running."
+  exit 1
+fi
+
 # Get current version from package.json
 CURRENT=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -97,25 +117,8 @@ export APPLE_SIGNING_IDENTITY="44182A302783F4D0ACA0888C54E6CAFC89709828"
 export APPLE_API_KEY="${APPLE_API_KEY_ID:-TST7M4RJDJ}"
 export APPLE_API_ISSUER="${APPLE_API_ISSUER:-277572be-01f6-4e99-9a67-336fc6fdc28e}"
 
-# tauri-plugin-updater: sign the updater tarball with a Tauri-managed keypair.
-# TAURI_SIGNING_PRIVATE_KEY can be either the raw key contents (string) or a
-# path to the .key file — tauri-bundler accepts both. TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-# unlocks it. Both must be present or tauri-bundler errors out at the updater step.
-if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-  KIMBO_KEY_PATH="${HOME}/.tauri/kimbo_updater.key"
-  if [[ -f "$KIMBO_KEY_PATH" ]]; then
-    export TAURI_SIGNING_PRIVATE_KEY="$KIMBO_KEY_PATH"
-  else
-    echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY not set and ${KIMBO_KEY_PATH} not found.${NC}"
-    echo "Run: npm run tauri -- signer generate -w ~/.tauri/kimbo_updater.key"
-    exit 1
-  fi
-fi
-if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
-  echo -e "${RED}TAURI_SIGNING_PRIVATE_KEY_PASSWORD not set.${NC}"
-  echo "Export it (or prefix the release command) with the password you set when generating the key."
-  exit 1
-fi
+# Updater signing secrets are validated at the very top (before the version
+# bump) so a missing key/password fails fast without stranding a bump.
 
 # Build only the .app bundle. We skip Tauri's DMG step because macOS System
 # Policy (syspolicyd) denies copy-helper from writing to /Volumes/Kimbo/Kimbo.app
