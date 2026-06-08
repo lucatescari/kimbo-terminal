@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-app"
-version = "0.14.2"
+version = "0.15.0"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
@@ -2550,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-config"
-version = "0.14.2"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-terminal"
-version = "0.14.2"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2579,7 +2579,7 @@ dependencies = [
 
 [[package]]
 name = "kimbo-workspace"
-version = "0.14.2"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
