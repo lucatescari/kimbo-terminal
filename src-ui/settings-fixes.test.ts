@@ -112,6 +112,7 @@ import {
   toggleSettings,
   isSettingsVisible,
 } from "./settings";
+import { activeChord, actionForChord, resetOverrides } from "./keybindings";
 
 const DEFAULT_CONFIG = {
   general: { default_shell: "/bin/zsh", default_layout: "single" },
@@ -279,23 +280,62 @@ describe("settings: Advanced → Open in editor", () => {
 // Cleanup: unimplemented keymap buttons removed
 // ---------------------------------------------------------------------------
 
-describe("settings: Keybinds buttons cleanup", () => {
-  it("does not render a 'Reset to defaults' button (rebinding isn't implemented)", async () => {
+describe("settings: Keybinds rebinding", () => {
+  beforeEach(() => resetOverrides());
+
+  const chipFor = (id: string) =>
+    document.querySelector<HTMLButtonElement>(`.modal-overlay .settings .main .kbd-chip-btn[data-action-id="${id}"]`);
+
+  function pressChord(init: KeyboardEventInit): void {
+    document.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
+  }
+
+  it("captures a new chord for a webview action and persists it", async () => {
     await openSettingsToCategory("keybinds");
-    const buttons = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(".modal-overlay .settings .main button"),
-    );
-    const reset = buttons.find((b) => b.textContent?.trim() === "Reset to defaults");
-    expect(reset).toBeUndefined();
+    const chip = chipFor("command_palette");
+    expect(chip, "command_palette chip rendered").not.toBeNull();
+
+    chip!.click();
+    invokeMock.mockClear();
+    pressChord({ key: "j", metaKey: true, altKey: true }); // ⌘⌥J
+
+    expect(activeChord("command_palette")).toBe("cmd-alt-j");
+    expect(actionForChord("cmd-alt-j")).toBe("command_palette");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "save_config")).toBe(true);
   });
 
-  it("does not render an 'Export keymap' button", async () => {
+  it("rebinding a MENU action pushes the new accelerator to the native menu", async () => {
     await openSettingsToCategory("keybinds");
-    const buttons = Array.from(
+    chipFor("split_horizontal")!.click();
+    invokeMock.mockClear();
+    pressChord({ key: "e", metaKey: true, altKey: true }); // ⌘⌥E
+
+    expect(activeChord("split_horizontal")).toBe("cmd-alt-e");
+    // The menu-owned path must update the native accelerator via Rust.
+    const call = invokeMock.mock.calls.find((c) => c[0] === "set_menu_accelerator") as unknown[] | undefined;
+    expect(call, "set_menu_accelerator invoked for a menu action").toBeTruthy();
+    expect(call![1]).toMatchObject({ id: "split_horizontal", chord: "cmd-alt-e" });
+  });
+
+  it("rejects a chord already bound to another action", async () => {
+    await openSettingsToCategory("keybinds");
+    chipFor("command_palette")!.click();
+    pressChord({ key: "w", metaKey: true }); // ⌘W is close_pane
+    expect(activeChord("command_palette")).toBe("cmd-k"); // unchanged
+  });
+
+  it("Reset to defaults clears overrides and restores menu accelerators", async () => {
+    await openSettingsToCategory("keybinds");
+    chipFor("split_horizontal")!.click();
+    pressChord({ key: "e", metaKey: true, altKey: true });
+    expect(activeChord("split_horizontal")).toBe("cmd-alt-e");
+
+    const reset = Array.from(
       document.querySelectorAll<HTMLButtonElement>(".modal-overlay .settings .main button"),
-    );
-    const exp = buttons.find((b) => b.textContent?.trim() === "Export keymap");
-    expect(exp).toBeUndefined();
+    ).find((b) => b.textContent?.trim() === "Reset to defaults");
+    expect(reset, "reset button rendered").not.toBeUndefined();
+    reset!.click();
+    expect(activeChord("split_horizontal")).toBe("cmd-shift-d");
   });
 });
 

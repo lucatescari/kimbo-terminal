@@ -99,11 +99,21 @@ fn main() {
                 }
             }
 
-            // Build native macOS menu bar.
+            // Build native macOS menu bar. Accelerators come from the user's
+            // persisted keybinding overrides (config.keybindings.bindings),
+            // falling back to defaults — so rebinds survive restart. macOS
+            // requires these key-equivalents to live on the menu, not the
+            // webview; the webview (keys.ts) only handles the non-menu shortcuts.
             let handle = app.handle();
+            let kb = kimbo_config::AppConfig::load()
+                .map(|c| c.keybindings.bindings)
+                .unwrap_or_default();
+            let accel = |id: &str, default_chord: &str| {
+                Some(commands::keybinds::accelerator_for(&kb, id, default_chord))
+            };
 
-            let settings = MenuItem::with_id(handle, "settings", "Settings...", true, Some("CmdOrCtrl+,"))?;
-            let quit = MenuItem::with_id(handle, "quit", "Quit Kimbo", true, Some("CmdOrCtrl+Q"))?;
+            let settings = MenuItem::with_id(handle, "settings", "Settings...", true, accel("settings", "cmd-,"))?;
+            let quit = MenuItem::with_id(handle, "quit", "Quit Kimbo", true, accel("quit", "cmd-q"))?;
 
             let app_menu = Submenu::with_items(handle, "Kimbo", true, &[
                 &PredefinedMenuItem::about(handle, Some("About Kimbo"), None)?,
@@ -115,15 +125,15 @@ fn main() {
                 &quit,
             ])?;
 
-            let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
-            let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, Some("CmdOrCtrl+W"))?;
-            let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, Some("CmdOrCtrl+Shift+W"))?;
+            let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, accel("new_tab", "cmd-t"))?;
+            let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, accel("close_pane", "cmd-w"))?;
+            let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, accel("close_tab", "cmd-shift-w"))?;
             let reopen_tab = MenuItem::with_id(
                 handle,
                 "reopen_tab",
                 "Reopen Closed Tab",
                 true,
-                Some("CmdOrCtrl+Shift+T"),
+                accel("reopen_tab", "cmd-shift-t"),
             )?;
 
             let file_menu = Submenu::with_items(handle, "File", true, &[
@@ -140,8 +150,8 @@ fn main() {
                 &PredefinedMenuItem::select_all(handle, None)?,
             ])?;
 
-            let split_v = MenuItem::with_id(handle, "split_vertical", "Split Vertical", true, Some("CmdOrCtrl+D"))?;
-            let split_h = MenuItem::with_id(handle, "split_horizontal", "Split Horizontal", true, Some("CmdOrCtrl+Shift+D"))?;
+            let split_v = MenuItem::with_id(handle, "split_vertical", "Split Vertical", true, accel("split_vertical", "cmd-d"))?;
+            let split_h = MenuItem::with_id(handle, "split_horizontal", "Split Horizontal", true, accel("split_horizontal", "cmd-shift-d"))?;
 
             let view_menu = Submenu::with_items(handle, "View", true, &[
                 &split_v,
@@ -260,6 +270,7 @@ fn main() {
             commands::config::reset_config,
             commands::config::open_config_in_editor,
             commands::kimbo::write_kimbo_shell_scripts,
+            commands::keybinds::set_menu_accelerator,
             commands::path::resolve_existing_path,
             commands::workspace::list_projects,
             commands::update::check_for_updates,

@@ -193,7 +193,9 @@ describe("fix 4: macOS native menu bar", () => {
     expect(mainTsSource).toContain("split_horizontal");
   });
 
-  it("Settings menu item has Cmd+, shortcut", () => {
-    expect(mainRsSource).toContain("CmdOrCtrl+,");
+  it("Settings menu item gets its accelerator from config (default Cmd+,)", () => {
+    // Accelerators are now config-driven via the accel() helper (rebindable),
+    // not hardcoded — so the literal default lives in that call.
+    expect(mainRsSource).toMatch(/accel\("settings",\s*"cmd-,"\)/);
   });
 });

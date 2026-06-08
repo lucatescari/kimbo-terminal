@@ -28,6 +28,7 @@ interface BootConfig {
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
   updates: { auto_check: boolean };
   welcome: { show_on_startup: boolean };
+  keybindings?: { bindings: Record<string, string> };
 }
 
 async function init() {
@@ -97,7 +98,7 @@ async function init() {
 
   if (cfg) initWelcome(cfg);
 
-  initKeys();
+  initKeys(cfg?.keybindings?.bindings ?? {});
 
   // Force-load the Nerd Font fallback before the first terminal renders so
   // xterm's WebGL glyph atlas rasterizes shell-prompt icons (starship,

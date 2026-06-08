@@ -17,6 +17,18 @@ import { icon, type IconName } from "./icons";
 import { buildDropdown } from "./dropdown";
 import { buildThemeCard } from "./theme-card";
 import { getPrefs, setPref, applyRoot, clearPrefs, type Density, type TabStyle } from "./ui-prefs";
+import {
+  ACTIONS,
+  type ActionDef,
+  activeChord,
+  chordFromEvent,
+  chordToDisplayParts,
+  actionForChord,
+  setOverride,
+  overrides,
+  resetOverrides,
+  isMenuAction,
+} from "./keybindings";
 import { isMacOS } from "./platform";
 import { filterThemes, type ThemeMode } from "./theme-filter";
 import {
@@ -942,52 +954,134 @@ function renderWorkspaces(el: HTMLElement): void {
 // Keybinds
 // ===========================================================================
 
-const BINDS_DEFAULT: { cat: string; label: string; keys: string[] }[] = [
-  { cat: "tabs",  label: "New tab",              keys: ["⌘", "T"] },
-  { cat: "tabs",  label: "Close tab",            keys: ["⌘", "⇧", "W"] },
-  { cat: "tabs",  label: "Next tab",             keys: ["⌘", "]"] },
-  { cat: "tabs",  label: "Previous tab",         keys: ["⌘", "["] },
-  { cat: "panes", label: "Split right",          keys: ["⌘", "D"] },
-  { cat: "panes", label: "Split down",           keys: ["⌘", "⇧", "D"] },
-  { cat: "panes", label: "Close pane",           keys: ["⌘", "W"] },
-  { cat: "panes", label: "Focus pane up",        keys: ["⌘", "↑"] },
-  { cat: "panes", label: "Focus pane down",      keys: ["⌘", "↓"] },
-  { cat: "panes", label: "Focus pane left",      keys: ["⌘", "←"] },
-  { cat: "panes", label: "Focus pane right",     keys: ["⌘", "→"] },
-  { cat: "nav",   label: "Command palette",      keys: ["⌘", "K"] },
-  { cat: "nav",   label: "Settings",             keys: ["⌘", ","] },
-  { cat: "edit",  label: "Find in terminal",     keys: ["⌘", "F"] },
-  { cat: "app",   label: "Quit",                 keys: ["⌘", "Q"] },
-];
+function keybindToast(message: string): void {
+  void import("./toast").then(({ showToast }) => showToast({ kind: "info", message }));
+}
+
+/** Push a rebind to the right layer + persist. Menu-owned actions update the
+ *  native macOS menu accelerator via Rust (the menu, not the webview, owns
+ *  those keys); webview actions take effect live via the registry override. */
+function persistKeybinding(id: string, chord: string | null): void {
+  if (chord) setOverride(id, chord);
+  if (config) {
+    config.keybindings = config.keybindings ?? { bindings: {} };
+    config.keybindings.bindings = { ...overrides() };
+    void saveConfig();
+  }
+  if (isMenuAction(id)) {
+    // chord=null → fall back to the action's default for the menu accelerator.
+    const effective = chord ?? activeChord(id);
+    invoke("set_menu_accelerator", { id, chord: effective }).catch((e) =>
+      console.error("set_menu_accelerator failed:", e),
+    );
+  }
+}
 
 function renderKeybinds(el: HTMLElement): void {
-  el.appendChild(header("Keybinds", "Keyboard shortcuts for Kimbo. Rebinding is coming soon."));
+  el.appendChild(header(
+    "Keybinds",
+    "Click a shortcut to rebind it. Every shortcut must include ⌘.",
+  ));
 
   const sec = section("All shortcuts");
   const table = document.createElement("div");
   table.className = "keytable";
-  for (const b of BINDS_DEFAULT) {
-    const r = document.createElement("div");
-    r.className = "krow";
-    const left = document.createElement("div");
-    const cat = document.createElement("span");
-    cat.className = "cat";
-    cat.textContent = b.cat;
-    left.appendChild(cat);
-    left.appendChild(document.createTextNode(b.label));
-    r.appendChild(left);
+  let capturing = false;
 
-    const chip = document.createElement("div");
-    chip.className = "kbd-chip";
-    for (const k of b.keys) {
+  function fillChip(chip: HTMLElement, chord: string): void {
+    chip.replaceChildren();
+    for (const k of chordToDisplayParts(chord)) {
       const s = document.createElement("span");
       s.textContent = k;
       chip.appendChild(s);
     }
-    r.appendChild(chip);
-    table.appendChild(r);
   }
+
+  function beginCapture(a: ActionDef, chip: HTMLButtonElement): void {
+    if (capturing) return;
+    capturing = true;
+    chip.classList.add("capturing");
+    chip.replaceChildren();
+    const hint = document.createElement("span");
+    hint.textContent = "Press keys…";
+    chip.appendChild(hint);
+
+    const finish = (): void => {
+      window.removeEventListener("keydown", onKey, true);
+      capturing = false;
+      rebuild();
+    };
+
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") { finish(); return; }
+      if (["Meta", "Shift", "Control", "Alt", "CapsLock"].includes(e.key)) return;
+
+      const chord = chordFromEvent(e);
+      if (!chord) { keybindToast("Shortcuts must include ⌘"); finish(); return; }
+
+      const owner = actionForChord(chord);
+      if (owner && owner !== a.id) {
+        const ownerLabel = ACTIONS.find((x) => x.id === owner)?.label ?? owner;
+        keybindToast(`${chordToDisplayParts(chord).join("")} is already bound to ${ownerLabel}`);
+        finish();
+        return;
+      }
+      persistKeybinding(a.id, chord);
+      finish();
+    };
+
+    // window + capture so this runs before settings' own Escape handler — Escape
+    // cancels capture without also closing the modal.
+    window.addEventListener("keydown", onKey, true);
+  }
+
+  function rebuild(): void {
+    table.replaceChildren();
+    for (const a of ACTIONS) {
+      const r = document.createElement("div");
+      r.className = "krow";
+      const left = document.createElement("div");
+      const cat = document.createElement("span");
+      cat.className = "cat";
+      cat.textContent = a.category;
+      left.appendChild(cat);
+      left.appendChild(document.createTextNode(a.label));
+      r.appendChild(left);
+
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "kbd-chip kbd-chip-btn";
+      chip.dataset.actionId = a.id;
+      fillChip(chip, activeChord(a.id));
+      chip.addEventListener("click", () => beginCapture(a, chip));
+      r.appendChild(chip);
+      table.appendChild(r);
+    }
+  }
+
+  rebuild();
   sec.appendChild(table);
+
+  const foot = document.createElement("div");
+  foot.style.cssText = "margin-top: 16px;";
+  const reset = button("Reset to defaults", () => {
+    resetOverrides();
+    if (config) { config.keybindings = { bindings: {} }; void saveConfig(); }
+    // Restore every menu accelerator to its default.
+    for (const a of ACTIONS) {
+      if (a.menu) {
+        invoke("set_menu_accelerator", { id: a.id, chord: a.defaultChord }).catch((e) =>
+          console.error("set_menu_accelerator failed:", e),
+        );
+      }
+    }
+    rebuild();
+  });
+  reset.classList.add("ghost");
+  foot.appendChild(reset);
+  sec.appendChild(foot);
 
   el.appendChild(sec);
 }

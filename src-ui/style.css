@@ -1337,6 +1337,10 @@ body {
   justify-content: center;
   box-shadow: 0 1px 0 var(--border);
 }
+/* Rebindable chip: a button that captures a new chord on click. */
+.kbd-chip-btn { background: none; border: none; cursor: pointer; padding: 2px; border-radius: 5px; }
+.kbd-chip-btn:hover { background: var(--bg-hover); }
+.kbd-chip-btn.capturing span { border-color: var(--accent); color: var(--accent); }
 
 /* Accent swatches */
 .swatches {
