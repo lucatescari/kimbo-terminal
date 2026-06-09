@@ -1,5 +1,24 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { normalizeFontFamily } from "./theme";
+import { normalizeFontFamily, hexToRgba } from "./theme";
+
+describe("hexToRgba (terminal background tint)", () => {
+  it("converts #rrggbb at full opacity to an opaque rgba", () => {
+    expect(hexToRgba("#f5f2eb", 1)).toBe("rgba(245, 242, 235, 1)");
+  });
+  it("applies fractional alpha for translucency", () => {
+    expect(hexToRgba("#1a1a1a", 0.8)).toBe("rgba(26, 26, 26, 0.8)");
+  });
+  it("expands #rgb shorthand", () => {
+    expect(hexToRgba("#fff", 1)).toBe("rgba(255, 255, 255, 1)");
+  });
+  it("clamps alpha to [0,1]", () => {
+    expect(hexToRgba("#000000", 2)).toBe("rgba(0, 0, 0, 1)");
+    expect(hexToRgba("#000000", -1)).toBe("rgba(0, 0, 0, 0)");
+  });
+  it("returns the input unchanged when it isn't a parseable hex", () => {
+    expect(hexToRgba("rgba(0,0,0,0)", 1)).toBe("rgba(0,0,0,0)");
+  });
+});
 
 // Test theme application logic in isolation (no Tauri invoke).
 

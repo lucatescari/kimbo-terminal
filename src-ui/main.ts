@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { initTabs, createTab, fitAllPanes, closeTab, getActiveTab, splitActive, closeActiveOrTab, switchToTab, snapshotOpenTabs, reopenLastClosedTab, disposeTabs } from "./tabs";
 import { initKeys } from "./keys";
 import { initTelemetry } from "./telemetry";
-import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY } from "./theme";
+import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY, refreshTerminalBackground } from "./theme";
 import { initSettings, toggleSettings } from "./settings";
 import { confirmAndQuit } from "./quit-confirm";
 import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
@@ -56,7 +56,7 @@ async function init() {
   setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
 
   // Re-apply root on pref change so accent/density/tab-style changes land live.
-  onPrefsChange(() => applyRoot());
+  onPrefsChange(() => { applyRoot(); refreshTerminalBackground(); });
 
   // Seed terminal options from persisted config before creating any terminal.
   let themeName = "kimbo-dark";
