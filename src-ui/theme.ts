@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Terminal } from "@xterm/xterm";
+import { getPrefs } from "./ui-prefs";
 
 interface ResolvedTheme {
   name: string;
@@ -35,6 +36,21 @@ interface ResolvedTheme {
 
 const terminals: Terminal[] = [];
 let currentXtermTheme: Record<string, string> | null = null;
+/** Last applied theme's background hex — re-tinted when opacity changes. */
+let currentThemeBgHex: string | null = null;
+
+/** #rgb / #rrggbb → an rgba() string at `alpha`. Falls back to the input
+ *  (opaque) if it can't be parsed. */
+export function hexToRgba(hex: string, alpha: number): string {
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length !== 6 || /[^0-9a-fA-F]/.test(h)) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
 
 export interface TerminalOptions {
   fontFamily: string;
@@ -182,11 +198,16 @@ function applyTheme(theme: ResolvedTheme) {
     (e) => console.warn("set_window_theme failed:", e),
   );
 
+  // The terminal paints its OWN background — the theme bg tinted to the
+  // Background-opacity pref — instead of being forced transparent. Forcing
+  // rgba(0,0,0,0) made dark-on-light themes wash out: xterm's WebGL renderer
+  // drew partial-alpha glyphs straight onto transparency, which then blended
+  // into the bright backdrop (gray, unreadable text). Painting a real cell
+  // background composites glyphs at full contrast; at opacity 100 it's opaque,
+  // below that it stays translucent. See fix/light-theme-readability.
+  currentThemeBgHex = theme.background;
   const xtermTheme: Record<string, string> = {
-    // Transparent so #app-frame (which carries --app-alpha chrome fill) shows
-    // through under the terminal viewport. The theme's background hex is still
-    // used for the CSS --bg token upstream of this function.
-    background: "rgba(0,0,0,0)",
+    background: hexToRgba(theme.background, getPrefs().backgroundOpacity / 100),
     foreground: theme.foreground,
     cursor: theme.cursor,
     selectionBackground: theme.selection_background,
@@ -210,7 +231,25 @@ function applyTheme(theme: ResolvedTheme) {
 
   currentXtermTheme = xtermTheme;
 
+  const translucent = getPrefs().backgroundOpacity < 100;
   for (const term of terminals) {
+    term.options.allowTransparency = translucent;
     term.options.theme = xtermTheme;
+  }
+}
+
+/** Re-tint the terminal background when the Background-opacity pref changes.
+ *  Foreground/ansi colors are untouched. No-op until a theme has loaded. */
+export function refreshTerminalBackground(): void {
+  if (!currentXtermTheme || currentThemeBgHex === null) return;
+  const translucent = getPrefs().backgroundOpacity < 100;
+  currentXtermTheme = {
+    ...currentXtermTheme,
+    background: hexToRgba(currentThemeBgHex, getPrefs().backgroundOpacity / 100),
+  };
+  // Transparency only when translucent — opaque (100%) keeps glyphs crisp.
+  for (const term of terminals) {
+    term.options.allowTransparency = translucent;
+    term.options.theme = currentXtermTheme;
   }
 }
