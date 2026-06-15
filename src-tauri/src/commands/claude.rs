@@ -18,7 +18,12 @@ pub struct ClaudeResume {
 /// The probe needs the PTY's cwd to fall back to the disk-mtime tier
 /// when the running claude has no `--resume <uuid>` in its args. The
 /// cwd is read from the same `PtySession` accessor used by `get_cwd`.
-#[tauri::command]
+// `(async)` forces this synchronous body to run on the async runtime's
+// thread pool instead of inline on the macOS main/UI thread. The probe
+// shells out to `ps` and walks the process tree + filesystem; on the main
+// thread that work froze the window (spinning beachball). See the HUD poll
+// in src-ui/panes.ts which calls this every 2s per pane.
+#[tauri::command(async)]
 pub fn probe_claude_session(
     id: u32,
     manager: State<'_, PtyManager>,
@@ -33,7 +38,9 @@ pub fn probe_claude_session(
 /// session status (session id, model, tokens, etc.) for the running
 /// `claude` if any. Best-effort; returns `Ok(None)` for "no claude
 /// running" and "missing sessions file". Errors only on PTY id unknown.
-#[tauri::command]
+// `(async)` keeps the `ps`-based process-tree probe off the main/UI thread
+// (the HUD polls this every 2s per pane). See `probe_claude_session`.
+#[tauri::command(async)]
 pub fn claude_status(
     id: u32,
     manager: State<'_, PtyManager>,
@@ -115,7 +122,14 @@ fn fetch_account_info() -> Option<AccountInfo> {
 /// any call with `force_refresh: true`) shells out and refreshes the
 /// cache. Returns `Ok(None)` when claude isn't installed, the user
 /// isn't logged in, or stdout doesn't parse — never errors.
-#[tauri::command]
+// `(async)` is load-bearing: on its first call this command shells out to
+// `$SHELL -ilc "claude auth status"` — an interactive login shell that sources
+// the user's full rc files plus the Node `claude` CLI and a network auth check
+// (measured 0.8–1.2s here, multi-second on heavy shell configs). As a plain
+// synchronous command it ran inline on the macOS main/UI thread, freezing the
+// window with a spinning beachball ~2s after launch (the first HUD poll). The
+// `(async)` attribute runs the body on the async runtime's thread pool instead.
+#[tauri::command(async)]
 pub fn claude_account_info(
     force_refresh: bool,
     cache: State<'_, ClaudeAccountCache>,
