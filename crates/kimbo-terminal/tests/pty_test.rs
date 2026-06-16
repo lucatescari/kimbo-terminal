@@ -163,6 +163,35 @@ fn test_pty_cwd() {
     }
 }
 
+/// The load-bearing guarantee behind shell-agnostic "resume tabs": after
+/// the shell changes directory with `cd`, `cwd()` must reflect the NEW
+/// directory — without any shell integration (OSC 7) emitting it. This is
+/// the exact scenario for a user whose shell has no oh-my-zsh prompt hook:
+/// the OS knows the process's cwd even though the shell announces nothing.
+#[test]
+#[serial(pty)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn cwd_tracks_cd_without_shell_integration() {
+    // Start at $HOME, then cd into the temp dir. Default shell ($SHELL),
+    // login — but we never rely on it emitting OSC 7; cwd() queries the OS.
+    let mut session = PtySession::new(None, dirs::home_dir()).expect("failed to spawn PTY");
+    // Canonicalize the target because macOS maps /tmp -> /private/tmp, which
+    // is what proc_pidinfo reports back.
+    let target = std::fs::canonicalize(std::env::temp_dir()).expect("canonicalize temp dir");
+
+    let _ = run_and_drain(
+        &mut session,
+        format!("cd {}", target.display()).as_bytes(),
+        0,
+    );
+
+    let cwd = session.cwd().expect("cwd() should report the shell's directory");
+    assert_eq!(
+        cwd, target,
+        "cwd() must follow `cd` via the OS query, independent of OSC 7"
+    );
+}
+
 // ========================================================================
 // Process-lifecycle tests — the actual regression guards for "npm run dev
 // stays running after Cmd+W closes the pane".
