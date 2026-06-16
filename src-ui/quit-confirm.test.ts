@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   setPref: vi.fn(),
   prefs: { confirmQuit: true },
   panes: [] as Array<{ tabName: string; ptyId: number }>,
+  snapshotOpenTabs: vi.fn().mockResolvedValue({ tabs: [{ cwd: "/x", name: "x" }], activeIndex: 0 }),
+  saveSession: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
@@ -20,7 +22,9 @@ vi.mock("./ui-prefs", () => ({
 }));
 vi.mock("./tabs", () => ({
   collectOpenPanes: () => mocks.panes,
+  snapshotOpenTabs: mocks.snapshotOpenTabs,
 }));
+vi.mock("./session-state", () => ({ saveSession: mocks.saveSession }));
 
 import { confirmAndQuit, __resetQuittingForTests } from "./quit-confirm";
 
@@ -31,7 +35,41 @@ beforeEach(() => {
   mocks.setPref.mockReset();
   mocks.prefs.confirmQuit = true;
   mocks.panes = [{ tabName: "~", ptyId: 1 }];
+  mocks.snapshotOpenTabs.mockReset().mockResolvedValue({ tabs: [{ cwd: "/x", name: "x" }], activeIndex: 0 });
+  mocks.saveSession.mockReset();
   __resetQuittingForTests();
+});
+
+describe("confirmAndQuit: flushes the session before exit", () => {
+  it("persists the final snapshot BEFORE invoking quit_app", async () => {
+    // Regression: the only persistence was a 2s poll, so anything changed in
+    // the last <2s before quit (active tab, tab order, a fresh cd) was lost.
+    mocks.prefs.confirmQuit = false;
+    const order: string[] = [];
+    mocks.saveSession.mockImplementation(() => order.push("save"));
+    mocks.invoke.mockImplementation(async () => { order.push("quit"); });
+    mocks.snapshotOpenTabs.mockResolvedValue({
+      tabs: [{ cwd: "/proj", name: "proj" }],
+      activeIndex: 0,
+    });
+
+    await confirmAndQuit();
+
+    expect(mocks.saveSession).toHaveBeenCalledWith({
+      tabs: [{ cwd: "/proj", name: "proj" }],
+      activeIndex: 0,
+    });
+    // The save must complete before the process is told to exit.
+    expect(order).toEqual(["save", "quit"]);
+  });
+
+  it("still quits if snapshotting/saving fails (never wedge the quit)", async () => {
+    mocks.prefs.confirmQuit = false;
+    mocks.snapshotOpenTabs.mockRejectedValue(new Error("snapshot boom"));
+    const result = await confirmAndQuit();
+    expect(result).toBe(true);
+    expect(mocks.invoke).toHaveBeenCalledWith("quit_app");
+  });
 });
 
 describe("confirmAndQuit: pref is off", () => {

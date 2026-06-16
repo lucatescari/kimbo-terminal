@@ -13,9 +13,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getPrefs, setPref } from "./ui-prefs";
-import { collectOpenPanes, type PaneRef } from "./tabs";
+import { collectOpenPanes, snapshotOpenTabs, type PaneRef } from "./tabs";
 import { ptyIsBusy } from "./pty";
 import { showQuitDialog } from "./quit-dialog";
+import { saveSession } from "./session-state";
 
 /** Flag flipped the moment the user confirms (or skips confirmation).
  *  Prevents a double prompt when the CloseRequested event fires in
@@ -80,6 +81,17 @@ function describeBusy(busy: PaneRef[]): string {
 
 async function triggerQuit(): Promise<boolean> {
   quitting = true;
+  // Flush the session NOW, before quit_app calls app.exit(0) — a hard
+  // process kill that never runs the webview's beforeunload. The 2s
+  // autosave poll alone loses anything changed in the final moments
+  // (active tab, tab order, a fresh cd), which restored the wrong layout.
+  // PTYs are still alive here, so snapshotOpenTabs' cwd query still works.
+  // Never let a snapshot/save failure block the quit.
+  try {
+    saveSession(await snapshotOpenTabs());
+  } catch (e) {
+    console.warn("[kimbo.quit] session flush before quit failed:", e);
+  }
   try {
     await invoke("quit_app");
   } catch (e) {

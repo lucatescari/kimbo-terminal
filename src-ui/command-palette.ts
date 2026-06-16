@@ -13,6 +13,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { icon, type IconName } from "./icons";
+import { confirmAndQuit } from "./quit-confirm";
 import {
   createTab,
   closeTab,
@@ -187,7 +188,7 @@ export function initCommandPalette(): void {
     label: "Quit Kimbo",
     icon: "close",
     hint: "⌘Q",
-    run: () => { void invoke("quit_app"); },
+    run: () => { void confirmAndQuit(); },
   });
 }
 
