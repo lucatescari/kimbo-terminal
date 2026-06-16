@@ -1337,10 +1337,44 @@ body {
   justify-content: center;
   box-shadow: 0 1px 0 var(--border);
 }
-/* Rebindable chip: a button that captures a new chord on click. */
-.kbd-chip-btn { background: none; border: none; cursor: pointer; padding: 2px; border-radius: 5px; }
-.kbd-chip-btn:hover { background: var(--bg-hover); }
-.kbd-chip-btn.capturing span { border-color: var(--accent); color: var(--accent); }
+/* Capturing: the chip becomes one accent-tinted "listening" pill. The hint is a
+   plain label — not a stretched keycap — so it sits in harmony with the rest of
+   the panel instead of cramming a sentence into a key-shaped box. */
+.kbd-chip.capturing {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+  box-shadow: var(--focus-ring), inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+.kbd-chip.capturing .kbd-chip-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* A quietly pulsing dot signals "we're listening" — same restraint as the toasts. */
+.kbd-chip.capturing .kbd-chip-hint::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: kbd-listen 1.1s ease-in-out infinite;
+}
+@keyframes kbd-listen {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.78); }
+}
 
 /* Accent swatches */
 .swatches {
@@ -1588,25 +1622,30 @@ body {
 .font-preview.lig { font-feature-settings: "calt" on, "liga" on; }
 .font-preview:not(.lig) { font-feature-settings: "calt" off, "liga" off; }
 
-/* Keybind table */
+/* Keybind table — each row is a full-width button: click anywhere to rebind. */
 .keytable { display: flex; flex-direction: column; }
 .keytable .krow {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  padding: 10px 4px;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 8px;
+  border: none;
   border-bottom: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: inherit;
   font-size: 13px;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
 }
+.keytable .krow:last-child { border-bottom: none; }
 .keytable .krow:hover { background: var(--bg-hover); }
-.keytable .krow .cat {
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  margin-right: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
+/* Hint the keys are rebindable on row hover, without shouting about it. */
+.keytable .krow:hover .kbd-chip span { border-color: var(--accent); }
 
 /* Workspace rows */
 .ws-list { display: grid; gap: 8px; }

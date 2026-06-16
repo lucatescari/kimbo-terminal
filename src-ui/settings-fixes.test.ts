@@ -284,7 +284,7 @@ describe("settings: Keybinds rebinding", () => {
   beforeEach(() => resetOverrides());
 
   const chipFor = (id: string) =>
-    document.querySelector<HTMLButtonElement>(`.modal-overlay .settings .main .kbd-chip-btn[data-action-id="${id}"]`);
+    document.querySelector<HTMLButtonElement>(`.modal-overlay .settings .main .krow[data-action-id="${id}"]`);
 
   function pressChord(init: KeyboardEventInit): void {
     document.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));

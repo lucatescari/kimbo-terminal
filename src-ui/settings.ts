@@ -978,15 +978,24 @@ function persistKeybinding(id: string, chord: string | null): void {
   }
 }
 
+/** Human-friendly section headings for the keybind categories. */
+const CATEGORY_LABELS: Record<ActionDef["category"], string> = {
+  tabs: "Tabs",
+  panes: "Panes",
+  nav: "Navigation",
+  edit: "Editing",
+  app: "Application",
+};
+
 function renderKeybinds(el: HTMLElement): void {
   el.appendChild(header(
     "Keybinds",
-    "Click a shortcut to rebind it. Every shortcut must include ⌘.",
+    "Click any shortcut to rebind it. Every shortcut must include ⌘.",
   ));
 
-  const sec = section("All shortcuts");
-  const table = document.createElement("div");
-  table.className = "keytable";
+  // Sections are rebuilt into this container so a rebind re-renders the whole
+  // grouped list in one place.
+  const groups = document.createElement("div");
   let capturing = false;
 
   function fillChip(chip: HTMLElement, chord: string): void {
@@ -998,12 +1007,13 @@ function renderKeybinds(el: HTMLElement): void {
     }
   }
 
-  function beginCapture(a: ActionDef, chip: HTMLButtonElement): void {
+  function beginCapture(a: ActionDef, chip: HTMLElement): void {
     if (capturing) return;
     capturing = true;
     chip.classList.add("capturing");
     chip.replaceChildren();
     const hint = document.createElement("span");
+    hint.className = "kbd-chip-hint";
     hint.textContent = "Press keys…";
     chip.appendChild(hint);
 
@@ -1039,34 +1049,48 @@ function renderKeybinds(el: HTMLElement): void {
   }
 
   function rebuild(): void {
-    table.replaceChildren();
+    groups.replaceChildren();
+    // Group actions by category, preserving the order each category first
+    // appears in ACTIONS so the sections stay in a deliberate sequence.
+    const order: ActionDef["category"][] = [];
+    const byCategory = new Map<ActionDef["category"], ActionDef[]>();
     for (const a of ACTIONS) {
-      const r = document.createElement("div");
-      r.className = "krow";
-      const left = document.createElement("div");
-      const cat = document.createElement("span");
-      cat.className = "cat";
-      cat.textContent = a.category;
-      left.appendChild(cat);
-      left.appendChild(document.createTextNode(a.label));
-      r.appendChild(left);
+      if (!byCategory.has(a.category)) { byCategory.set(a.category, []); order.push(a.category); }
+      byCategory.get(a.category)!.push(a);
+    }
 
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "kbd-chip kbd-chip-btn";
-      chip.dataset.actionId = a.id;
-      fillChip(chip, activeChord(a.id));
-      chip.addEventListener("click", () => beginCapture(a, chip));
-      r.appendChild(chip);
-      table.appendChild(r);
+    for (const cat of order) {
+      const sec = section(CATEGORY_LABELS[cat] ?? cat);
+      const table = document.createElement("div");
+      table.className = "keytable";
+      for (const a of byCategory.get(cat)!) {
+        // The whole row is the click target — click anywhere on it to rebind.
+        const r = document.createElement("button");
+        r.type = "button";
+        r.className = "krow";
+        r.dataset.actionId = a.id;
+        const left = document.createElement("div");
+        left.textContent = a.label;
+        r.appendChild(left);
+
+        const chip = document.createElement("span");
+        chip.className = "kbd-chip";
+        fillChip(chip, activeChord(a.id));
+        r.appendChild(chip);
+
+        r.addEventListener("click", () => beginCapture(a, chip));
+        table.appendChild(r);
+      }
+      sec.appendChild(table);
+      groups.appendChild(sec);
     }
   }
 
   rebuild();
-  sec.appendChild(table);
+  el.appendChild(groups);
 
   const foot = document.createElement("div");
-  foot.style.cssText = "margin-top: 16px;";
+  foot.style.cssText = "margin-top: 4px;";
   const reset = button("Reset to defaults", () => {
     resetOverrides();
     if (config) { config.keybindings = { bindings: {} }; void saveConfig(); }
@@ -1082,9 +1106,7 @@ function renderKeybinds(el: HTMLElement): void {
   });
   reset.classList.add("ghost");
   foot.appendChild(reset);
-  sec.appendChild(foot);
-
-  el.appendChild(sec);
+  el.appendChild(foot);
 }
 
 // ===========================================================================
