@@ -157,6 +157,39 @@ afterEach(() => {
 
 // ---------------------------------------------------------------------------
 
+describe("snapshotOpenTabs cwd source (shell-agnostic restore)", () => {
+  // Regression: "resume tabs" only restored the working directory on shells
+  // that emit OSC 7 (oh-my-zsh installs the prompt hook; a bare zsh does
+  // not), because the snapshot trusted session.cwd — the OSC-7-only field.
+  // The snapshot must instead prefer the OS-level cwd query, which works on
+  // every shell.
+  it("prefers the OS-level cwd so restore works without OSC 7 / oh-my-zsh", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const pty = await import("./pty");
+    // Bare shell: OSC 7 never fired, so session.cwd stays null...
+    expect(h.sessions[0].cwd).toBeNull();
+    // ...but the OS query (proc_pidinfo / /proc) returns the real cwd.
+    (pty.getCwd as any).mockResolvedValue("/Users/luca/project");
+
+    const snap = await h.tabs.snapshotOpenTabs();
+
+    expect(snap.tabs[0].cwd).toBe("/Users/luca/project");
+  });
+
+  it("falls back to the OSC 7 cwd when the OS query returns null", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const pty = await import("./pty");
+    (pty.getCwd as any).mockResolvedValue(null);
+    h.sessions[0].cwd = "/from/osc7";
+
+    const snap = await h.tabs.snapshotOpenTabs();
+
+    expect(snap.tabs[0].cwd).toBe("/from/osc7");
+  });
+});
+
 describe("Cmd+W on a split pane", () => {
   it("removes the active pane's DOM element AND disposes its session", async () => {
     const h = await mount();

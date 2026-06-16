@@ -90,22 +90,33 @@ export function clearSession(): void {
  *  still catches OSC-7 cwd updates that only flip `session.cwd` without
  *  firing a kimboBus event. Returns a disposer for tests. */
 export function startSessionAutosave(
-  snapshot: () => Omit<PersistedSession, "savedAt">,
+  snapshot: () =>
+    | Omit<PersistedSession, "savedAt">
+    | Promise<Omit<PersistedSession, "savedAt">>,
   intervalMs = 2000,
 ): () => void {
   let last = "";
-  const tick = () => {
-    const snap = snapshot();
-    if (snap.tabs.length === 0) return;
-    // Serialize and compare; only write when something actually moved. A
-    // no-op setItem is cheap but fires storage events and wakes the
-    // devtools — not something we want four times a minute per tab.
-    const key = JSON.stringify(snap);
-    if (key === last) return;
-    last = key;
-    saveSession(snap);
+  // The snapshot is async (it queries each shell's live cwd over IPC), so
+  // guard against a slow tick overlapping the next interval fire.
+  let inFlight = false;
+  const tick = async () => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const snap = await snapshot();
+      if (snap.tabs.length === 0) return;
+      // Serialize and compare; only write when something actually moved. A
+      // no-op setItem is cheap but fires storage events and wakes the
+      // devtools — not something we want four times a minute per tab.
+      const key = JSON.stringify(snap);
+      if (key === last) return;
+      last = key;
+      saveSession(snap);
+    } finally {
+      inFlight = false;
+    }
   };
-  const handle = window.setInterval(tick, intervalMs);
+  const handle = window.setInterval(() => void tick(), intervalMs);
   return () => clearInterval(handle);
 }
 

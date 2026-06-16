@@ -91,32 +91,32 @@ describe("session-state: autosave polling", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("writes through to storage on every snapshot change", () => {
+  it("writes through to storage on every snapshot change", async () => {
     let snap: Omit<PersistedSession, "savedAt"> = {
       tabs: [{ cwd: "/one", name: "one" }],
       activeIndex: 0,
     };
     const stop = startSessionAutosave(() => snap, 1000);
     try {
-      vi.advanceTimersByTime(1000);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(loadSession()!.tabs[0].cwd).toBe("/one");
 
       snap = { tabs: [{ cwd: "/two", name: "two" }], activeIndex: 0 };
-      vi.advanceTimersByTime(1000);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(loadSession()!.tabs[0].cwd).toBe("/two");
     } finally {
       stop();
     }
   });
 
-  it("skips identical snapshots (no write when nothing moved)", () => {
+  it("skips identical snapshots (no write when nothing moved)", async () => {
     const snap = { tabs: [{ cwd: "/x", name: "x" }], activeIndex: 0 };
     const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     const stop = startSessionAutosave(() => snap, 500);
     try {
-      vi.advanceTimersByTime(500);
-      vi.advanceTimersByTime(500);
-      vi.advanceTimersByTime(500);
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(500);
       expect(setItemSpy).toHaveBeenCalledTimes(1);
     } finally {
       stop();
@@ -124,23 +124,23 @@ describe("session-state: autosave polling", () => {
     }
   });
 
-  it("stop() disposer halts further writes", () => {
+  it("stop() disposer halts further writes", async () => {
     let snap = { tabs: [{ cwd: "/one", name: "one" }], activeIndex: 0 };
     const stop = startSessionAutosave(() => snap, 500);
-    vi.advanceTimersByTime(500);
+    await vi.advanceTimersByTimeAsync(500);
     stop();
     snap = { tabs: [{ cwd: "/two", name: "two" }], activeIndex: 0 };
-    vi.advanceTimersByTime(2000);
+    await vi.advanceTimersByTimeAsync(2000);
     expect(loadSession()!.tabs[0].cwd).toBe("/one");
   });
 
-  it("does not overwrite storage with a zero-tabs snapshot", () => {
+  it("does not overwrite storage with a zero-tabs snapshot", async () => {
     saveSession({ tabs: [{ cwd: "/keep", name: "keep" }], activeIndex: 0 });
     const stop = startSessionAutosave(
       () => ({ tabs: [], activeIndex: 0 }),
       500,
     );
-    vi.advanceTimersByTime(2000);
+    await vi.advanceTimersByTimeAsync(2000);
     stop();
     expect(loadSession()!.tabs[0].cwd).toBe("/keep");
   });

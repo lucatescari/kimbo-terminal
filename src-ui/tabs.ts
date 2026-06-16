@@ -374,28 +374,45 @@ export function findTabById(tabId: number): Tab | undefined {
  *  next launch). Panes/splits collapse to a single cwd — restoring the
  *  full split geometry would need a much bigger serialization + replay
  *  effort and isn't in scope for the MVP of `startup === "last"`. */
-export function snapshotOpenTabs(): {
+export async function snapshotOpenTabs(): Promise<{
   tabs: Array<{ cwd: string | null; name: string }>;
   activeIndex: number;
-} {
-  return {
-    tabs: tabs.map((t) => ({
-      cwd: firstLeafCwd(t.id === activeTabId ? getTree() : t.treeSnapshot),
+}> {
+  const snapTabs = await Promise.all(
+    tabs.map(async (t) => ({
+      cwd: await firstLeafCwd(t.id === activeTabId ? getTree() : t.treeSnapshot),
       name: t.titleOverride ?? t.name,
     })),
+  );
+  return {
+    tabs: snapTabs,
     activeIndex: Math.max(0, tabs.findIndex((t) => t.id === activeTabId)),
   };
 }
 
-/** Walk a pane tree and return the first leaf's last-known cwd. OSC 7
- *  writes `session.cwd` on every shell prompt, so this is the same value
- *  the pane-head strip displays. Returns null for trees that have no leaf
- *  (shouldn't happen in practice) or whose first leaf hasn't emitted OSC 7
- *  yet (fresh shell — caller should fall back to the default). */
-function firstLeafCwd(node: any): string | null {
+/** Resolve the first leaf's working directory for session persistence.
+ *  Prefers the OS-level cwd queried from the shell pid (`get_cwd` →
+ *  proc_pidinfo / /proc), which is authoritative and works on EVERY shell.
+ *  Falls back to `session.cwd` — the OSC-7 value, only populated when the
+ *  shell emits OSC 7 on each prompt (oh-my-zsh and friends do; a bare shell
+ *  does not). Returns null for trees with no leaf (shouldn't happen) or when
+ *  neither source knows the cwd (caller falls back to the default). */
+async function firstLeafCwd(node: any): Promise<string | null> {
+  const leaf = firstLeaf(node);
+  if (!leaf) return null;
+  try {
+    const osCwd = await getCwd(leaf.session.ptyId);
+    if (osCwd) return osCwd;
+  } catch (_) { /* fall through to the OSC-7 value */ }
+  return leaf.session?.cwd ?? null;
+}
+
+/** Walk a pane tree to its first leaf node (depth-first, first subtree
+ *  preferred). Returns null for an empty/absent tree. */
+function firstLeaf(node: any): any | null {
   if (!node) return null;
-  if (node.type === "leaf") return node.session?.cwd ?? null;
-  return firstLeafCwd(node.first) ?? firstLeafCwd(node.second);
+  if (node.type === "leaf") return node;
+  return firstLeaf(node.first) ?? firstLeaf(node.second);
 }
 
 /** Total number of open tabs. Used by confirm-quit to decide whether the
