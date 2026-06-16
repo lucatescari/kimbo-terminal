@@ -192,6 +192,57 @@ fn cwd_tracks_cd_without_shell_integration() {
     );
 }
 
+/// The cwd query is a kernel-level lookup (proc_pidinfo / /proc), so it must
+/// work for ANY shell, not just zsh. Drive `cd` through whichever common
+/// shells are installed and assert each one's directory is reported. Shells
+/// not present on the box are skipped (CI images vary).
+#[test]
+#[serial(pty)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn cwd_tracks_cd_across_shells() {
+    let target = std::fs::canonicalize(std::env::temp_dir()).expect("canonicalize temp dir");
+    let candidates = ["/bin/bash", "/bin/dash", "/bin/sh", "/bin/ksh"];
+    let mut tested = 0;
+
+    for shell in candidates {
+        if !std::path::Path::new(shell).exists() {
+            continue;
+        }
+        let mut session =
+            PtySession::new(Some(shell.to_string()), dirs::home_dir()).expect("failed to spawn PTY");
+        let cmd = format!("cd {}\n", target.display());
+        // Re-send `cd` each poll iteration rather than once up front. Shells
+        // differ in startup behavior: ksh93 flushes its input queue on
+        // startup, so a `cd` written before it's ready is discarded — which
+        // a real user (typing after the prompt) never hits. Re-sending makes
+        // the test robust to that without special-casing per shell. `cd` to
+        // an absolute path is idempotent, so repeats are harmless.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut cwd = session.cwd();
+        let mut drain = [0u8; 4096];
+        while cwd.as_deref() != Some(target.as_path()) && Instant::now() < deadline {
+            session.write(cmd.as_bytes());
+            std::thread::sleep(Duration::from_millis(100));
+            // Drain echoes/prompts so the PTY output buffer never fills and
+            // wedges a slow shell (no reader thread in this bare-session test).
+            while let Ok(n) = session.try_read(&mut drain) {
+                if n == 0 {
+                    break;
+                }
+            }
+            cwd = session.cwd();
+        }
+        assert_eq!(
+            cwd.as_deref(),
+            Some(target.as_path()),
+            "{shell}: cwd() must follow `cd` regardless of shell"
+        );
+        tested += 1;
+    }
+
+    assert!(tested > 0, "no candidate shells found to test");
+}
+
 // ========================================================================
 // Process-lifecycle tests — the actual regression guards for "npm run dev
 // stays running after Cmd+W closes the pane".
