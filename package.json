@@ -19,6 +19,7 @@
     "test:browser": "vitest run -c vitest.browser.config.ts",
     "test:rust": "cargo test -p kimbo-terminal -p kimbo-config",
     "test:all": "vitest run && vitest run -c vitest.browser.config.ts && cargo test -p kimbo-terminal -p kimbo-config",
+    "test:release": "vitest run --no-file-parallelism && vitest run -c vitest.browser.config.ts --no-file-parallelism && cargo test -p kimbo-terminal -p kimbo-config",
     "release": "./scripts/release.sh",
     "tauri": "tauri"
   },

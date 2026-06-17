@@ -282,7 +282,11 @@ fi
 # ---- Step 3: Run tests ----
 echo ""
 echo -e "${CYAN}Running tests...${NC}"
-npm run test:all
+# Use the release test profile: vitest runs single-threaded
+# (--no-file-parallelism) so a busy CPU — e.g. a concurrent build — can't
+# starve the fork-worker pool into "Timeout waiting for worker to respond"
+# and abort the release. Slower, but a release gate values reliability.
+npm run test:release
 echo -e "  ${GREEN}All tests passed${NC}"
 
 # ---- Step 4: Commit, tag, push ----
