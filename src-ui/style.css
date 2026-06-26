@@ -411,6 +411,21 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.tab-rename-input {
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--fg-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  height: 20px;
+  padding: 0 4px;
+  width: 12ch;
+  max-width: 24ch;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .tab-index {
   color: var(--fg-dim);
   font-size: 10px;

@@ -17,6 +17,7 @@ import { kimboBus } from "./kimbo-bus";
 import { icon } from "./icons";
 import { renderTitle } from "./title-bar";
 import { initTabDrag, cancelDrag, wasJustDragging } from "./tab-drag";
+import { showContextMenu } from "./theme-context-menu";
 import {
   pushClosedTab,
   popClosedTab,
@@ -521,6 +522,40 @@ export function closeActiveOrTab(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Inline tab rename
+// ---------------------------------------------------------------------------
+
+/** Replace the tab label with an inline <input> that commits on Enter/blur
+ *  or cancels on Escape. An empty value clears `userName` so the tab reverts
+ *  to its automatic name. Committed names are capped at 64 characters. */
+export function beginRenameTab(tabId: number): void {
+  const tab = tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  const el = tabBarEl.querySelector<HTMLElement>(`[data-tab-id="${tabId}"] .tab-label`);
+  if (!el) return;
+  const input = document.createElement("input");
+  input.className = "tab-rename-input";
+  input.value = tabDisplayName(tab);
+  input.spellcheck = false;
+  const commit = (save: boolean) => {
+    if (save) {
+      const v = input.value.trim();
+      tab.userName = v.length > 0 ? v.slice(0, 64) : undefined;
+    }
+    renderTabBar();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(true); }
+    else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    e.stopPropagation();
+  });
+  input.addEventListener("blur", () => commit(true));
+  el.replaceChildren(input);
+  input.focus();
+  input.select();
+}
+
+// ---------------------------------------------------------------------------
 // Internal
 // ---------------------------------------------------------------------------
 
@@ -591,6 +626,15 @@ function renderTabBar() {
 
     el.addEventListener("click", () => {
       if (!wasJustDragging()) switchTab(tab.id);
+    });
+    el.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      beginRenameTab(tab.id);
+    });
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu([{ label: "Rename", onClick: () => beginRenameTab(tab.id) }], e.clientX, e.clientY);
     });
     scrollRegion.appendChild(el);
   });
