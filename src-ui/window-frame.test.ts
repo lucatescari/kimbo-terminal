@@ -269,3 +269,44 @@ describe("window frame: #app-frame declares a rim border", () => {
     expect(frameRules).toMatch(/box-shadow:/);
   });
 });
+
+// Regression guard for the multi-window capability bug: Tauri scopes every API
+// permission to a window-label allowlist. When it was ["main"], a window opened
+// by new_window() (label "win-1", "win-2", …) was DENIED core:event:allow-listen
+// and core:window:allow-start-dragging, so its bootstrap threw inside createTab()
+// (no tab) and data-tauri-drag-region couldn't startDragging() (un-draggable).
+// CI/unit tests can't launch a second window, so this checks the config that
+// governs it.
+describe("multi-window: secondary windows must share the default capability", () => {
+  const capability = JSON.parse(
+    readFileSync(resolve(__dirname, "../src-tauri/capabilities/default.json"), "utf-8"),
+  ) as { windows: string[]; permissions: string[] };
+  const windowRs = readFileSync(
+    resolve(__dirname, "../src-tauri/src/commands/window.rs"),
+    "utf-8",
+  );
+
+  it("new_window() still creates windows labeled win-<n>", () => {
+    // If this label scheme changes, the capability glob below must change too.
+    expect(windowRs).toContain('format!("win-{n}")');
+  });
+
+  it("the default capability covers new_window labels, not just main", () => {
+    expect(capability.windows).toContain("main");
+    // Must include a label that matches the win-<n> windows new_window builds.
+    const coversSecondary = capability.windows.some(
+      (w) => w === "win-*" || w === "*",
+    );
+    expect(coversSecondary).toBe(true);
+  });
+
+  it("grants the permissions a secondary window needs to boot, drag, and close", () => {
+    // event listen: createTab() streams PTY output via listen() — without it
+    // init() throws and no tab is created.
+    expect(capability.permissions).toContain("core:event:default");
+    // drag region: data-tauri-drag-region calls startDragging().
+    expect(capability.permissions).toContain("core:window:allow-start-dragging");
+    // closing a secondary window calls getCurrentWindow().destroy().
+    expect(capability.permissions).toContain("core:window:allow-destroy");
+  });
+});
