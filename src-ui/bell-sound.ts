@@ -10,14 +10,7 @@ function getCtx(): AudioContext | null {
     try {
       ctx = new Ctor();
     } catch {
-      // Some test environments (e.g. vitest 4.x) forbid using an arrow-function
-      // mock as a constructor. Fall back to a plain call so stubs still work.
-      // Real browsers never reach this branch — their AudioContext requires new.
-      try {
-        ctx = Ctor() as AudioContext;
-      } catch {
-        return null;
-      }
+      return null;
     }
   }
   return ctx;
