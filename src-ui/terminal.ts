@@ -1,4 +1,4 @@
-import { Terminal } from "@xterm/xterm";
+import { Terminal, IMarker } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -55,6 +55,10 @@ export interface TerminalSession {
   container: HTMLElement;
   /** Last cwd reported via OSC 7. Null until the first OSC 7 arrives. */
   cwd: string | null;
+  /** xterm markers at each shell command start (OSC 133 A). Used by
+   *  jump-to-prompt (tasks 13–14). Populated as commands run; empty
+   *  until the first command-start fires. */
+  promptMarkers: IMarker[];
   /** Snapshot the scrollback + viewport as ANSI text (colors, cursor
    *  position, attributes preserved). Used by closed-tab restore. */
   serialize(): string;
@@ -261,13 +265,25 @@ export async function createTerminalSession(
   });
   fitObserver.observe(container);
 
+  // promptMarkers is captured here — before the `session` object is assigned
+  // further below — so the OSC 133 handler closure can push to it immediately
+  // without depending on `session` being set. The session object receives the
+  // same array reference, so callers reading `session.promptMarkers` see every
+  // marker recorded by the handler.
+  const promptMarkers: IMarker[] = [];
+
   // Kimbo shell integration — OSC 133 command-start/end (only when enabled).
   if (isKimboShellIntegrationEnabled()) {
     term.parser.registerOscHandler(133, (data) => {
       const msg = parseOsc133(data);
       if (!msg) return false;
-      if (msg.kind === "command-start") kimboBus.emit({ type: "command-start" });
-      else kimboBus.emit({ type: "command-end", exit: msg.exit });
+      if (msg.kind === "command-start") {
+        const m = term.registerMarker(0);
+        if (m) promptMarkers.push(m);
+        kimboBus.emit({ type: "command-start" });
+      } else {
+        kimboBus.emit({ type: "command-end", exit: msg.exit });
+      }
       return true;
     });
   }
@@ -422,6 +438,7 @@ export async function createTerminalSession(
     search,
     container,
     cwd: null,
+    promptMarkers,
     serialize() {
       return serialize.serialize();
     },
