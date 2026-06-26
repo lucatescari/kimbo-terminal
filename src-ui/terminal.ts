@@ -273,15 +273,21 @@ export async function createTerminalSession(
   }
 
   // BEL (^G): flash the pane, beep, and badge the tab when unfocused.
+  let bellFlashTimer: ReturnType<typeof setTimeout> | null = null;
   term.onBell(() => {
     const prefs = getPrefs();
     if (prefs.bellVisual) {
-      const el = parentEl; // the pane container passed into createTerminalSession
-      el.classList.remove("pane--bell");
+      parentEl.classList.remove("pane--bell");
       // force reflow so the animation restarts on rapid bells
-      void el.offsetWidth;
-      el.classList.add("pane--bell");
-      setTimeout(() => el.classList.remove("pane--bell"), 140);
+      void parentEl.offsetWidth;
+      parentEl.classList.add("pane--bell");
+      // Cancel any in-flight removal so a rapid second bell doesn't truncate
+      // the freshly-restarted flash.
+      if (bellFlashTimer !== null) clearTimeout(bellFlashTimer);
+      bellFlashTimer = setTimeout(() => {
+        parentEl.classList.remove("pane--bell");
+        bellFlashTimer = null;
+      }, 140);
     }
     if (prefs.bellSound) {
       playBeep();
