@@ -8,16 +8,17 @@ const mocks = vi.hoisted(() => ({
   getTree: vi.fn(),
   getTabCount: vi.fn().mockReturnValue(2),
   confirmAndQuit: vi.fn().mockResolvedValue(true),
+  confirmDiscardBusyPanes: vi.fn().mockResolvedValue(true),
   ptyIsBusy: vi.fn().mockResolvedValue(false),
   showConfirmDialog: vi.fn(),
   setPref: vi.fn(),
   prefs: { confirmQuit: true } as { confirmQuit: boolean },
   windowLabel: "main",
-  windowClose: vi.fn(),
+  windowDestroy: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ label: mocks.windowLabel, close: mocks.windowClose }),
+  getCurrentWindow: () => ({ label: mocks.windowLabel, destroy: mocks.windowDestroy }),
 }));
 
 vi.mock("./tabs", () => ({
@@ -34,9 +35,12 @@ vi.mock("./ui-prefs", () => ({
   setPref: mocks.setPref,
 }));
 vi.mock("./quit-dialog", () => ({ showConfirmDialog: mocks.showConfirmDialog }));
-vi.mock("./quit-confirm", () => ({ confirmAndQuit: mocks.confirmAndQuit }));
+vi.mock("./quit-confirm", () => ({
+  confirmAndQuit: mocks.confirmAndQuit,
+  confirmDiscardBusyPanes: mocks.confirmDiscardBusyPanes,
+}));
 
-import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
+import { confirmAndCloseActive, confirmAndCloseActiveTab, requestCloseCurrentWindow } from "./close-confirm";
 
 beforeEach(() => {
   mocks.closeActiveOrTab.mockClear();
@@ -46,12 +50,13 @@ beforeEach(() => {
   mocks.getTree.mockReset();
   mocks.getTabCount.mockReset().mockReturnValue(2);
   mocks.confirmAndQuit.mockReset().mockResolvedValue(true);
+  mocks.confirmDiscardBusyPanes.mockReset().mockResolvedValue(true);
   mocks.ptyIsBusy.mockReset().mockResolvedValue(false);
   mocks.showConfirmDialog.mockReset();
   mocks.setPref.mockReset();
   mocks.prefs.confirmQuit = true;
   mocks.windowLabel = "main";
-  mocks.windowClose.mockReset().mockResolvedValue(undefined);
+  mocks.windowDestroy.mockReset().mockResolvedValue(undefined);
 });
 
 // -----------------------------------------------------------------------
@@ -170,15 +175,27 @@ describe("confirmAndCloseActive: last tab + single leaf → route to quit", () =
     expect(mocks.closeActiveOrTab).toHaveBeenCalledOnce();
   });
 
-  it("on a SECONDARY window, last-tab ⌘W closes THIS window, not the app", async () => {
+  it("on a SECONDARY window, last-tab ⌘W destroys THIS window (after confirm), not the app", async () => {
     mocks.windowLabel = "win-1";
     mocks.getTabCount.mockReturnValue(1);
     mocks.getTree.mockReturnValue({ type: "leaf" });
     const result = await confirmAndCloseActive();
     expect(result).toBe(true);
-    expect(mocks.windowClose).toHaveBeenCalledOnce();
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledOnce();
+    expect(mocks.windowDestroy).toHaveBeenCalledOnce();
     expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
     expect(mocks.closeActiveOrTab).not.toHaveBeenCalled();
+  });
+
+  it("on a SECONDARY window, last-tab ⌘W on a BUSY window does NOT close when cancelled", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.getTabCount.mockReturnValue(1);
+    mocks.getTree.mockReturnValue({ type: "leaf" });
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(false); // user cancelled
+    const result = await confirmAndCloseActive();
+    expect(result).toBe(false);
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledOnce();
+    expect(mocks.windowDestroy).not.toHaveBeenCalled();
   });
 });
 
@@ -259,13 +276,24 @@ describe("confirmAndCloseActiveTab", () => {
     expect(mocks.closeTab).not.toHaveBeenCalled();
   });
 
-  it("last tab on a SECONDARY window → close THIS window, not the app", async () => {
+  it("last tab on a SECONDARY window → destroy THIS window (after confirm), not the app", async () => {
     mocks.windowLabel = "win-1";
     mocks.getTabCount.mockReturnValue(1);
     const result = await confirmAndCloseActiveTab();
     expect(result).toBe(true);
-    expect(mocks.windowClose).toHaveBeenCalledOnce();
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledOnce();
+    expect(mocks.windowDestroy).toHaveBeenCalledOnce();
     expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
+    expect(mocks.closeTab).not.toHaveBeenCalled();
+  });
+
+  it("last tab on a SECONDARY BUSY window → stays open when cancelled", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.getTabCount.mockReturnValue(1);
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(false);
+    const result = await confirmAndCloseActiveTab();
+    expect(result).toBe(false);
+    expect(mocks.windowDestroy).not.toHaveBeenCalled();
     expect(mocks.closeTab).not.toHaveBeenCalled();
   });
 
@@ -281,5 +309,28 @@ describe("confirmAndCloseActiveTab", () => {
     expect(result).toBe(false);
     expect(mocks.closeTab).not.toHaveBeenCalled();
     expect(mocks.setPref).toHaveBeenCalledWith("confirmQuit", false);
+  });
+});
+
+// -----------------------------------------------------------------------
+// requestCloseCurrentWindow — the red-x / OS-close path for secondary
+// windows (Rust prevents the close + emits window-close-requested).
+// -----------------------------------------------------------------------
+
+describe("requestCloseCurrentWindow", () => {
+  it("confirmed/not-busy → destroys the window", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(true);
+    const result = await requestCloseCurrentWindow();
+    expect(result).toBe(true);
+    expect(mocks.windowDestroy).toHaveBeenCalledOnce();
+  });
+
+  it("busy + cancelled → leaves the window open (no destroy)", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(false);
+    const result = await requestCloseCurrentWindow();
+    expect(result).toBe(false);
+    expect(mocks.windowDestroy).not.toHaveBeenCalled();
   });
 });

@@ -142,33 +142,51 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
 /// Close semantics differ by window:
 /// - the MAIN window's close is the app's quit affordance — prevent the close
 ///   and let the frontend's `quit-requested` listener run the confirm flow;
-/// - a SECONDARY window's close just closes that window and leaves the app
-///   (and the other window[s]) running.
+/// - a SECONDARY window's close affects only that window, but still routes
+///   through the frontend's busy-check + confirm (window-targeted) so a window
+///   running a process can't be closed without warning; the frontend then
+///   destroy()s the window.
 pub(crate) fn attach_window_lifecycle<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) {
     let is_main = win.label() == "main";
     let app_handle = win.app_handle().clone();
     let win_focus = win.clone();
+    let win_close = win.clone();
     win.on_window_event(move |event| match event {
         tauri::WindowEvent::CloseRequested { api, .. } => {
             if is_main {
                 // Main window == the whole app. Keep the existing flow:
                 // prevent the close and let the frontend's `quit-requested`
                 // listener run confirmAndQuit() → invoke("quit_app").
+                // TODO(multi-window): scope with emit_to — `quit-requested`
+                // broadcasts, so every window runs confirmAndQuit (harmless,
+                // whichever calls quit_app first wins, but wasteful).
                 api.prevent_close();
                 let _ = app_handle.emit("quit-requested", ());
+            } else {
+                // Secondary window: only this window should go away, but it
+                // must NOT close while a process is running without warning.
+                // Prevent the close and hand control to the frontend
+                // (window-targeted so only this window reacts): it runs the
+                // same busy-check + confirm the quit path uses, then
+                // destroy()s the window — destroy bypasses CloseRequested, so
+                // there's no confirm loop. On cancel the window stays open.
+                //
+                // TODO(multi-window): per-window PTY teardown. The global
+                // PtyManager is keyed by session id, not window, so PTYs
+                // spawned in this window are reaped by kill_all at app exit
+                // rather than the moment the window closes.
+                api.prevent_close();
+                let _ =
+                    win_close.emit_to(win_close.label(), "window-close-requested", ());
             }
-            // Secondary window: allow the default close. Only this window
-            // goes away; the app keeps running with the remaining window(s).
-            //
-            // TODO(multi-window): per-window PTY teardown. The global
-            // PtyManager is keyed by session id, not window, so PTYs spawned
-            // in this window are reaped by kill_all at app exit rather than
-            // the moment the window closes.
         }
         tauri::WindowEvent::Focused(true) => {
             if let Err(e) = refresh_main_window_translucency(&win_focus) {
                 log::warn!("refresh translucency on focus: {e}");
             }
+            // TODO(multi-window): scope with emit_to — `kimbo-window-focused`
+            // broadcasts, so every window repaints (applyRoot/fitAllPanes) on
+            // any focus change. Harmless, just wasteful.
             let _ = app_handle.emit("kimbo-window-focused", ());
         }
         _ => {}

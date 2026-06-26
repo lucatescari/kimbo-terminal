@@ -6,7 +6,7 @@ import { initTelemetry } from "./telemetry";
 import { applyTerminalOptions, loadTheme, NERD_FONT_FAMILY, refreshTerminalBackground } from "./theme";
 import { initSettings, toggleSettings } from "./settings";
 import { confirmAndQuit } from "./quit-confirm";
-import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
+import { confirmAndCloseActive, confirmAndCloseActiveTab, requestCloseCurrentWindow } from "./close-confirm";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
@@ -170,11 +170,20 @@ async function init() {
     }
   });
 
-  // Rust fires `quit-requested` from its window CloseRequested handler
+  // Rust fires `quit-requested` from the MAIN window's CloseRequested handler
   // (red-x button, OS-level close) after calling api.prevent_close(). We
   // answer the prompt here; on confirm, invoke("quit_app") exits the
   // process and this listener is torn down along with the runtime.
   await listen("quit-requested", () => { void confirmAndQuit(); });
+
+  // Rust fires `window-close-requested` (window-targeted) from a SECONDARY
+  // window's CloseRequested handler. Run the same busy-check + confirm the
+  // quit path uses, then destroy() just this window — so the red-x / OS close
+  // can't silently orphan a running process. Scoped to the current webview
+  // window so only the closing window reacts (main never receives this).
+  await getCurrentWebviewWindow().listen("window-close-requested", () => {
+    void requestCloseCurrentWindow();
+  });
 
   // After native translucency + WKWebView fixes on refocus, nudge CSS + xterm so
   // --app-alpha and WebGL/canvas layers repaint (see commands/window.rs).

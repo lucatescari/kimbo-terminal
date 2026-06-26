@@ -30,16 +30,25 @@ let quitting = false;
  *  re-entry into a single real exit. */
 export async function confirmAndQuit(): Promise<boolean> {
   if (quitting) return true;
+  if (!(await confirmDiscardBusyPanes())) return false;
+  return await triggerQuit();
+}
 
-  if (!getPrefs().confirmQuit) return await triggerQuit();
+/** The busy-pane check + confirm dialog half of the quit flow, WITHOUT
+ *  actually quitting. Returns true when the caller may proceed to destroy
+ *  the panes (pref off, nothing busy, or the user confirmed) and false when
+ *  the user cancelled. Shared so the secondary-window close path can warn
+ *  about a busy `npm run dev` the exact same way the app-quit path does —
+ *  instead of silently orphaning it. */
+export async function confirmDiscardBusyPanes(): Promise<boolean> {
+  if (!getPrefs().confirmQuit) return true;
 
   const busy = await findBusyPanes();
-  if (busy.length === 0) return await triggerQuit();
+  if (busy.length === 0) return true;
 
   const { confirmed, dontAskAgain } = await showQuitDialog(describeBusy(busy));
   if (dontAskAgain) setPref("confirmQuit", false);
-  if (!confirmed) return false;
-  return await triggerQuit();
+  return confirmed;
 }
 
 /** Reset guard — only used by tests. Not exported from the barrel. */

@@ -14,7 +14,7 @@ import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree, ge
 import { ptyIsBusy } from "./pty";
 import { getPrefs, setPref } from "./ui-prefs";
 import { showConfirmDialog } from "./quit-dialog";
-import { confirmAndQuit } from "./quit-confirm";
+import { confirmAndQuit, confirmDiscardBusyPanes } from "./quit-confirm";
 
 /** Active-pane close (⌘W in the standard case — closes a split pane or
  *  the whole tab when only one pane remains). Returns the boolean for
@@ -101,14 +101,30 @@ export async function confirmAndCloseActiveTab(): Promise<boolean> {
 /** Closing the last tab/pane of a window. On a SECONDARY window this must
  *  close only that window, never quit the whole app — Cmd+Q / closing the
  *  MAIN window keeps the confirm-and-quit behavior. (The secondary window's
- *  CloseRequested handler in Rust allows the close; its PTYs are reaped by
- *  kill_all at app exit — see the per-window-PTY TODO in commands/window.rs.) */
+ *  PTYs are reaped by kill_all at app exit — see the per-window-PTY TODO in
+ *  commands/window.rs.) */
 async function closeLastTabOrQuit(): Promise<boolean> {
   if (getCurrentWindow().label !== "main") {
-    await getCurrentWindow().close();
-    return true;
+    return await requestCloseCurrentWindow();
   }
   return await confirmAndQuit();
+}
+
+/** Close THIS (secondary) window, running the same busy-process check +
+ *  confirm dialog the app-quit path uses first — so a window running e.g.
+ *  `npm run dev` can't be closed by ⌘W, the red-x, or the OS close button
+ *  without a warning (which would orphan the process until app exit). On
+ *  cancel the window stays open. Uses destroy() rather than close() so it
+ *  doesn't re-trigger the Rust CloseRequested handler (no confirm loop).
+ *
+ *  Wired to BOTH the last-tab ⌘W/⌘⇧W path (above) and the
+ *  `window-close-requested` event the Rust CloseRequested handler emits for
+ *  the red-x / OS close (see main.ts + commands/window.rs). Returns true
+ *  when the window was closed, false when the user cancelled. */
+export async function requestCloseCurrentWindow(): Promise<boolean> {
+  if (!(await confirmDiscardBusyPanes())) return false;
+  await getCurrentWindow().destroy();
+  return true;
 }
 
 /** True when closeActiveOrTab() would close the whole tab (because
