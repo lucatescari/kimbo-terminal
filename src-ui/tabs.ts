@@ -72,6 +72,13 @@ export function getTabBadge(tabId: number): BadgeKind {
   return tabBadge.get(tabId) ?? null;
 }
 
+/** Badge the tab that owns a given terminal session. Reuses findTabBySessionId
+ *  so the caller doesn't need to know the tab id. */
+export function setTabBadgeForSession(sessionId: number, kind: BadgeKind): void {
+  const tab = findTabBySessionId(sessionId);
+  if (tab) setTabBadge(tab.id, kind);
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------

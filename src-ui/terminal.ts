@@ -28,6 +28,7 @@ import { attachOsc1337Renderer } from "./osc1337-renderer";
 import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
 import { getPrefs } from "./ui-prefs";
+import { playBeep } from "./bell-sound";
 
 /** Compose the auxiliary "claude was running here · resume: …" line
  *  written beneath the existing restoredSeparator() on tab reopen.
@@ -65,6 +66,11 @@ let nextTermId = 1;
 let tabTitleHandler: ((sessionId: number, title: string | null) => void) | null = null;
 export function setTabTitleHandler(fn: (sessionId: number, title: string | null) => void): void {
   tabTitleHandler = fn;
+}
+
+let bellBadgeHandler: ((sessionId: number) => void) | null = null;
+export function setBellBadgeHandler(fn: (sessionId: number) => void): void {
+  bellBadgeHandler = fn;
 }
 
 export async function createTerminalSession(
@@ -265,6 +271,26 @@ export async function createTerminalSession(
       return true;
     });
   }
+
+  // BEL (^G): flash the pane, beep, and badge the tab when unfocused.
+  term.onBell(() => {
+    const prefs = getPrefs();
+    if (prefs.bellVisual) {
+      const el = parentEl; // the pane container passed into createTerminalSession
+      el.classList.remove("pane--bell");
+      // force reflow so the animation restarts on rapid bells
+      void el.offsetWidth;
+      el.classList.add("pane--bell");
+      setTimeout(() => el.classList.remove("pane--bell"), 140);
+    }
+    if (prefs.bellSound) {
+      playBeep();
+    }
+    // Badge the owning tab when this pane is not focused.
+    if (typeof document !== "undefined" && !parentEl.contains(document.activeElement)) {
+      if (bellBadgeHandler) bellBadgeHandler(id);
+    }
+  });
 
   // OSC 0 and OSC 2: shell or running program sets the tab title.
   // Empty payload reverts to the default. Truncate to 64 chars to bound

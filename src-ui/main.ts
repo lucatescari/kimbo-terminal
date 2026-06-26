@@ -12,8 +12,8 @@ import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
 import { initUpdateCheck } from "./updates";
 import { initWelcome } from "./welcome-popup";
-import { setTabTitleHandler } from "./terminal";
-import { setTabTitle } from "./tabs";
+import { setTabTitleHandler, setBellBadgeHandler } from "./terminal";
+import { setTabTitle, setTabBadgeForSession } from "./tabs";
 import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
 import { initStatusBar, stopStatusBarPolling } from "./status-bar";
@@ -54,6 +54,7 @@ async function init() {
   initCommandPalette();
   initFindBar(document.body);
   setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
+  setBellBadgeHandler((sessionId) => setTabBadgeForSession(sessionId, "bell"));
 
   // Re-apply root on pref change so accent/density/tab-style changes land live.
   onPrefsChange(() => { applyRoot(); refreshTerminalBackground(); });
