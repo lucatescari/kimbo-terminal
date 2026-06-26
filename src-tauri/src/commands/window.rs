@@ -7,7 +7,11 @@
 //! Mitigations here: vibrancy reset, 1px resize, shadow off→on, `NSWindow`/`WKWebView`
 //! transparency flags, optional `KIMBO_MACOS_ACCESSORY_ACTIVATION` in `main.rs`.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use tauri::{AppHandle, Manager};
+
+static WINDOW_SEQ: AtomicU32 = AtomicU32::new(1);
 
 /// Shared implementation for `invoke` and for `WindowEvent::Focused` on the backend.
 ///
@@ -131,9 +135,39 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
 }
 
 #[tauri::command]
+pub async fn new_window(app: AppHandle) -> Result<(), String> {
+    let n = WINDOW_SEQ.fetch_add(1, Ordering::SeqCst);
+    let label = format!("win-{n}");
+    let win = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Kimbo")
+    .inner_size(1200.0, 800.0)
+    .min_inner_size(600.0, 400.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(true)
+    .background_throttling(
+        tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
+    )
+    .build()
+    .map_err(|e| e.to_string())?;
+    refresh_main_window_translucency(&win)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn refresh_window_translucency(app: AppHandle) -> Result<(), String> {
-    let Some(win) = app.get_webview_window("main") else {
-        return Ok(());
-    };
+    // Try the currently focused window first; fall back to "main".
+    // Note: get_focused_window() requires the "unstable" feature in Tauri 2, so
+    // we iterate webview_windows() and pick whichever reports is_focused() == true.
+    let win = app
+        .webview_windows()
+        .into_values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| app.get_webview_window("main"))
+        .ok_or_else(|| "no window".to_string())?;
     refresh_main_window_translucency(&win)
 }

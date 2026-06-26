@@ -305,6 +305,7 @@ fn main() {
             commands::workspace::list_projects,
             commands::update::check_for_updates,
             commands::window::refresh_window_translucency,
+            commands::window::new_window,
             commands::claude_rate_limits::claude_rate_limits,
             commands::claude_rate_limits::claude_rate_limits_install,
             commands::claude_rate_limits::claude_rate_limits_uninstall,
