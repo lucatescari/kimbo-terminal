@@ -8,11 +8,14 @@ import { ACTIONS } from "./keybindings";
  *
  * Architecture (rebindable keybinds):
  *   - keybindings.ts ACTIONS holds each action's id + default chord + a `menu`
- *     flag for the 8 native-menu-owned shortcuts (macOS reserves their
- *     key-equivalents, so they MUST live on the menu).
- *   - Menu-owned actions are dispatched by the native menu → main.rs emits
+ *     flag for all native-menu-owned shortcuts (macOS reserves their
+ *     key-equivalents, so these MUST be owned by the menu).
+ *   - Most menu-owned actions are dispatched by the native menu → main.rs emits
  *     `menu-action` → main.ts switch. Their accelerators are set in main.rs
  *     from config (the `accel(...)` helper), so rebinds survive restart.
+ *   - Exception: `new_window` is handled entirely in Rust (spawns the window
+ *     directly in on_menu_event) and never emits a "menu-action" event to the
+ *     frontend; it therefore needs no switch case in main.ts.
  *   - Every OTHER (webview-owned) action is matched in keys.ts HANDLERS.
  *
  * These guard the "rewired a shortcut to a silent no-op" class of bug
@@ -23,7 +26,10 @@ const keysSource = readFileSync(resolve(__dirname, "keys.ts"), "utf-8");
 const mainTsSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
 const mainRsSource = readFileSync(resolve(__dirname, "../src-tauri/src/main.rs"), "utf-8");
 
-const MENU_IDS = ["new_tab", "reopen_tab", "close_tab", "close_pane", "split_vertical", "split_horizontal", "settings", "quit"];
+const MENU_IDS = ["new_window", "new_tab", "reopen_tab", "close_tab", "close_pane", "split_vertical", "split_horizontal", "settings", "quit"];
+// new_window is handled entirely in Rust (on_menu_event spawns the window
+// directly) and never emits a "menu-action" event to the frontend.
+const RUST_ONLY_MENU_IDS = new Set(["new_window"]);
 
 // ---------------------------------------------------------------------------
 // Section 1: default chords + menu/webview split (keybindings registry)
@@ -33,7 +39,7 @@ describe("keybindings registry", () => {
   const byId = (id: string) => ACTIONS.find((a) => a.id === id);
 
   it.each([
-    ["new_tab", "cmd-t"], ["reopen_tab", "cmd-shift-t"], ["close_tab", "cmd-shift-w"],
+    ["new_window", "cmd-n"], ["new_tab", "cmd-t"], ["reopen_tab", "cmd-shift-t"], ["close_tab", "cmd-shift-w"],
     ["next_tab", "cmd-]"], ["prev_tab", "cmd-["], ["split_vertical", "cmd-d"],
     ["split_horizontal", "cmd-shift-d"], ["close_pane", "cmd-w"], ["focus_up", "cmd-up"],
     ["focus_down", "cmd-down"], ["focus_left", "cmd-left"], ["focus_right", "cmd-right"],
@@ -120,8 +126,9 @@ describe("main.ts: menu-action dispatcher covers everything main.rs emits", () =
     expect(mainRsSource).toContain('emit("menu-action", id)');
   });
 
-  it("main.ts has a switch case for every menu-owned action", () => {
+  it("main.ts has a switch case for every frontend-routed menu action", () => {
     for (const id of MENU_IDS) {
+      if (RUST_ONLY_MENU_IDS.has(id)) continue; // handled in Rust, never forwarded to frontend
       expect(mainTsSource, `main.ts has no switch case for menu-action "${id}"`).toContain(`case "${id}"`);
     }
   });

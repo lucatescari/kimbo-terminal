@@ -26,6 +26,7 @@ export interface ActionDef {
 /** Every rebindable action. Positional ⌘1–9 tab switching is intentionally
  *  excluded (kept fixed). Order here is the display order in settings. */
 export const ACTIONS: ActionDef[] = [
+  { id: "new_window",       label: "New window",         category: "app",   defaultChord: "cmd-n",       menu: true },
   { id: "new_tab",          label: "New tab",            category: "tabs",  defaultChord: "cmd-t",       menu: true },
   { id: "reopen_tab",       label: "Reopen closed tab",  category: "tabs",  defaultChord: "cmd-shift-t", menu: true },
   { id: "close_tab",        label: "Close tab",          category: "tabs",  defaultChord: "cmd-shift-w", menu: true },

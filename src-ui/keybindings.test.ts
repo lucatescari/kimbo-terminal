@@ -11,6 +11,7 @@ import {
   overrides,
   setOverride,
   resetOverrides,
+  isMenuAction,
 } from "./keybindings";
 
 function ev(init: Partial<KeyboardEvent>): KeyboardEvent {
@@ -102,6 +103,16 @@ describe("overrides", () => {
     resetOverrides();
     expect(overrides()).toEqual({});
     expect(activeChord(ACTIONS[0].id)).toBe(ACTIONS[0].defaultChord);
+  });
+});
+
+describe("new_window action", () => {
+  it("activeChord('new_window') is cmd-n by default", () => {
+    expect(activeChord("new_window")).toBe("cmd-n");
+  });
+
+  it("isMenuAction('new_window') is true — keystroke is owned by the native menu, not the webview", () => {
+    expect(isMenuAction("new_window")).toBe(true);
   });
 });
 
