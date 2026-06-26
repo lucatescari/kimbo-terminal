@@ -56,26 +56,26 @@ impl PtyManager {
             }
         });
 
-        self.sessions.lock().unwrap().insert(id, session);
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(id, session);
         Ok(id)
     }
 
     pub fn write(&self, id: u32, data: &[u8]) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let pty = sessions.get_mut(&id).ok_or("PTY not found")?;
         pty.write(data);
         Ok(())
     }
 
     pub fn resize(&self, id: u32, cols: u16, rows: u16) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let pty = sessions.get_mut(&id).ok_or("PTY not found")?;
         pty.resize(cols, rows);
         Ok(())
     }
 
     pub fn close(&self, id: u32) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         // Kill BEFORE removing so the kill is observable from this command
         // result and not coupled to Drop firing. Drop still runs on remove,
         // but kill_tree's idempotency guard makes it a no-op the second time.
@@ -87,20 +87,20 @@ impl PtyManager {
     }
 
     pub fn get_cwd(&self, id: u32) -> Result<Option<String>, String> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let pty = sessions.get(&id).ok_or("PTY not found")?;
         Ok(pty.cwd().map(|p| p.to_string_lossy().to_string()))
     }
 
     pub fn is_busy(&self, id: u32) -> Result<bool, String> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let pty = sessions.get(&id).ok_or("PTY not found")?;
         Ok(pty.is_busy())
     }
 
     /// Read the shell pid for a session, used by the claude-resume probe.
     pub fn pid_of(&self, id: u32) -> Result<u32, String> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let pty = sessions.get(&id).ok_or("PTY not found")?;
         Ok(pty.pid())
     }
@@ -113,9 +113,32 @@ impl PtyManager {
     /// because the kimbo process itself takes longer than that to actually
     /// exit and the well-behaved processes have already gone.
     pub fn kill_all(&self) {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         for session in sessions.values() {
             session.kill_tree();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn poisoned_lock_is_recovered_not_panicked() {
+        let mgr = Arc::new(PtyManager::new());
+        let m2 = mgr.clone();
+        // Poison the mutex by panicking while holding the lock.
+        let _ = std::thread::spawn(move || {
+            let _g = m2.sessions.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        // These must not panic even though the mutex is now poisoned.
+        // Session 999 does not exist so both calls return Err("PTY not found"),
+        // which proves the mutex lock was recovered rather than panicking.
+        assert!(mgr.is_busy(999).is_err());
+        assert!(mgr.get_cwd(999).is_err());
     }
 }

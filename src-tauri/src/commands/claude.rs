@@ -136,7 +136,7 @@ pub fn claude_account_info(
 ) -> Result<Option<AccountInfo>, String> {
     let current_signal = kimbo_claude_statusline::default_claude_json_path()
         .and_then(|p| kimbo_claude_statusline::read_account_email_from(&p));
-    let mut guard = cache.inner.lock().unwrap();
+    let mut guard = cache.inner.lock().unwrap_or_else(|e| e.into_inner());
     if should_refetch(guard.as_ref(), current_signal.as_deref(), force_refresh) {
         *guard = Some(CacheEntry { info: fetch_account_info(), signal: current_signal });
     }
