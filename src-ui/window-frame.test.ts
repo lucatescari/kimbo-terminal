@@ -216,12 +216,41 @@ describe("window frame: translucency restore after refocus", () => {
 describe("window frame: webview must be transparent at the native layer", () => {
   const mainRs = readFileSync(resolve(__dirname, "../src-tauri/src/main.rs"), "utf-8");
   const cargoToml = readFileSync(resolve(__dirname, "../src-tauri/Cargo.toml"), "utf-8");
+  const windowRs = readFileSync(
+    resolve(__dirname, "../src-tauri/src/commands/window.rs"),
+    "utf-8",
+  );
+  // The new_window() function body — sliced so we can assert what it does (and
+  // does NOT do) at window-creation time without matching the same strings
+  // elsewhere in the file.
+  const newWindowBody = windowRs.slice(
+    windowRs.indexOf("pub async fn new_window"),
+    // Stop before the next command (refresh_window_translucency) so we don't
+    // sweep in its legitimate refresh_main_window_translucency call.
+    windowRs.indexOf("pub fn refresh_window_translucency"),
+  );
 
-  it("Rust setup() forces the webview background color to transparent", () => {
+  it("forces the webview background color to transparent at creation", () => {
     // Without this, WebKit paints an opaque default behind the HTML and
     // fills the rounded corners of the body with solid color — making the
     // window look square regardless of border-radius. See tauri-apps/wry#981.
-    expect(mainRs).toMatch(/set_background_color\(\s*Some\(\s*tauri::webview::Color\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)\s*\)\s*\)/);
+    // The call lives in the shared apply_initial_vibrancy() helper (window.rs)
+    // so the main window AND every new_window() get identical creation-time
+    // translucency; main.rs wires it via that helper.
+    expect(windowRs).toMatch(/set_background_color\(\s*Some\(\s*tauri::webview::Color\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)\s*\)\s*\)/);
+    expect(windowRs).toContain("pub(crate) fn apply_initial_vibrancy");
+    expect(mainRs).toContain("apply_initial_vibrancy");
+  });
+
+  it("new_window() uses the GENTLE creation-time vibrancy, not the heavy refresh", () => {
+    // Regression guard: new_window must NOT call refresh_main_window_translucency
+    // synchronously in its own body. That heavy path reaches into the live
+    // WKWebView view hierarchy (with_webview) + runs a resize dance; on a window
+    // whose webview has not yet loaded it leaves the window with no rendered
+    // content and no drag region. The heavy refresh runs later, on the first
+    // Focused(true) (attach_window_lifecycle), once the webview is loaded.
+    expect(newWindowBody).toContain("apply_initial_vibrancy(&win)");
+    expect(newWindowBody).not.toContain("refresh_main_window_translucency(&win)");
   });
 
   it("tauri Cargo feature `macos-private-api` is enabled — otherwise `transparent: true` is silently ignored on macOS", () => {

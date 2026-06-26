@@ -134,6 +134,37 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
     Ok(())
 }
 
+/// Gentle initial translucency for a freshly-created window: make the webview
+/// background transparent and mount the `NSVisualEffectView` blur behind it.
+///
+/// This is the SAME setup the main window gets in `main.rs` (and the only
+/// translucency work safe to do at creation time). It deliberately does NOT
+/// call [`refresh_main_window_translucency`] — that heavier path reaches into
+/// the live `WKWebView` view hierarchy (`with_webview`) and runs a resize
+/// dance, which on a brand-new window whose webview has not yet loaded leaves
+/// the content unrendered and the window non-interactive (no drag region). The
+/// heavy refresh runs later, on the first `Focused(true)` (see
+/// [`attach_window_lifecycle`]), by which point the webview is loaded.
+pub(crate) fn apply_initial_vibrancy<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) {
+    let _ = win.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        if let Err(e) = apply_vibrancy(
+            win,
+            NSVisualEffectMaterial::Tooltip,
+            Some(NSVisualEffectState::Active),
+            Some(14.0),
+        ) {
+            log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = win;
+    }
+}
+
 /// Wire the per-window lifecycle events. Attached to the main window in
 /// `main.rs` setup AND to every secondary window built by `new_window`, so
 /// ANY window refreshes its (otherwise stale, opaque) WKWebView layer on
@@ -216,7 +247,12 @@ pub async fn new_window(app: AppHandle) -> Result<(), String> {
     // Same lifecycle wiring the main window gets in main.rs setup: refresh
     // translucency on refocus + role-appropriate close handling.
     attach_window_lifecycle(&win);
-    refresh_main_window_translucency(&win)?;
+    // Mirror the main window's creation path exactly: gentle initial vibrancy
+    // only. The heavy refresh_main_window_translucency runs on the first
+    // Focused(true) (wired above) once the webview has loaded — running it here,
+    // before the webview loads, left the window with no content and no drag
+    // region.
+    apply_initial_vibrancy(&win);
     Ok(())
 }
 

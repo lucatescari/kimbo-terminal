@@ -103,30 +103,12 @@ fn main() {
             // with `transparent: true` on the window. This is the macOS
             // workaround tracked in tauri-apps/wry#981.
             if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
-
-                // Mount NSVisualEffectView behind the (transparent) webview so
-                // the Background-opacity slider (src-ui/settings.ts, --app-alpha
-                // in style.css) has something to show through. Tooltip is the
-                // thinnest adaptive material — it shows significantly more of
-                // what's behind the window than the heavier WindowBackground /
-                // UnderWindowBackground materials, which matches the "real
-                // translucent terminal" aesthetic the user wanted at low
-                // slider values. Adapts to light/dark via set_window_theme.
-                #[cfg(target_os = "macos")]
-                {
-                    use window_vibrancy::{
-                        apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
-                    };
-                    if let Err(e) = apply_vibrancy(
-                        &win,
-                        NSVisualEffectMaterial::Tooltip,
-                        Some(NSVisualEffectState::Active),
-                        Some(14.0),
-                    ) {
-                        log::warn!("apply_vibrancy failed; falling back to no blur: {e:?}");
-                    }
-                }
+                // Make the webview background transparent and mount the
+                // NSVisualEffectView blur behind it so the Background-opacity
+                // slider (src-ui/settings.ts, --app-alpha in style.css) has
+                // something to show through. Shared with new_window() so every
+                // window's creation-time translucency is identical.
+                commands::window::apply_initial_vibrancy(&win);
             }
 
             // Build native macOS menu bar. Accelerators come from the user's
