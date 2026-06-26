@@ -4,6 +4,7 @@ import {
   loadSession,
   clearSession,
   startSessionAutosave,
+  setWindowLabelForTest,
   type PersistedSession,
 } from "./session-state";
 
@@ -149,5 +150,25 @@ describe("session-state: autosave polling", () => {
     await vi.advanceTimersByTimeAsync(2000);
     stop();
     expect(loadSession()!.tabs[0].cwd).toBe("/keep");
+  });
+});
+
+describe("session-state: per-window scoping", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setWindowLabelForTest(null);
+  });
+  afterEach(() => {
+    setWindowLabelForTest(null);
+  });
+
+  it("scopes session by window label", async () => {
+    // Mock getCurrentWindow().label to return "win-a", save, then "win-b" load is empty.
+    setWindowLabelForTest("win-a");
+    saveSession({ tabs: [{ cwd: "/a", name: "a" }], activeIndex: 0 });
+    setWindowLabelForTest("win-b");
+    expect(loadSession()).toBe(null);
+    setWindowLabelForTest("win-a");
+    expect(loadSession()?.tabs[0].cwd).toBe("/a");
   });
 });

@@ -20,7 +20,21 @@
 //     can still inject paths, but that access level already owns your
 //     session — the check mainly guards against accidental garbage.
 
-const KEY = "kimbo-session-v1";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+/** Legacy single-window key — used only for one-time migration on first load. */
+const LEGACY_KEY = "kimbo-session-v1";
+
+let labelOverride: string | null = null;
+/** Test-only override. */
+export function setWindowLabelForTest(label: string | null): void {
+  labelOverride = label;
+}
+function windowLabel(): string {
+  if (labelOverride) return labelOverride;
+  try { return getCurrentWindow().label; } catch { return "main"; }
+}
+function sessionKey(): string { return `kimbo-session-v1:${windowLabel()}`; }
 
 export interface PersistedTab {
   cwd: string | null;
@@ -42,7 +56,7 @@ export function saveSession(state: Omit<PersistedSession, "savedAt">): void {
   }
   try {
     const payload: PersistedSession = { ...state, savedAt: Date.now() };
-    localStorage.setItem(KEY, JSON.stringify(payload));
+    localStorage.setItem(sessionKey(), JSON.stringify(payload));
   } catch (_) {
     /* quota or serialization — not worth surfacing */
   }
@@ -50,7 +64,13 @@ export function saveSession(state: Omit<PersistedSession, "savedAt">): void {
 
 export function loadSession(): PersistedSession | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    let raw = localStorage.getItem(sessionKey());
+    // One-time migration: if the per-label key is absent but the legacy
+    // single-window key exists, treat it as this window's session so that
+    // the "main" window inherits the existing persisted tabs on upgrade.
+    if (!raw) {
+      raw = localStorage.getItem(LEGACY_KEY);
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedSession;
     if (!parsed || !Array.isArray(parsed.tabs)) return null;
@@ -83,7 +103,7 @@ export function loadSession(): PersistedSession | null {
 
 export function clearSession(): void {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(sessionKey());
   } catch (_) {
     /* ignore */
   }
