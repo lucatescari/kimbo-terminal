@@ -4,6 +4,7 @@ import {
   switchToTab,
   focusDirection,
 } from "./tabs";
+import { jumpToPrevPrompt, jumpToNextPrompt } from "./prompt-jump";
 import { isSettingsVisible, hideSettings } from "./settings";
 import { toggleFindBar, isFindBarVisible, hideFindBar } from "./find-bar";
 import { toggleCommandPalette, toggleProjectsPalette, isCommandPaletteVisible, hideCommandPalette } from "./command-palette";
@@ -21,9 +22,11 @@ const HANDLERS: Record<string, () => void> = {
   focus_down:      () => focusDirection("horizontal", true),
   focus_left:      () => focusDirection("vertical", false),
   focus_right:     () => focusDirection("vertical", true),
-  command_palette: () => toggleCommandPalette(),
-  projects:        () => toggleProjectsPalette(),
-  find:            () => toggleFindBar(),
+  command_palette:  () => toggleCommandPalette(),
+  projects:         () => toggleProjectsPalette(),
+  find:             () => toggleFindBar(),
+  jump_prev_prompt: () => jumpToPrevPrompt(),
+  jump_next_prompt: () => jumpToNextPrompt(),
 };
 
 /** @param overrides persisted user keybinding overrides (config.keybindings.bindings) */

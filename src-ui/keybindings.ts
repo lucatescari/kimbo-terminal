@@ -42,6 +42,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "projects",         label: "Projects",           category: "nav",   defaultChord: "cmd-o" },
   { id: "settings",         label: "Settings",           category: "nav",   defaultChord: "cmd-,",       menu: true },
   { id: "find",             label: "Find in terminal",   category: "edit",  defaultChord: "cmd-f" },
+  { id: "jump_prev_prompt", label: "Jump to previous prompt", category: "nav", defaultChord: "cmd-shift-up" },
+  { id: "jump_next_prompt", label: "Jump to next prompt",     category: "nav", defaultChord: "cmd-shift-down" },
   { id: "quit",             label: "Quit",               category: "app",   defaultChord: "cmd-q",       menu: true },
 ];
 

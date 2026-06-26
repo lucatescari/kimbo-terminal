@@ -105,6 +105,16 @@ describe("overrides", () => {
   });
 });
 
+describe("prompt-jump default chords", () => {
+  it("jump_prev_prompt is bound to cmd-shift-up by default", () => {
+    expect(activeChord("jump_prev_prompt")).toBe("cmd-shift-up");
+  });
+
+  it("jump_next_prompt is bound to cmd-shift-down by default", () => {
+    expect(activeChord("jump_next_prompt")).toBe("cmd-shift-down");
+  });
+});
+
 describe("actionForChord (reverse lookup)", () => {
   it("finds the action bound to a chord, honoring overrides", () => {
     const a = ACTIONS.find((x) => x.id === "new_tab")!;
