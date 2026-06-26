@@ -537,7 +537,14 @@ export function beginRenameTab(tabId: number): void {
   input.className = "tab-rename-input";
   input.value = tabDisplayName(tab);
   input.spellcheck = false;
+  // Guard against double-commit: renderTabBar() clears tabBarEl.innerHTML,
+  // which removes the focused input and synchronously fires its blur handler.
+  // Without this flag, Escape (commit(false)) would re-enter via blur as
+  // commit(true) and wrongly save the edit.
+  let committed = false;
   const commit = (save: boolean) => {
+    if (committed) return;
+    committed = true;
     if (save) {
       const v = input.value.trim();
       tab.userName = v.length > 0 ? v.slice(0, 64) : undefined;

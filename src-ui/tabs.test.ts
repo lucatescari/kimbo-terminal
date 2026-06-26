@@ -489,6 +489,102 @@ describe("Tab reordering", () => {
   });
 });
 
+describe("beginRenameTab (inline rename editor)", () => {
+  function renameInput(h: Harness, tabId: number): HTMLInputElement {
+    const input = h.tabBar.querySelector<HTMLInputElement>(
+      `[data-tab-id="${tabId}"] .tab-rename-input`,
+    );
+    if (!input) throw new Error("rename input not found");
+    return input;
+  }
+
+  it("Enter commits the typed name to userName", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+
+    h.tabs.beginRenameTab(tab.id);
+    const input = renameInput(h, tab.id);
+    input.value = "My Project";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(h.tabs.findTabById(tab.id)?.userName).toBe("My Project");
+    // Label restored with the new name.
+    const label = h.tabBar.querySelector(`[data-tab-id="${tab.id}"] .tab-label`);
+    expect(label?.textContent).toBe("My Project");
+  });
+
+  it("Escape cancels without writing userName (no blur double-commit)", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+    const before = h.tabs.findTabById(tab.id)?.name;
+
+    h.tabs.beginRenameTab(tab.id);
+    const input = renameInput(h, tab.id);
+    input.value = "Should Not Stick";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(h.tabs.findTabById(tab.id)?.userName).toBeUndefined();
+    const label = h.tabBar.querySelector(`[data-tab-id="${tab.id}"] .tab-label`);
+    expect(label?.textContent).toBe(before);
+  });
+
+  it("blur commits the typed name", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+
+    h.tabs.beginRenameTab(tab.id);
+    const input = renameInput(h, tab.id);
+    input.value = "Via Blur";
+    input.dispatchEvent(new FocusEvent("blur"));
+
+    expect(h.tabs.findTabById(tab.id)?.userName).toBe("Via Blur");
+  });
+
+  it("empty value clears userName (reverts to auto name)", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+    // First set a sticky name.
+    h.tabs.beginRenameTab(tab.id);
+    renameInput(h, tab.id).value = "Sticky";
+    h.tabBar
+      .querySelector<HTMLInputElement>(`[data-tab-id="${tab.id}"] .tab-rename-input`)!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(h.tabs.findTabById(tab.id)?.userName).toBe("Sticky");
+
+    // Now clear it.
+    h.tabs.beginRenameTab(tab.id);
+    const input = renameInput(h, tab.id);
+    input.value = "   ";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(h.tabs.findTabById(tab.id)?.userName).toBeUndefined();
+  });
+
+  it("caps the committed name at 64 characters", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+
+    h.tabs.beginRenameTab(tab.id);
+    const input = renameInput(h, tab.id);
+    input.value = "x".repeat(100);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(h.tabs.findTabById(tab.id)?.userName?.length).toBe(64);
+  });
+
+  it("double-click on a tab opens the rename input", async () => {
+    const h = await mount();
+    const tab = await h.tabs.createTab();
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tab.id}"]`)!;
+    el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    expect(
+      h.tabBar.querySelector(`[data-tab-id="${tab.id}"] .tab-rename-input`),
+    ).not.toBeNull();
+  });
+});
+
 describe("Tab bar scroll region structure", () => {
   it("renderTabBar creates scroll arrows + scroll region + new-tab button", async () => {
     const h = await mount();

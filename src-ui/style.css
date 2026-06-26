@@ -421,7 +421,7 @@ body {
   font-weight: 500;
   height: 20px;
   padding: 0 4px;
-  width: 12ch;
+  min-width: 8ch;
   max-width: 24ch;
   outline: none;
   box-shadow: var(--focus-ring);
