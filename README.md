@@ -92,6 +92,14 @@ The built app is at `target/release/bundle/macos/Kimbo.app`.
 
 Signed macOS builds (`.dmg` and `.app.tar.gz`, Apple Silicon) are available on the [Releases](https://github.com/lucatescari/kimbo-terminal/releases) page. Kimbo also self-updates via the in-app updater.
 
+## System Requirements
+
+- macOS 13 (Ventura) or later, Apple Silicon or Intel.
+
+### Building from source
+
+- Rust (stable) and Node.js 20+.
+
 ## Configuration
 
 Config file: `~/.config/kimbo/config.toml`
@@ -179,9 +187,8 @@ kimbo-terminal/
 
 ## Platform Support
 
-- **macOS** — primary platform, fully supported
+- **macOS 13 (Ventura) or later** — fully supported (Apple Silicon and Intel)
 - **Linux** — planned
-- **Windows** — planned
 
 ## Contributing
 

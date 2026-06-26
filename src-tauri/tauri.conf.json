@@ -50,7 +50,8 @@
       "binaries/kimbo-claude-notify"
     ],
     "macOS": {
-      "entitlements": "entitlements.plist"
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "13.0"
     }
   },
   "plugins": {
