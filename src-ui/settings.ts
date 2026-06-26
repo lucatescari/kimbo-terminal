@@ -416,6 +416,19 @@ function renderGeneral(el: HTMLElement): void {
     toggle(prefs.transparentBlackBg, (v) => setPref("transparentBlackBg", v)),
   ));
   el.appendChild(windowSec);
+
+  const bellSec = section("Bell");
+  bellSec.appendChild(row(
+    "Flash on bell",
+    "Briefly flash the pane when a BEL character (0x07) is received.",
+    toggle(prefs.bellVisual, (v) => setPref("bellVisual", v)),
+  ));
+  bellSec.appendChild(row(
+    "Play sound on bell",
+    "Play a short beep when a BEL character is received.",
+    toggle(prefs.bellSound, (v) => setPref("bellSound", v)),
+  ));
+  el.appendChild(bellSec);
 }
 
 function detectShell(path: string): string {
