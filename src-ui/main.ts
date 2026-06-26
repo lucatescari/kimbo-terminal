@@ -197,7 +197,7 @@ async function openInitialTabs(): Promise<void> {
     if (saved && saved.tabs.length > 0) {
       try {
         for (const t of saved.tabs) {
-          await createTab(t.cwd ?? undefined);
+          await createTab(t.cwd ?? undefined, t.userName);
         }
         if (saved.activeIndex > 0 && saved.activeIndex < saved.tabs.length) {
           switchToTab(saved.activeIndex);

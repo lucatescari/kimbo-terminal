@@ -25,6 +25,7 @@ const KEY = "kimbo-session-v1";
 export interface PersistedTab {
   cwd: string | null;
   name: string;
+  userName?: string;
 }
 
 export interface PersistedSession {
@@ -61,6 +62,9 @@ export function loadSession(): PersistedSession | null {
       .map((t) => ({
         cwd: isSafeCwd(t.cwd) ? t.cwd : null,
         name: typeof t.name === "string" ? t.name.slice(0, 64) : "~",
+        ...(typeof t.userName === "string"
+          ? { userName: t.userName.slice(0, 64) }
+          : {}),
       }));
     if (cleanTabs.length === 0) return null;
     const activeIndex =

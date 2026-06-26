@@ -138,6 +138,7 @@ export function disposeTabs(): void {
 
 export async function createTab(
   cwd?: string,
+  userName?: string,
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
 ): Promise<Tab> {
@@ -181,6 +182,7 @@ export async function createTab(
 
   const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
+  if (userName) tab.userName = userName;
   tabs.push(tab);
 
   activeTabId = id;
@@ -290,7 +292,7 @@ export async function reopenLastClosedTab(): Promise<void> {
     const rootCwd = firstLeafCwdOfShape(entry.shape) ?? undefined;
     const rootScrollback = firstLeafScrollback(entry.shape);
     const rootClaudeResume = firstLeafClaudeResume(entry.shape);
-    const newTab = await createTab(rootCwd, rootScrollback, rootClaudeResume);
+    const newTab = await createTab(rootCwd, undefined, rootScrollback, rootClaudeResume);
 
     if (entry.shape.type === "split") {
       const rootLeafId = getActivePaneId();
@@ -391,13 +393,14 @@ export function findTabById(tabId: number): Tab | undefined {
  *  full split geometry would need a much bigger serialization + replay
  *  effort and isn't in scope for the MVP of `startup === "last"`. */
 export async function snapshotOpenTabs(): Promise<{
-  tabs: Array<{ cwd: string | null; name: string }>;
+  tabs: Array<{ cwd: string | null; name: string; userName?: string }>;
   activeIndex: number;
 }> {
   const snapTabs = await Promise.all(
     tabs.map(async (t) => ({
       cwd: await firstLeafCwd(t.id === activeTabId ? getTree() : t.treeSnapshot),
       name: tabDisplayName(t),
+      userName: t.userName,
     })),
   );
   return {

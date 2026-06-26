@@ -82,6 +82,12 @@ describe("session-state: save and load", () => {
     clearSession();
     expect(loadSession()).toBeNull();
   });
+
+  it("persists and restores userName", () => {
+    saveSession({ tabs: [{ cwd: "/x", name: "x", userName: "Mine" }], activeIndex: 0 });
+    const loaded = loadSession();
+    expect(loaded?.tabs[0].userName).toBe("Mine");
+  });
 });
 
 describe("session-state: autosave polling", () => {
