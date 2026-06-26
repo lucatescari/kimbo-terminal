@@ -19,6 +19,7 @@
         "transparent": true,
         "backgroundThrottling": "disabled",
         "shadow": true,
+        "acceptFirstMouse": true,
         "minWidth": 600,
         "minHeight": 400
       }

@@ -239,6 +239,10 @@ pub async fn new_window(app: AppHandle) -> Result<(), String> {
     .decorations(false)
     .transparent(true)
     .shadow(true)
+    // Let the click that activates a background window land in the webview, so
+    // clicking a pane focuses that pane on the first click. See
+    // src-ui/window-activation.ts for the matching destructive-click guard.
+    .accept_first_mouse(true)
     .background_throttling(
         tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
     )

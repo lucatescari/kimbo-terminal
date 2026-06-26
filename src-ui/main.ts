@@ -19,6 +19,7 @@ import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
 import { initStatusBar, stopStatusBarPolling } from "./status-bar";
 import { initCommandPalette } from "./command-palette";
+import { initWindowActivationTracking } from "./window-activation";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
 import { loadSession, startSessionAutosave } from "./session-state";
 
@@ -48,6 +49,7 @@ async function init() {
   // so the first paint already has the right data-attributes.
   applyRoot();
 
+  initWindowActivationTracking();
   initTabs(tabBar, terminalArea);
   initTitleBar(titleBar);
   initStatusBar(statusBar);

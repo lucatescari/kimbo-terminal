@@ -1,4 +1,5 @@
 import { getCwd } from "./pty";
+import { isActivatingClick } from "./window-activation";
 import {
   initPanes,
   createRootPane,
@@ -629,6 +630,10 @@ function renderTabBar() {
       close.appendChild(icon("close", 10, 2));
       close.addEventListener("click", (e) => {
         e.stopPropagation();
+        // Ignore the click that just activated a background window so it can't
+        // accidentally close a tab while the user was only bringing Kimbo
+        // forward (acceptFirstMouse makes that click live over the chrome).
+        if (isActivatingClick()) return;
         closeTab(tab.id);
       });
       el.appendChild(close);
