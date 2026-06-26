@@ -396,7 +396,7 @@ export async function snapshotOpenTabs(): Promise<{
   const snapTabs = await Promise.all(
     tabs.map(async (t) => ({
       cwd: await firstLeafCwd(t.id === activeTabId ? getTree() : t.treeSnapshot),
-      name: t.titleOverride ?? t.name,
+      name: tabDisplayName(t),
     })),
   );
   return {
@@ -469,7 +469,7 @@ export function collectOpenPanes(): PaneRef[] {
   for (const t of tabs) {
     const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
     walkLeaves(tree, (leaf) => {
-      out.push({ tabName: t.titleOverride ?? t.name, ptyId: leaf.session.ptyId });
+      out.push({ tabName: tabDisplayName(t), ptyId: leaf.session.ptyId });
     });
   }
   return out;
