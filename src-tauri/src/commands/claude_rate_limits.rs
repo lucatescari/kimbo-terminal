@@ -354,8 +354,12 @@ pub fn claude_rate_limits_install(
                     if let Some(prior) = parsed.get("statusLine").cloned() {
                         let backup = StatusLineBackup { saved_at_ms: now_ms(), original_status_line: prior };
                         let bp = backup_path();
-                        std::fs::create_dir_all(bp.parent().unwrap()).map_err(|e| e.to_string())?;
-                        std::fs::write(&bp, serde_json::to_vec_pretty(&backup).unwrap()).map_err(|e| e.to_string())?;
+                        std::fs::create_dir_all(
+                            bp.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let backup_bytes = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
+                        std::fs::write(&bp, backup_bytes).map_err(|e| e.to_string())?;
                     }
                 }
             }
@@ -365,7 +369,10 @@ pub fn claude_rate_limits_install(
 
     // Write wrapper script.
     let body = render_wrapper_script(&sidecar_abs_path, app_data.to_string_lossy().as_ref());
-    std::fs::create_dir_all(wrapper_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(
+        wrapper_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -377,7 +384,10 @@ pub fn claude_rate_limits_install(
 
     // Patch settings.json.
     let new_settings = install_into_settings(current.as_deref(), wrapper_p.to_string_lossy().as_ref())?;
-    std::fs::create_dir_all(settings_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(
+        settings_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
 
     Ok(InstallOutcome::Installed)

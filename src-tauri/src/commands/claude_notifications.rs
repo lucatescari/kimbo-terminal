@@ -330,7 +330,10 @@ pub fn claude_notifications_install(_app: tauri::AppHandle) -> Result<InstallOut
 
     // Write/refresh wrapper.
     let body = render_wrapper_script(&sidecar_abs);
-    std::fs::create_dir_all(wrapper_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(
+        wrapper_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -345,7 +348,10 @@ pub fn claude_notifications_install(_app: tauri::AppHandle) -> Result<InstallOut
         current.as_deref(),
         wrapper_p.to_string_lossy().as_ref(),
     )?;
-    std::fs::create_dir_all(settings_p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(
+        settings_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
 
     Ok(if was_already { InstallOutcome::NoOp } else { InstallOutcome::Installed })
