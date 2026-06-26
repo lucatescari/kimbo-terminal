@@ -171,4 +171,32 @@ describe("session-state: per-window scoping", () => {
     setWindowLabelForTest("win-a");
     expect(loadSession()?.tabs[0].cwd).toBe("/a");
   });
+
+  it("migrates the legacy single-window session into the main window", () => {
+    localStorage.setItem(
+      "kimbo-session-v1",
+      JSON.stringify({
+        tabs: [{ cwd: "/legacy", name: "legacy" }],
+        activeIndex: 0,
+        savedAt: 123,
+      }),
+    );
+    setWindowLabelForTest("main");
+    const loaded = loadSession();
+    expect(loaded?.tabs[0].cwd).toBe("/legacy");
+    expect(loaded?.tabs[0].name).toBe("legacy");
+  });
+
+  it("does NOT migrate the legacy session into a new, non-main window", () => {
+    localStorage.setItem(
+      "kimbo-session-v1",
+      JSON.stringify({
+        tabs: [{ cwd: "/legacy", name: "legacy" }],
+        activeIndex: 0,
+        savedAt: 123,
+      }),
+    );
+    setWindowLabelForTest("win-1");
+    expect(loadSession()).toBe(null);
+  });
 });

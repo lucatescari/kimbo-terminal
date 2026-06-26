@@ -22,7 +22,8 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-/** Legacy single-window key — used only for one-time migration on first load. */
+/** Legacy single-window key. Intentionally retained (never removed): the
+ *  migration is read-only by design and only the "main" window ever reads it. */
 const LEGACY_KEY = "kimbo-session-v1";
 
 let labelOverride: string | null = null;
@@ -66,9 +67,11 @@ export function loadSession(): PersistedSession | null {
   try {
     let raw = localStorage.getItem(sessionKey());
     // One-time migration: if the per-label key is absent but the legacy
-    // single-window key exists, treat it as this window's session so that
-    // the "main" window inherits the existing persisted tabs on upgrade.
-    if (!raw) {
+    // single-window key exists, the "main" window inherits the existing
+    // persisted tabs on upgrade. Gated to "main" only — newly opened
+    // windows (e.g. "win-1") must start FRESH and must NOT pick up the old
+    // single-window session.
+    if (!raw && windowLabel() === "main") {
       raw = localStorage.getItem(LEGACY_KEY);
     }
     if (!raw) return null;
