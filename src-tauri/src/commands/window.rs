@@ -9,7 +9,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 static WINDOW_SEQ: AtomicU32 = AtomicU32::new(1);
 
@@ -134,6 +134,47 @@ fn refresh_macos<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<(),
     Ok(())
 }
 
+/// Wire the per-window lifecycle events. Attached to the main window in
+/// `main.rs` setup AND to every secondary window built by `new_window`, so
+/// ANY window refreshes its (otherwise stale, opaque) WKWebView layer on
+/// refocus and runs the close behavior appropriate to its role.
+///
+/// Close semantics differ by window:
+/// - the MAIN window's close is the app's quit affordance — prevent the close
+///   and let the frontend's `quit-requested` listener run the confirm flow;
+/// - a SECONDARY window's close just closes that window and leaves the app
+///   (and the other window[s]) running.
+pub(crate) fn attach_window_lifecycle<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) {
+    let is_main = win.label() == "main";
+    let app_handle = win.app_handle().clone();
+    let win_focus = win.clone();
+    win.on_window_event(move |event| match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            if is_main {
+                // Main window == the whole app. Keep the existing flow:
+                // prevent the close and let the frontend's `quit-requested`
+                // listener run confirmAndQuit() → invoke("quit_app").
+                api.prevent_close();
+                let _ = app_handle.emit("quit-requested", ());
+            }
+            // Secondary window: allow the default close. Only this window
+            // goes away; the app keeps running with the remaining window(s).
+            //
+            // TODO(multi-window): per-window PTY teardown. The global
+            // PtyManager is keyed by session id, not window, so PTYs spawned
+            // in this window are reaped by kill_all at app exit rather than
+            // the moment the window closes.
+        }
+        tauri::WindowEvent::Focused(true) => {
+            if let Err(e) = refresh_main_window_translucency(&win_focus) {
+                log::warn!("refresh translucency on focus: {e}");
+            }
+            let _ = app_handle.emit("kimbo-window-focused", ());
+        }
+        _ => {}
+    });
+}
+
 #[tauri::command]
 pub async fn new_window(app: AppHandle) -> Result<(), String> {
     let n = WINDOW_SEQ.fetch_add(1, Ordering::SeqCst);
@@ -154,6 +195,9 @@ pub async fn new_window(app: AppHandle) -> Result<(), String> {
     )
     .build()
     .map_err(|e| e.to_string())?;
+    // Same lifecycle wiring the main window gets in main.rs setup: refresh
+    // translucency on refocus + role-appropriate close handling.
+    attach_window_lifecycle(&win);
     refresh_main_window_translucency(&win)?;
     Ok(())
 }

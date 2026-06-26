@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   showConfirmDialog: vi.fn(),
   setPref: vi.fn(),
   prefs: { confirmQuit: true } as { confirmQuit: boolean },
+  windowLabel: "main",
+  windowClose: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ label: mocks.windowLabel, close: mocks.windowClose }),
 }));
 
 vi.mock("./tabs", () => ({
@@ -44,6 +50,8 @@ beforeEach(() => {
   mocks.showConfirmDialog.mockReset();
   mocks.setPref.mockReset();
   mocks.prefs.confirmQuit = true;
+  mocks.windowLabel = "main";
+  mocks.windowClose.mockReset().mockResolvedValue(undefined);
 });
 
 // -----------------------------------------------------------------------
@@ -161,6 +169,17 @@ describe("confirmAndCloseActive: last tab + single leaf → route to quit", () =
     expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
     expect(mocks.closeActiveOrTab).toHaveBeenCalledOnce();
   });
+
+  it("on a SECONDARY window, last-tab ⌘W closes THIS window, not the app", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.getTabCount.mockReturnValue(1);
+    mocks.getTree.mockReturnValue({ type: "leaf" });
+    const result = await confirmAndCloseActive();
+    expect(result).toBe(true);
+    expect(mocks.windowClose).toHaveBeenCalledOnce();
+    expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
+    expect(mocks.closeActiveOrTab).not.toHaveBeenCalled();
+  });
 });
 
 // -----------------------------------------------------------------------
@@ -237,6 +256,16 @@ describe("confirmAndCloseActiveTab", () => {
     mocks.getTabCount.mockReturnValue(1);
     await confirmAndCloseActiveTab();
     expect(mocks.confirmAndQuit).toHaveBeenCalledOnce();
+    expect(mocks.closeTab).not.toHaveBeenCalled();
+  });
+
+  it("last tab on a SECONDARY window → close THIS window, not the app", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.getTabCount.mockReturnValue(1);
+    const result = await confirmAndCloseActiveTab();
+    expect(result).toBe(true);
+    expect(mocks.windowClose).toHaveBeenCalledOnce();
+    expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
     expect(mocks.closeTab).not.toHaveBeenCalled();
   });
 

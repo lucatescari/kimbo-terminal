@@ -229,8 +229,18 @@ fn main() {
                             .into_values()
                             .find(|w| w.is_focused().unwrap_or(false))
                         {
-                            let _ = win.emit("menu-action", id);
+                            // Target ONLY the focused window. `Emitter::emit`
+                            // on a WebviewWindow delegates to the shared
+                            // manager and broadcasts to every window, so the
+                            // focus check was a no-op — New Tab/Split/Close
+                            // fanned out to all windows. `emit_to(label)`
+                            // scopes delivery (the frontend listens via the
+                            // current webview window, so only this window's
+                            // listener fires).
+                            let _ = win.emit_to(win.label(), "menu-action", id);
                         } else {
+                            // No focused window (rare) → fall back to a
+                            // broadcast so the action isn't simply dropped.
                             let _ = app_handle.emit("menu-action", id);
                         }
                     }
@@ -238,31 +248,12 @@ fn main() {
                 }
             });
 
-            // Intercept the window's close request (red-x button, Cmd+W on
-            // the window, OS-level close) so the same JS confirm flow can
-            // run. We prevent the default close and emit `quit-requested`;
-            // the frontend then either calls invoke("quit_app") to really
-            // exit or swallows the request when the user cancels.
+            // Wire the main window's lifecycle (close → JS confirm/quit flow;
+            // refocus → translucency refresh). The same helper is attached to
+            // every secondary window inside `new_window`, so all windows get
+            // the refocus fix and a role-appropriate close.
             if let Some(win) = app.get_webview_window("main") {
-                let handle_for_close = app.handle().clone();
-                let win_focus = win.clone();
-                win.on_window_event(move |event| {
-                    match event {
-                        tauri::WindowEvent::CloseRequested { api, .. } => {
-                            api.prevent_close();
-                            let _ = handle_for_close.emit("quit-requested", ());
-                        }
-                        tauri::WindowEvent::Focused(true) => {
-                            if let Err(e) =
-                                commands::window::refresh_main_window_translucency(&win_focus)
-                            {
-                                log::warn!("refresh translucency on focus: {e}");
-                            }
-                            let _ = handle_for_close.emit("kimbo-window-focused", ());
-                        }
-                        _ => {}
-                    }
-                });
+                commands::window::attach_window_lifecycle(&win);
             }
 
             if let Ok(sidecar) = commands::claude_rate_limits::sidecar_path() {

@@ -9,6 +9,7 @@
 // descendant. So when the user confirms, anything `npm run dev` spawned
 // terminates too — no more init-owned orphans hanging on the port.
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree, getTabCount } from "./tabs";
 import { ptyIsBusy } from "./pty";
 import { getPrefs, setPref } from "./ui-prefs";
@@ -21,9 +22,10 @@ import { confirmAndQuit } from "./quit-confirm";
 export async function confirmAndCloseActive(): Promise<boolean> {
   // Last-tab-single-pane case: closeTab() refuses to kill the only tab,
   // so closeActiveOrTab() would silently do nothing and ⌘W would look
-  // broken. Route through the quit flow instead — confirmAndQuit handles
-  // its own busy-check + dialog, so we don't double-prompt here.
-  if (isLastTabSingleLeaf()) return await confirmAndQuit();
+  // broken. Route through closeLastTabOrQuit() — on the main window that's
+  // the confirm-and-quit flow; on a secondary window it just closes the
+  // window (confirmAndQuit handles its own busy-check + dialog).
+  if (isLastTabSingleLeaf()) return await closeLastTabOrQuit();
 
   const session = getActiveSession();
   if (!session) {
@@ -62,9 +64,10 @@ export async function confirmAndCloseActive(): Promise<boolean> {
  *  rust if ANY is busy; one busy pane triggers the dialog, listing how
  *  many descendants will be killed. */
 export async function confirmAndCloseActiveTab(): Promise<boolean> {
-  // Closing the only tab is really a quit — closeTab() bails on the last
-  // tab, so without this ⌘⇧W would be a silent no-op on a single-tab window.
-  if (getTabCount() <= 1) return await confirmAndQuit();
+  // Closing the only tab is really a quit (main window) or a window-close
+  // (secondary window) — closeTab() bails on the last tab, so without this
+  // ⌘⇧W would be a silent no-op on a single-tab window.
+  if (getTabCount() <= 1) return await closeLastTabOrQuit();
 
   const tab = getActiveTab();
   if (!tab) return true;
@@ -93,6 +96,19 @@ export async function confirmAndCloseActiveTab(): Promise<boolean> {
   if (!confirmed) return false;
   closeTab(tab.id);
   return true;
+}
+
+/** Closing the last tab/pane of a window. On a SECONDARY window this must
+ *  close only that window, never quit the whole app — Cmd+Q / closing the
+ *  MAIN window keeps the confirm-and-quit behavior. (The secondary window's
+ *  CloseRequested handler in Rust allows the close; its PTYs are reaped by
+ *  kill_all at app exit — see the per-window-PTY TODO in commands/window.rs.) */
+async function closeLastTabOrQuit(): Promise<boolean> {
+  if (getCurrentWindow().label !== "main") {
+    await getCurrentWindow().close();
+    return true;
+  }
+  return await confirmAndQuit();
 }
 
 /** True when closeActiveOrTab() would close the whole tab (because

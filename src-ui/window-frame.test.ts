@@ -191,9 +191,14 @@ describe("window frame: translucency restore after refocus", () => {
   });
 
   it("Rust runs translucency refresh on native WindowEvent::Focused(true)", () => {
-    expect(mainRs).toContain("WindowEvent::Focused(true)");
-    expect(mainRs).toContain("refresh_main_window_translucency");
-    expect(mainRs).toContain("kimbo-window-focused");
+    // The window-event wiring lives in commands/window.rs
+    // (attach_window_lifecycle) so it can be attached to the main window AND
+    // every secondary window built by new_window.
+    expect(windowRs).toContain("WindowEvent::Focused(true)");
+    expect(windowRs).toContain("refresh_main_window_translucency");
+    expect(windowRs).toContain("kimbo-window-focused");
+    // main.rs still attaches that wiring to the main window during setup.
+    expect(mainRs).toContain("attach_window_lifecycle");
   });
 
   it("optional Stage Manager workaround: KIMBO_MACOS_ACCESSORY_ACTIVATION=1", () => {

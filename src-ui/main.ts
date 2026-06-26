@@ -8,6 +8,7 @@ import { initSettings, toggleSettings } from "./settings";
 import { confirmAndQuit } from "./quit-confirm";
 import { confirmAndCloseActive, confirmAndCloseActiveTab } from "./close-confirm";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { initKimbo, setKimboSettingsHandler } from "./kimbo";
 import { initDragDrop } from "./drag-drop";
 import { initUpdateCheck } from "./updates";
@@ -148,7 +149,15 @@ async function init() {
   // Listen for macOS menu bar actions. The "quit" case is routed through
   // confirmAndQuit so the General → "Confirm before quit" pref kicks in
   // regardless of how the user invoked the quit (menu, shortcut, red-x).
-  await listen<string>("menu-action", (event) => {
+  //
+  // Scoped to THIS webview window (not the global `listen`): Rust targets
+  // the focused window with `emit_to(label)`, but a global `listen`
+  // registers target=Any, which Tauri's `match_any_or_filter` treats as
+  // matching every emit — so every window would still receive the action.
+  // `getCurrentWebviewWindow().listen` registers target=WebviewWindow{label},
+  // so only the focused window's listener fires (and a no-focus broadcast
+  // fallback still reaches it).
+  await getCurrentWebviewWindow().listen<string>("menu-action", (event) => {
     switch (event.payload) {
       case "settings": toggleSettings(); break;
       case "new_tab": createTab(); break;

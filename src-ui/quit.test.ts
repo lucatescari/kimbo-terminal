@@ -12,6 +12,10 @@ const mainRsSource = readFileSync(
   resolve(__dirname, "../src-tauri/src/main.rs"),
   "utf-8",
 );
+const windowRsSource = readFileSync(
+  resolve(__dirname, "../src-tauri/src/commands/window.rs"),
+  "utf-8",
+);
 const quitConfirmSource = readFileSync(
   resolve(__dirname, "quit-confirm.ts"),
   "utf-8",
@@ -60,9 +64,16 @@ describe("Cmd+Q quit behavior", () => {
   });
 
   it("Rust intercepts window CloseRequested so the red-x respects the pref", () => {
-    expect(mainRsSource).toContain("CloseRequested");
-    expect(mainRsSource).toContain("prevent_close");
-    expect(mainRsSource).toContain("quit-requested");
+    // The CloseRequested handling moved into commands/window.rs
+    // (attach_window_lifecycle), shared by the main and secondary windows.
+    // For the MAIN window it still prevents the close and emits quit-requested.
+    expect(windowRsSource).toContain("CloseRequested");
+    expect(windowRsSource).toContain("prevent_close");
+    expect(windowRsSource).toContain("quit-requested");
+    // The MAIN-window-only quit behavior is gated on the window label.
+    expect(windowRsSource).toContain('win.label() == "main"');
+    // main.rs attaches that wiring to the main window during setup.
+    expect(mainRsSource).toContain("attach_window_lifecycle");
   });
 
   it("Cmd+Q is the default quit chord", () => {
