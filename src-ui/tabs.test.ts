@@ -884,4 +884,11 @@ describe("tab badge", () => {
     h.tabs.setTabBadge(2, null);
     expect(h.tabs.getTabBadge(2)).toBe(null);
   });
+
+  it("bell badge does not override stop", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(3, "stop");
+    h.tabs.setTabBadge(3, "bell");
+    expect(h.tabs.getTabBadge(3)).toBe("stop");
+  });
 });
