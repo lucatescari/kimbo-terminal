@@ -155,6 +155,7 @@ fn main() {
                 &quit,
             ])?;
 
+            let new_window = MenuItem::with_id(handle, "new_window", "New Window", true, accel("new_window", "cmd-n"))?;
             let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, accel("new_tab", "cmd-t"))?;
             let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, accel("close_pane", "cmd-w"))?;
             let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, accel("close_tab", "cmd-shift-w"))?;
@@ -167,6 +168,7 @@ fn main() {
             )?;
 
             let file_menu = Submenu::with_items(handle, "File", true, &[
+                &new_window,
                 &new_tab,
                 &PredefinedMenuItem::separator(handle)?,
                 &close_pane,
@@ -214,9 +216,23 @@ fn main() {
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();
                 match id {
+                    "new_window" => {
+                        let app2 = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = commands::window::new_window(app2).await;
+                        });
+                    }
                     "settings" | "new_tab" | "close_pane" | "close_tab" | "reopen_tab"
                     | "split_vertical" | "split_horizontal" | "quit" => {
-                        let _ = app_handle.emit("menu-action", id);
+                        if let Some(win) = app_handle
+                            .webview_windows()
+                            .into_values()
+                            .find(|w| w.is_focused().unwrap_or(false))
+                        {
+                            let _ = win.emit("menu-action", id);
+                        } else {
+                            let _ = app_handle.emit("menu-action", id);
+                        }
                     }
                     _ => {}
                 }
