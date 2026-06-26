@@ -57,6 +57,10 @@ export interface UiPrefs {
   /** Claude Code → Notifications → play sound on the macOS notification.
    *  Silent by default. */
   notifySoundEnabled: boolean;
+  /** Flash the pane on terminal bell (BEL 0x07). */
+  bellVisual: boolean;
+  /** Play a short beep on terminal bell. Off by default. */
+  bellSound: boolean;
   /** Appearance → Themes grid. Hard filter applied to both the
    *  built-in/installed grid and the community gallery. Persisted so a
    *  user who only wants dark themes doesn't re-pick on each open. */
@@ -75,6 +79,8 @@ const DEFAULTS: UiPrefs = {
   claudeHudExtended: false,
   claudeHudShowPlan: false,
   notifySoundEnabled: false,
+  bellVisual: true,
+  bellSound: false,
   themePickerMode: "all",
 };
 

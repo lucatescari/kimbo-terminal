@@ -50,17 +50,18 @@ let scrollRegionEl: HTMLElement | null = null;
 let leftArrowEl: HTMLElement | null = null;
 let rightArrowEl: HTMLElement | null = null;
 
-type BadgeKind = "stop" | "perm" | null;
+type BadgeKind = "stop" | "perm" | "bell" | null;
 const tabBadge: Map<number, BadgeKind> = new Map();
 
-/** Set the badge state for a tab. Permission wins over stop when both apply.
- *  Pass null to clear. Triggers a tab-bar re-render. */
+/** Set the badge state for a tab. Permission wins over stop/bell; stop wins
+ *  over bell. Pass null to clear. Triggers a tab-bar re-render. */
 export function setTabBadge(tabId: number, kind: BadgeKind): void {
   if (kind === null) {
     tabBadge.delete(tabId);
   } else {
     const existing = tabBadge.get(tabId);
-    if (existing === "perm") return; // perm wins; don't downgrade
+    if (existing === "perm") return; // perm wins
+    if (existing === "stop" && kind === "bell") return; // stop wins over bell
     tabBadge.set(tabId, kind);
   }
   renderTabBar();

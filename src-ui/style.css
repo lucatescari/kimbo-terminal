@@ -2249,6 +2249,9 @@ body {
 .tab--badge-perm::after {
   background: var(--kimbo-notify-perm);
 }
+.tab--badge-bell::after {
+  background: var(--accent-green);
+}
 
 /* Chevron tabs clip the top-right corner with a polygon — push the dot
    inward so it doesn't get cut off by the clip-path. */

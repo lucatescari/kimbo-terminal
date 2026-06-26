@@ -869,4 +869,19 @@ describe("tab badge", () => {
     h.tabs.setTabBadge(97, null);
     expect(h.tabs.getTabBadge(97)).toBeNull();
   });
+
+  it("bell badge does not override perm", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(1, "perm");
+    h.tabs.setTabBadge(1, "bell");
+    expect(h.tabs.getTabBadge(1)).toBe("perm");
+  });
+
+  it("bell badge is set and cleared", async () => {
+    const h = await mount();
+    h.tabs.setTabBadge(2, "bell");
+    expect(h.tabs.getTabBadge(2)).toBe("bell");
+    h.tabs.setTabBadge(2, null);
+    expect(h.tabs.getTabBadge(2)).toBe(null);
+  });
 });
