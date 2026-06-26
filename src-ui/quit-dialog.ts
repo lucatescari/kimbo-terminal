@@ -152,3 +152,17 @@ export function showQuitDialog(body: string): Promise<ConfirmDialogResult> {
     dangerous: true,
   });
 }
+
+/** Window-scoped sibling of `showQuitDialog`, for the secondary-window
+ *  close flow. Closing a secondary window does NOT quit the app — only that
+ *  window closes — so the copy must say "Close window?" / "Close" rather
+ *  than "Quit Kimbo?" / "Quit", or the user thinks the whole app is going
+ *  away. Reuses the same dialog component. */
+export function showCloseWindowDialog(body: string): Promise<ConfirmDialogResult> {
+  return showConfirmDialog({
+    title: "Close window?",
+    body,
+    confirmLabel: "Close",
+    dangerous: true,
+  });
+}

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn().mockResolvedValue(undefined),
   ptyIsBusy: vi.fn().mockResolvedValue(false),
   showDialog: vi.fn(),
+  showCloseWindowDialog: vi.fn(),
   setPref: vi.fn(),
   prefs: { confirmQuit: true },
   panes: [] as Array<{ tabName: string; ptyId: number }>,
@@ -15,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("./pty", () => ({ ptyIsBusy: mocks.ptyIsBusy }));
-vi.mock("./quit-dialog", () => ({ showQuitDialog: mocks.showDialog }));
+vi.mock("./quit-dialog", () => ({
+  showQuitDialog: mocks.showDialog,
+  showCloseWindowDialog: mocks.showCloseWindowDialog,
+}));
 vi.mock("./ui-prefs", () => ({
   getPrefs: () => mocks.prefs,
   setPref: mocks.setPref,
@@ -26,12 +30,13 @@ vi.mock("./tabs", () => ({
 }));
 vi.mock("./session-state", () => ({ saveSession: mocks.saveSession }));
 
-import { confirmAndQuit, __resetQuittingForTests } from "./quit-confirm";
+import { confirmAndQuit, confirmDiscardBusyPanes, __resetQuittingForTests } from "./quit-confirm";
 
 beforeEach(() => {
   mocks.invoke.mockClear();
   mocks.ptyIsBusy.mockReset().mockResolvedValue(false);
   mocks.showDialog.mockReset();
+  mocks.showCloseWindowDialog.mockReset();
   mocks.setPref.mockReset();
   mocks.prefs.confirmQuit = true;
   mocks.panes = [{ tabName: "~", ptyId: 1 }];
@@ -184,5 +189,48 @@ describe("confirmAndQuit: ptyIsBusy failures don't wedge the flow", () => {
     expect(result).toBe(true);
     expect(mocks.showDialog).not.toHaveBeenCalled();
     expect(mocks.invoke).toHaveBeenCalledWith("quit_app");
+  });
+});
+
+describe("confirmDiscardBusyPanes: variant picks the dialog copy", () => {
+  it("default 'quit' variant uses the quit dialog, NOT the close-window one", async () => {
+    mocks.panes = [{ tabName: "dev", ptyId: 1 }];
+    mocks.ptyIsBusy.mockResolvedValue(true);
+    mocks.showDialog.mockResolvedValueOnce({ confirmed: true, dontAskAgain: false });
+    const ok = await confirmDiscardBusyPanes();
+    expect(ok).toBe(true);
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showCloseWindowDialog).not.toHaveBeenCalled();
+    // Quit-flavoured body, not window-close wording.
+    const [body] = mocks.showDialog.mock.calls[0];
+    expect(body).toMatch(/Quit and terminate it\?/);
+    expect(body).not.toMatch(/Close this window/);
+  });
+
+  it("'close-window' variant uses the close-window dialog with window-scoped copy (no 'Quit')", async () => {
+    mocks.panes = [{ tabName: "dev", ptyId: 1 }];
+    mocks.ptyIsBusy.mockResolvedValue(true);
+    mocks.showCloseWindowDialog.mockResolvedValueOnce({ confirmed: true, dontAskAgain: false });
+    const ok = await confirmDiscardBusyPanes("close-window");
+    expect(ok).toBe(true);
+    expect(mocks.showCloseWindowDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    const [body] = mocks.showCloseWindowDialog.mock.calls[0];
+    expect(body).toMatch(/Close this window and terminate it\?/);
+    expect(body).not.toMatch(/\bQuit\b/);
+  });
+
+  it("'close-window' pluralises across panes without saying 'Quit'", async () => {
+    mocks.panes = [
+      { tabName: "dev", ptyId: 1 },
+      { tabName: "dev", ptyId: 2 },
+    ];
+    mocks.ptyIsBusy.mockResolvedValue(true);
+    mocks.showCloseWindowDialog.mockResolvedValueOnce({ confirmed: false, dontAskAgain: false });
+    const ok = await confirmDiscardBusyPanes("close-window");
+    expect(ok).toBe(false);
+    const [body] = mocks.showCloseWindowDialog.mock.calls[0];
+    expect(body).toMatch(/Close this window and terminate them\?/);
+    expect(body).not.toMatch(/\bQuit\b/);
   });
 });

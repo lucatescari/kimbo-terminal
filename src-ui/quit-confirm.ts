@@ -15,7 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getPrefs, setPref } from "./ui-prefs";
 import { collectOpenPanes, snapshotOpenTabs, type PaneRef } from "./tabs";
 import { ptyIsBusy } from "./pty";
-import { showQuitDialog } from "./quit-dialog";
+import { showQuitDialog, showCloseWindowDialog } from "./quit-dialog";
 import { saveSession } from "./session-state";
 
 /** Flag flipped the moment the user confirms (or skips confirmation).
@@ -34,19 +34,31 @@ export async function confirmAndQuit(): Promise<boolean> {
   return await triggerQuit();
 }
 
+/** Which affordance is asking to discard busy panes — picks the dialog
+ *  copy. "quit" closes the whole app; "close-window" closes only the
+ *  current (secondary) window. */
+export type DiscardVariant = "quit" | "close-window";
+
 /** The busy-pane check + confirm dialog half of the quit flow, WITHOUT
  *  actually quitting. Returns true when the caller may proceed to destroy
  *  the panes (pref off, nothing busy, or the user confirmed) and false when
  *  the user cancelled. Shared so the secondary-window close path can warn
  *  about a busy `npm run dev` the exact same way the app-quit path does —
- *  instead of silently orphaning it. */
-export async function confirmDiscardBusyPanes(): Promise<boolean> {
+ *  instead of silently orphaning it. The `variant` selects the wording so a
+ *  window close doesn't wrongly say "Quit Kimbo?". */
+export async function confirmDiscardBusyPanes(
+  variant: DiscardVariant = "quit",
+): Promise<boolean> {
   if (!getPrefs().confirmQuit) return true;
 
   const busy = await findBusyPanes();
   if (busy.length === 0) return true;
 
-  const { confirmed, dontAskAgain } = await showQuitDialog(describeBusy(busy));
+  const body = describeBusy(busy, variant);
+  const { confirmed, dontAskAgain } =
+    variant === "close-window"
+      ? await showCloseWindowDialog(body)
+      : await showQuitDialog(body);
   if (dontAskAgain) setPref("confirmQuit", false);
   return confirmed;
 }
@@ -71,21 +83,30 @@ async function findBusyPanes(): Promise<PaneRef[]> {
 
 /** Natural-English summary of the busy panes for the dialog body. Keeps
  *  the prompt honest: the user sees which tab/pane is actually running
- *  something rather than a vague "you have work open". */
-function describeBusy(busy: PaneRef[]): string {
+ *  something rather than a vague "you have work open". The trailing
+ *  action phrase matches the affordance ("Quit" vs "Close this window") so
+ *  the body agrees with the dialog's title and confirm button. */
+function describeBusy(busy: PaneRef[], variant: DiscardVariant): string {
+  const one = variant === "close-window"
+    ? "Close this window and terminate it?"
+    : "Quit and terminate it?";
+  const many = variant === "close-window"
+    ? "Close this window and terminate them?"
+    : "Quit and terminate them?";
+
   if (busy.length === 1) {
-    return `A process is still running in ${busy[0].tabName}. Quit and terminate it?`;
+    return `A process is still running in ${busy[0].tabName}. ${one}`;
   }
   // Preserve duplicate-tab entries (same tab with multiple busy panes
   // shows up twice) but collapse them for the headline. Showing every
   // tab name would blow out the dialog on a multi-pane split.
   const unique = Array.from(new Set(busy.map((p) => p.tabName)));
   if (unique.length === 1) {
-    return `${busy.length} panes are still running in ${unique[0]}. Quit and terminate them?`;
+    return `${busy.length} panes are still running in ${unique[0]}. ${many}`;
   }
   const head = unique.slice(0, 3).join(", ");
   const more = unique.length > 3 ? ` and ${unique.length - 3} more` : "";
-  return `${busy.length} panes across ${unique.length} tabs (${head}${more}) are still running. Quit and terminate them?`;
+  return `${busy.length} panes across ${unique.length} tabs (${head}${more}) are still running. ${many}`;
 }
 
 async function triggerQuit(): Promise<boolean> {

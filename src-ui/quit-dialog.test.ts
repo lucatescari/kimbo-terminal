@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { showQuitDialog } from "./quit-dialog";
+import { showQuitDialog, showCloseWindowDialog } from "./quit-dialog";
 
 afterEach(() => {
   // Clean up anything a test left mounted so later tests start fresh.
@@ -27,6 +27,20 @@ describe("showQuitDialog: markup", () => {
     expect(panel?.getAttribute("role")).toBe("dialog");
     expect(panel?.getAttribute("aria-modal")).toBe("true");
     document.querySelector<HTMLButtonElement>(".btn.ghost")?.click();
+  });
+});
+
+describe("showCloseWindowDialog: window-scoped copy (not 'Quit')", () => {
+  it("renders 'Close window?' title and Cancel + Close buttons", () => {
+    void showCloseWindowDialog("A process is still running in this window.");
+    expect(document.querySelector(".quit-confirm-title")?.textContent).toBe("Close window?");
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".quit-confirm-actions button"),
+    );
+    expect(buttons.map((b) => b.textContent)).toEqual(["Cancel", "Close"]);
+    // Must NOT use the app-quit wording.
+    expect(document.querySelector(".quit-confirm-title")?.textContent).not.toContain("Quit");
+    buttons[0].click();
   });
 });
 

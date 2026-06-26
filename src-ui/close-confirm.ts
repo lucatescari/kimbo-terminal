@@ -23,8 +23,9 @@ export async function confirmAndCloseActive(): Promise<boolean> {
   // Last-tab-single-pane case: closeTab() refuses to kill the only tab,
   // so closeActiveOrTab() would silently do nothing and ⌘W would look
   // broken. Route through closeLastTabOrQuit() — on the main window that's
-  // the confirm-and-quit flow; on a secondary window it just closes the
-  // window (confirmAndQuit handles its own busy-check + dialog).
+  // the confirm-and-quit flow; on a secondary window it goes through
+  // requestCloseCurrentWindow()/confirmDiscardBusyPanes() (busy-check +
+  // "Close window?" dialog) and then destroy()s just this window.
   if (isLastTabSingleLeaf()) return await closeLastTabOrQuit();
 
   const session = getActiveSession();
@@ -110,21 +111,34 @@ async function closeLastTabOrQuit(): Promise<boolean> {
   return await confirmAndQuit();
 }
 
+/** Re-entry guard mirroring quit-confirm's `quitting`: spamming the red-x /
+ *  ⌘W on a busy window must not stack multiple confirm dialogs. */
+let closingWindow = false;
+
 /** Close THIS (secondary) window, running the same busy-process check +
- *  confirm dialog the app-quit path uses first — so a window running e.g.
- *  `npm run dev` can't be closed by ⌘W, the red-x, or the OS close button
- *  without a warning (which would orphan the process until app exit). On
- *  cancel the window stays open. Uses destroy() rather than close() so it
- *  doesn't re-trigger the Rust CloseRequested handler (no confirm loop).
+ *  confirm dialog the app-quit path uses first — but with window-scoped
+ *  "Close window?" copy (NOT "Quit Kimbo?") since only this window closes —
+ *  so a window running e.g. `npm run dev` can't be closed by ⌘W, the red-x,
+ *  or the OS close button without a warning (which would orphan the process
+ *  until app exit). On cancel the window stays open. Uses destroy() rather
+ *  than close() so it doesn't re-trigger the Rust CloseRequested handler
+ *  (no confirm loop).
  *
  *  Wired to BOTH the last-tab ⌘W/⌘⇧W path (above) and the
  *  `window-close-requested` event the Rust CloseRequested handler emits for
  *  the red-x / OS close (see main.ts + commands/window.rs). Returns true
- *  when the window was closed, false when the user cancelled. */
+ *  when the window was closed, false when the user cancelled (or a close is
+ *  already in flight). */
 export async function requestCloseCurrentWindow(): Promise<boolean> {
-  if (!(await confirmDiscardBusyPanes())) return false;
-  await getCurrentWindow().destroy();
-  return true;
+  if (closingWindow) return false;
+  closingWindow = true;
+  try {
+    if (!(await confirmDiscardBusyPanes("close-window"))) return false;
+    await getCurrentWindow().destroy();
+    return true;
+  } finally {
+    closingWindow = false;
+  }
 }
 
 /** True when closeActiveOrTab() would close the whole tab (because

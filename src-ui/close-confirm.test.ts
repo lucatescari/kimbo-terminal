@@ -181,7 +181,7 @@ describe("confirmAndCloseActive: last tab + single leaf → route to quit", () =
     mocks.getTree.mockReturnValue({ type: "leaf" });
     const result = await confirmAndCloseActive();
     expect(result).toBe(true);
-    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledOnce();
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledWith("close-window");
     expect(mocks.windowDestroy).toHaveBeenCalledOnce();
     expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
     expect(mocks.closeActiveOrTab).not.toHaveBeenCalled();
@@ -281,7 +281,7 @@ describe("confirmAndCloseActiveTab", () => {
     mocks.getTabCount.mockReturnValue(1);
     const result = await confirmAndCloseActiveTab();
     expect(result).toBe(true);
-    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledOnce();
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledWith("close-window");
     expect(mocks.windowDestroy).toHaveBeenCalledOnce();
     expect(mocks.confirmAndQuit).not.toHaveBeenCalled();
     expect(mocks.closeTab).not.toHaveBeenCalled();
@@ -318,11 +318,13 @@ describe("confirmAndCloseActiveTab", () => {
 // -----------------------------------------------------------------------
 
 describe("requestCloseCurrentWindow", () => {
-  it("confirmed/not-busy → destroys the window", async () => {
+  it("confirmed/not-busy → destroys the window using the close-window copy", async () => {
     mocks.windowLabel = "win-1";
     mocks.confirmDiscardBusyPanes.mockResolvedValue(true);
     const result = await requestCloseCurrentWindow();
     expect(result).toBe(true);
+    // Window-scoped wording, NOT the "Quit Kimbo?" variant.
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledWith("close-window");
     expect(mocks.windowDestroy).toHaveBeenCalledOnce();
   });
 
@@ -332,5 +334,21 @@ describe("requestCloseCurrentWindow", () => {
     const result = await requestCloseCurrentWindow();
     expect(result).toBe(false);
     expect(mocks.windowDestroy).not.toHaveBeenCalled();
+  });
+
+  it("re-entry guard: a second call while one is in flight is a no-op", async () => {
+    mocks.windowLabel = "win-1";
+    // Hold the first confirm open so the second call overlaps it.
+    let release!: (v: boolean) => void;
+    mocks.confirmDiscardBusyPanes.mockReturnValueOnce(
+      new Promise<boolean>((r) => { release = r; }),
+    );
+    const first = requestCloseCurrentWindow();
+    const second = await requestCloseCurrentWindow(); // overlaps → guarded
+    expect(second).toBe(false);
+    expect(mocks.confirmDiscardBusyPanes).toHaveBeenCalledTimes(1);
+    release(true);
+    await first;
+    expect(mocks.windowDestroy).toHaveBeenCalledOnce();
   });
 });
