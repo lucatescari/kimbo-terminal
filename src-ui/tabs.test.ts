@@ -848,6 +848,15 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
   });
 });
 
+describe("tabDisplayName display priority", () => {
+  it("display priority is userName > titleOverride > name", async () => {
+    const { tabDisplayName } = await import("./tabs");
+    expect(tabDisplayName({ name: "a", titleOverride: "b", userName: "c" })).toBe("c");
+    expect(tabDisplayName({ name: "a", titleOverride: "b" })).toBe("b");
+    expect(tabDisplayName({ name: "a" })).toBe("a");
+  });
+});
+
 describe("tab badge", () => {
   it("perm overrides stop", async () => {
     const h = await mount();

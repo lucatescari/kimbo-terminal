@@ -39,6 +39,13 @@ export interface Tab {
   treeSnapshot: any;
   /** Title set by the shell or running program via OSC 0/2; trumps `name` when present. */
   titleOverride?: string;
+  /** User-set name; sticky and highest priority. */
+  userName?: string;
+}
+
+/** Display-name priority: userName > titleOverride > name. */
+export function tabDisplayName(t: { userName?: string; titleOverride?: string; name: string }): string {
+  return t.userName ?? t.titleOverride ?? t.name;
 }
 
 let tabs: Tab[] = [];
@@ -105,7 +112,7 @@ export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
     const session = getActiveSession();
     const tab = getActiveTab();
     if (!session || !tab) return;
-    if (tab.titleOverride != null) return;
+    if (tab.titleOverride != null || tab.userName != null) return;
     try {
       const cwd = await getCwd(session.ptyId);
       if (cwd) {
@@ -557,7 +564,7 @@ function renderTabBar() {
     el.type = "button";
     el.dataset.tabId = String(tab.id);
     el.dataset.tabIndex = String(i);
-    const displayName = tab.titleOverride ?? tab.name;
+    const displayName = tabDisplayName(tab);
     el.title = displayName;
 
     const idx = document.createElement("span");
