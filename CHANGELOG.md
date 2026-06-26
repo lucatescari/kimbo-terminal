@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Multiple windows.** ⌘N opens a new window, each with its own tabs and session. New windows start fresh; closing a window that's running a process asks first. (Quitting the app still closes everything.)
+- **Terminal bell.** Programs that ring the bell now flash the pane, badge the tab when it's in the background, and can optionally play a short sound. Toggle both in Settings → General → Bell.
+- **Rename tabs.** Double-click a tab (or right-click → Rename) to give it a custom name. Custom names survive restart and aren't overwritten by the working directory.
+- **Jump between prompts.** ⌘⇧↑ / ⌘⇧↓ scroll to the previous/next command prompt (requires Kimbo shell integration).
+- **Click-to-focus on an inactive window.** Clicking a pane in a background Kimbo window now focuses that pane on the first click, so you type where you clicked.
+
+### Fixes
+
+- Hardened the PTY manager and the Claude integration install paths against rare panics, so a poisoned lock or unusual filesystem path can no longer crash the app.
+
+### Notes
+
+- Kimbo now documents a minimum of **macOS 13 (Ventura)**. Added a `SECURITY.md` with a private vulnerability-disclosure contact.
+
 ## 0.14.1
 
 ### Fixes
