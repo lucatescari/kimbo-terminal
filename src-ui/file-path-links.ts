@@ -13,9 +13,8 @@ const MAX_CACHE = 5_000;
  *  paths that resolve to a real file/dir on disk. Cmd+click opens the target in
  *  the OS default app for its type (your editor for code, Preview for images,
  *  Finder for folders); Cmd+Shift+click reveals it in Finder. Relative paths
- *  resolve against the
- *  shell's current working directory, supplied lazily via `getCwd` so the
- *  freshest OSC 7 value is used at hover time.
+ *  resolve against the shell's current working directory, supplied lazily via
+ *  `getCwd` so the freshest OSC 7 value is used at hover time.
  *
  *  The link provider and its cache live for the Terminal's lifetime and are
  *  released by term.dispose() — no separate teardown needed (same as the OSC 8

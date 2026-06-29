@@ -84,6 +84,8 @@ describe("attachFilePathLinks", () => {
 
     links![0].activate({ metaKey: true, shiftKey: true } as MouseEvent, "/a/b.ts");
     expect(revealMock).toHaveBeenCalledWith("/abs/a/b.ts");
+    // Cmd+Shift dispatches reveal only — it must NOT also fire openPath.
+    expect(openMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns no links when the line has no paths (no backend call)", async () => {
