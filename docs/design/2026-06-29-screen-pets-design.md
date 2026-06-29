@@ -6,14 +6,14 @@
 
 ## Summary
 
-Add animated companion pets (in the spirit of the [VS Code Pets](https://github.com/tonybaloney/vscode-pets) extension) that roam over the whole Kimbo window, layered on top of the terminal. Walkers obey gravity (walk the floor, climb walls, fall); flyers roam the air freely. Users can add/remove and customize pets, throw a ball for them to chase, click to pet them, and drag them around.
+Add animated companion pets (in the spirit of the [VS Code Pets](https://github.com/tonybaloney/vscode-pets) extension) that roam over the whole Kimbo window, layered on top of the terminal. Movement is driven by per-species capability: floor walkers obey gravity, the cat additionally climbs walls, and the cockatiel flies freely through the air. Users can add/remove and customize pets, throw a ball for them to chase, click to pet them, and drag them around.
 
 This is a **new, self-contained feature**. The existing corner Kimbo mascot (`kimbo.ts` / `kimbo.css`) is untouched.
 
 ## Goals
 
 - Pets roam the full visible window area, not a confined strip.
-- Two locomotion modes: gravity-bound **walkers** and free-flying **flyers**.
+- Three locomotion profiles driven by available sprites: **floor walkers**, a wall-climbing **cat**, and a free-flying **cockatiel**.
 - Authentic VS Code Pets look by vendoring their MIT-licensed GIF sprites.
 - Interactions: throw a ball, add/remove & customize pets, click to pet, drag to reposition.
 - Frontend-only (no Rust/config.toml changes), follows existing module/test conventions.
@@ -68,19 +68,32 @@ One `requestAnimationFrame` loop in `world.ts` advances every entity by `dt` eac
 
 The loop **pauses** when there are zero pets or when the document is hidden (`visibilitychange`), and resumes on demand.
 
-### Walkers (gravity-bound)
+### Capability-driven species
 
-Species: cat, dog, snake, crab, chicken, turtle, fox, snail, panda (and any other generic ground animal).
+The vendored VS Code Pets sprite set does **not** include dedicated `fly` frames for any species, and only the `cat` ships wall-climbing frames (`wallclimb`, `wallgrab`, `land`, `fall_from_grab`). The base state set present for **every** species is `{idle, walk, walk_fast, run, swipe, with_ball}`; `dog`/`fox`/`panda`/`turtle` add `lie`. Behavior is therefore driven by a per-species capability descriptor (`sprites.ts`), and the state machine degrades gracefully when a state's sprite is absent (falls back to `idle`/`walk`).
 
-- **States:** `falling`, `idle`, `walk`, `run`, `climb`, `lie`, `swipe`, `chase`, `withBall`.
-- **Behavior:** pick a random floor target → walk/run toward it → occasionally pause (`idle`/`lie`) or `climb` a side wall partway then drop. Gravity pulls toward the floor each tick. Horizontal facing flips with `transform: scaleX(-1)`.
+Three locomotion profiles result:
 
-### Flyers (gravity-free)
+#### Floor walkers (gravity-bound, no climbing)
 
-Species: cockatiel (and any species whose sprite set includes fly frames).
+Species: dog, snake, crab, chicken, turtle, fox, snail, panda.
 
-- **States:** `fly`, `idle`/`hover`, `perch`, `swipe`, `chase`, `withBall`.
-- **Behavior:** steer toward a random air target with easing, reflect off edges, occasionally land on a top/side edge to idle, then take off again.
+- **States used:** `falling`, `idle`, `walk`, `run`, `lie` (only where present), `swipe`, `chase`, `withBall`.
+- **Behavior:** pick a random floor target → walk/run toward it → occasionally pause (`idle`, or `lie` where supported). Gravity pulls toward the floor each tick. Horizontal facing flips with `transform: scaleX(-1)`. No wall climbing (no sprites for it).
+
+#### Wall-climbing walker (gravity-bound, climbs)
+
+Species: cat (only species with the sprites).
+
+- **States used:** floor-walker set **plus** `wallgrab`, `wallclimb`, `land`, `fall_from_grab`.
+- **Behavior:** floor-walker behavior, and additionally may approach a side wall, `wallgrab` → `wallclimb` up it, cling, then release into a `fall_from_grab` → `land` sequence. This is the species that most literally roams "over the whole screen."
+
+#### Flyer (gravity-free)
+
+Species: cockatiel.
+
+- **States used:** `idle` (hover), `walk`/`run` (rendered while moving through the air — there is no dedicated `fly` sprite), `swipe`, `chase`, `withBall`.
+- **Behavior:** steer toward a random air target anywhere in bounds with easing, reflect off edges, occasionally hover (`idle`) in place, then pick a new target. Not affected by gravity. **Known art limitation:** the bird shows its walk cycle while airborne; acceptable and documented, no fabricated sprites.
 
 ### Ball
 
@@ -123,8 +136,19 @@ screenPetsSpeed?: "calm" | "normal" | "lively";   // default "normal"
 ## Assets & Licensing
 
 - Vendor the GIFs actually used into `src-ui/public/pets/<species>/{color}_{state}_8fps.gif`, plus each species' `license.txt`, and the top-level VS Code Pets license as `src-ui/public/pets/VSCODE-PETS-LICENSE` (MIT © 2022 Anthony Shaw).
+- The `cat` assets live in upstream `media/extra.zip` (not a `media/cat/` dir); we extract and vendor them like the rest. All other default species are plain `media/<species>/` dirs.
 - Add a credit line in `README.md` and a `CHANGELOG.md` entry.
-- **Default vendored set = generic animals only:** cat, dog, snake, crab, chicken, turtle, fox, snail, panda, cockatiel.
+- **Default vendored set + colors** (generic animals only):
+  - `cat` — black, brown, gray, lightbrown, orange, white (wall-climbing; from `extra.zip`)
+  - `dog` — akita, black, brown, red, white
+  - `snake` — green
+  - `crab` — red
+  - `chicken` — brown, white
+  - `turtle` — green, orange
+  - `fox` — red, white
+  - `snail` — brown
+  - `panda` — black, brown
+  - `cockatiel` — brown, gray (flyer)
 - **Excluded by default (IP-flavored):** clippy, totoro, mod, deno, rocky, zappy. Rationale: although the VS Code Pets *repo* is MIT, several characters are third-party IP (Microsoft Clippy, Studio Ghibli Totoro, the Deno/dotnet mascots), which is a risk for an upstream merge. The maintainer can opt to include them later; this keeps the first PR low-risk.
 
 > **Maintainer decision point:** whether to accept any vendored third-party art at all, and whether to later include the IP-flavored species. The design supports either choice — excluded species are simply absent from `public/pets/` and the species enum.
