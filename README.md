@@ -56,6 +56,15 @@ imgcat /path/to/image.png
 
 The function is skipped if you already have an `imgcat` binary on `PATH` (e.g. iTerm2's bundled one), so it never shadows a richer impl. Kimbo also supports the multipart variant emitted by iTerm2's `imgcat` and by `fastfetch`.
 
+### Screen Pets
+
+Optional animated companions that roam the window (Settings → Pets). Sprite art
+is from [VS Code Pets](https://github.com/tonybaloney/vscode-pets) by Anthony
+Shaw, used under the MIT License — see `src-ui/public/pets/VSCODE-PETS-LICENSE`.
+Some individual sprites carry their own per-asset licenses included alongside
+them (for example `src-ui/public/pets/dog/license.txt` is CC BY-ND 4.0), and
+Kimbo ships the sprites unmodified.
+
 ## Tech Stack
 
 - **Rust** — PTY management, config, workspace detection

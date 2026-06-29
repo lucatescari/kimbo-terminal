@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Screen Pets: optional animated companions that roam over the terminal — floor walkers, a wall-climbing cat, and a flying cockatiel. Throw a ball, pet them, drag them, and add/remove/customize from Settings → Pets. Sprite art from VS Code Pets (MIT).
+
 ### Features
 
 - **Multiple windows.** ⌘N opens a new window, each with its own tabs and session. New windows start fresh; closing a window that's running a process asks first. (Quitting the app still closes everything.)

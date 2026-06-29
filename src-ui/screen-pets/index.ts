@@ -1,6 +1,6 @@
 import "../screen-pets.css";
 import { getPrefs, setPref, onChange } from "../ui-prefs";
-import type { Bounds, PetInstance, Species, PetEntity } from "./types";
+import type { Bounds, PetInstance, PetEntity } from "./types";
 import { SPECIES, spriteUrl, tokenForState } from "./sprites";
 import { PET_W, PET_H } from "./pet";
 import {
