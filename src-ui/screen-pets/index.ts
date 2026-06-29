@@ -133,6 +133,56 @@ function createPetEl(pet: PetEntity): void {
   layer.appendChild(el);
   pet.el = el;
   pet.img = img;
+
+  let dragging = false;
+  let moved = false;
+  let offX = 0, offY = 0;
+
+  const onMove = (ev: PointerEvent) => {
+    if (!dragging || !layer) return;
+    moved = true;
+    const rect = layer.getBoundingClientRect();
+    pet.pos.x = ev.clientX - rect.left - offX;
+    pet.pos.y = ev.clientY - rect.top - offY;
+    pet.vel.x = 0; pet.vel.y = 0;
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    pet.grabbed = false;
+    el.classList.remove("grabbing");
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    pet.state = pet.locomotion === "flyer" ? "walk" : "falling";
+    pet.stateUntil = 0;
+  };
+
+  el.addEventListener("pointerdown", (ev) => {
+    dragging = true;
+    moved = false;
+    pet.grabbed = true;
+    el.classList.add("grabbing");
+    const rect = el.getBoundingClientRect();
+    offX = ev.clientX - rect.left;
+    offY = ev.clientY - rect.top;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+
+  el.addEventListener("click", () => {
+    if (moved) return; // a drag, not a tap
+    pet.state = "swipe";
+    pet.stateUntil = world ? world.clock + 0.8 : 0;
+    showPetHeart(el);
+  });
+}
+
+function showPetHeart(petEl: HTMLElement): void {
+  const heart = document.createElement("span");
+  heart.className = "screen-pet-heart";
+  heart.textContent = "❤️";
+  petEl.appendChild(heart);
+  setTimeout(() => heart.remove(), 1400);
 }
 
 function startLoop(): void {
