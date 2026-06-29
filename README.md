@@ -34,6 +34,7 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 - **Configurable keybindings** — all shortcuts customizable via settings or config file
 - **Session restore** — tabs and working directories persist across app restarts
 - **Clickable URLs** — Cmd+click to open links in your browser
+- **Clickable file paths** — Cmd+click a file path in the output to open it in your default app for that type (your editor for code, Preview for images); Cmd+Shift+click reveals it in Finder
 - **Window opacity** — adjustable window transparency
 - **Quit confirmation** — optional prompt before closing active panes
 - **Drag and drop** — drop files and folders directly into the terminal
@@ -147,6 +148,14 @@ Or use the built-in settings UI (Cmd+,).
 | Cmd+Q | Quit |
 
 All keybindings are customizable in Settings > Keybindings.
+
+### Mouse
+
+| Gesture | Action |
+|---|---|
+| Cmd+click a URL | Open the link in your browser |
+| Cmd+click a file path | Open the file in your default app for that type (editor, Preview, …) |
+| Cmd+Shift+click a file path | Reveal the file in Finder |
 
 ## Themes
 
