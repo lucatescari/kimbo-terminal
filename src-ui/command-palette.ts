@@ -27,6 +27,7 @@ import {
 import { toggleSettings, openSettingsToCategory } from "./settings";
 import { toggleFindBar } from "./find-bar";
 import { kimboBus } from "./kimbo-bus";
+import { throwPetBall } from "./screen-pets";
 
 export interface Command {
   id: string;
@@ -189,6 +190,14 @@ export function initCommandPalette(): void {
     icon: "close",
     hint: "⌘Q",
     run: () => { void confirmAndQuit(); },
+  });
+  registerCommand({
+    id: "pets-throw-ball",
+    label: "Pets: Throw ball",
+    icon: "paw",
+    hint: "",
+    keywords: ["pet", "ball", "play", "toy"],
+    run: () => { throwPetBall(); },
   });
 }
 
