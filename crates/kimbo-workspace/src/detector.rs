@@ -71,7 +71,7 @@ pub fn detect_project(path: &Path) -> Option<DetectedProject> {
 pub fn scan_directory(base: &Path, max_depth: usize) -> Vec<DetectedProject> {
     let mut results = Vec::new();
     scan_recursive(base, max_depth, 0, &mut results);
-    results.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+    results.sort_by_key(|p| std::cmp::Reverse(p.last_modified));
     results
 }
 

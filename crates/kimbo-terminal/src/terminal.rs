@@ -530,7 +530,7 @@ fn list_descendant_pids(root: libc::pid_t) -> Vec<libc::pid_t> {
         let Some(after_comm) = stat.rsplit(')').next() else {
             continue;
         };
-        let fields: Vec<&str> = after_comm.trim().split_whitespace().collect();
+        let fields: Vec<&str> = after_comm.split_whitespace().collect();
         if fields.len() < 2 {
             continue;
         }
