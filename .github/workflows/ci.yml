@@ -90,6 +90,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      # Fail only on actual vulnerabilities. Informational advisories
+      # (unmaintained / unsound) are surfaced as warnings but don't block CI —
+      # most come from the Linux-only GTK stack that this macOS app never ships,
+      # plus deep transitive crates we can't directly upgrade.
+      - name: cargo audit
+        run: cargo audit
