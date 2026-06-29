@@ -131,6 +131,7 @@ function pickGroundBehavior(pet: PetEntity, ctx: PetStepCtx): void {
 }
 
 function stepFlyer(pet: PetEntity, ctx: PetStepCtx, dt: number, ball: BallEntity | null): void {
+  // MVP: flyers ignore the ball (kept for signature symmetry with stepGround).
   const { bounds } = ctx;
   if (!pet.target || ctx.clock >= pet.stateUntil) {
     pet.target = {

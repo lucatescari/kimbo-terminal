@@ -1265,7 +1265,7 @@ export function renderScreenPets(el: HTMLElement): void {
   el.appendChild(general);
 
   const roster = section("Your pets");
-  const list = getPrefs().screenPets;
+  const list = prefs.screenPets;
   if (list.length === 0) {
     const empty = document.createElement("p");
     empty.className = "hint";

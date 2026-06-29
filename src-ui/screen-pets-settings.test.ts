@@ -11,7 +11,9 @@ describe("screen pets settings", () => {
     setPref("screenPets", [{ id: "a", species: "dog", color: "brown", name: "Rex" }]);
     const el = document.createElement("div");
     renderScreenPets(el);
-    expect(el.querySelector("input,button,select")).not.toBeNull();
+    // The enable toggle is rendered via the toggle() helper which produces a
+    // div[role="switch"] — assert it specifically rather than any form control.
+    expect(el.querySelector('div[role="switch"]')).not.toBeNull();
     expect(el.textContent).toContain("Rex");
   });
 

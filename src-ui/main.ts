@@ -19,7 +19,7 @@ import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
 import { initStatusBar, stopStatusBarPolling } from "./status-bar";
 import { initCommandPalette } from "./command-palette";
-import { initScreenPets } from "./screen-pets";
+import { initScreenPets, disposeScreenPets } from "./screen-pets";
 import { initWindowActivationTracking } from "./window-activation";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
 import { loadSession, startSessionAutosave } from "./session-state";
@@ -136,6 +136,7 @@ async function init() {
     stopSessionAutosave();
     disposeTabs();
     stopStatusBarPolling();
+    disposeScreenPets();
   });
 
   // Wire claude-notify events to toast/badges/macOS notifications.

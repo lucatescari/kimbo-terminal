@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Vendors the subset of VS Code Pets (MIT) sprites Kimbo ships.
-# Source: https://github.com/tonybaloney/vscode-pets (media/, media/extra.zip)
+# Source: https://github.com/tonybaloney/vscode-pets (media/ for most species;
+#         vscode-pets-1.35.0.vsix release for cat, as media/extra.zip is password-encrypted)
 set -euo pipefail
 
 RAW="https://raw.githubusercontent.com/tonybaloney/vscode-pets/main/media"
