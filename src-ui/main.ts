@@ -19,6 +19,7 @@ import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
 import { initStatusBar, stopStatusBarPolling } from "./status-bar";
 import { initCommandPalette } from "./command-palette";
+import { initScreenPets } from "./screen-pets";
 import { initWindowActivationTracking } from "./window-activation";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
 import { loadSession, startSessionAutosave } from "./session-state";
@@ -55,6 +56,7 @@ async function init() {
   initStatusBar(statusBar);
   initSettings(terminalArea);
   initCommandPalette();
+  initScreenPets(terminalArea);
   initFindBar(document.body);
   setTabTitleHandler((sessionId, title) => setTabTitle(sessionId, title));
   setBellBadgeHandler((sessionId) => setTabBadgeForSession(sessionId, "bell"));
