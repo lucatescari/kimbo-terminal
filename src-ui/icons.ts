@@ -28,7 +28,8 @@ export type IconName =
   | "history"
   | "git"
   | "download"
-  | "external";
+  | "external"
+  | "paw";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -200,6 +201,14 @@ function paths(name: IconName): SVGElement[] {
         el("path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }),
         el("polyline", { points: "15 3 21 3 21 9" }),
         el("line", { x1: "10", y1: "14", x2: "21", y2: "3" }),
+      ];
+    case "paw":
+      return [
+        el("ellipse", { cx: "12", cy: "15", rx: "4", ry: "3.2" }),
+        el("circle", { cx: "6.5", cy: "9", r: "1.6" }),
+        el("circle", { cx: "10", cy: "6.5", r: "1.6" }),
+        el("circle", { cx: "14", cy: "6.5", r: "1.6" }),
+        el("circle", { cx: "17.5", cy: "9", r: "1.6" }),
       ];
   }
 }
