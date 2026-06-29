@@ -6,6 +6,7 @@
 // schema just to flip a class name.
 
 import type { ThemeMode } from "./theme-filter";
+import type { PetInstance } from "./screen-pets/types";
 
 const KEY = "kimbo-ui-prefs-v1";
 
@@ -65,6 +66,10 @@ export interface UiPrefs {
    *  built-in/installed grid and the community gallery. Persisted so a
    *  user who only wants dark themes doesn't re-pick on each open. */
   themePickerMode: ThemeMode;
+  /** Screen pets: roaming companions on top of the terminal. */
+  screenPetsEnabled: boolean;
+  screenPets: PetInstance[];
+  screenPetsSpeed: "calm" | "normal" | "lively";
 }
 
 const DEFAULTS: UiPrefs = {
@@ -82,6 +87,9 @@ const DEFAULTS: UiPrefs = {
   bellVisual: true,
   bellSound: false,
   themePickerMode: "all",
+  screenPetsEnabled: false,
+  screenPets: [],
+  screenPetsSpeed: "normal",
 };
 
 let cache: UiPrefs | null = null;
