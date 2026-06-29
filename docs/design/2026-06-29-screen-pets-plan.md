@@ -1484,6 +1484,7 @@ function createPetEl(pet: PetEntity): void {
 
 function startLoop(): void {
   if (rafId || !world) return;
+  if (typeof requestAnimationFrame === "undefined") return; // jsdom without rAF (tests)
   lastTs = 0;
   const tick = (ts: number) => {
     if (!world) return;
@@ -1533,6 +1534,7 @@ export function throwPetBall(): void {
   const from = { x: b.left + 20, y: b.top + 20 };
   const vx = 150 + Math.random() * 250;
   throwBall(world, from, { x: vx, y: 40 });
+  render(); // surface the ball immediately (and synchronously for tests)
 }
 ```
 
@@ -1589,11 +1591,14 @@ describe("screen pet interactions", () => {
   });
 
   it("pointer drag marks the pet grabbing and moves it", () => {
+    // jsdom has no PointerEvent constructor; dispatch MouseEvents with the
+    // pointer* type names — listeners on "pointerdown" fire regardless, and
+    // MouseEvent carries clientX/clientY which the handler reads.
     const el = firstPetEl();
-    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10, pointerId: 1 }));
+    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }));
     expect(el.classList.contains("grabbing")).toBe(true);
-    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 120, clientY: 80, pointerId: 1 }));
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+    window.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 120, clientY: 80 }));
+    window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
     expect(el.classList.contains("grabbing")).toBe(false);
   });
 });
@@ -1730,10 +1735,9 @@ describe("screen pets toy button", () => {
     expect(toy).not.toBeNull();
     expect(document.querySelector(".screen-pet-ball")).toBeNull();
     toy.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    // After a throw the ball entity exists; the element appears on the next render frame,
-    // but throwPetBall created the entity synchronously.
-    // Force a render by toggling and reading state is unnecessary; assert via no throw error.
-    expect(toy).not.toBeNull();
+    // throwPetBall() creates the ball entity AND calls render() synchronously,
+    // so the ball element exists immediately.
+    expect(document.querySelector(".screen-pet-ball")).not.toBeNull();
   });
 });
 ```
@@ -1996,7 +2000,7 @@ Immediately after the `initCommandPalette();` line, add:
 
 - [ ] **Step 3: Build to verify wiring**
 
-Run: `npm run build` (or `npx tsc --noEmit -p tsconfig.json && npx vite build`)
+Run: `npm run build:frontend` (this is `tsc && vite build`; do NOT use `npm run build`, which is the heavy `cargo tauri build`)
 Expected: build succeeds with no type errors.
 
 - [ ] **Step 4: Commit**
