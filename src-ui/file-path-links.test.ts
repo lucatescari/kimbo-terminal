@@ -2,11 +2,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const invokeMock = vi.fn();
+const openMock = vi.fn().mockResolvedValue(undefined);
 const revealMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...(args as [string, unknown])),
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({
+  openPath: (...args: unknown[]) => openMock(...args),
   revealItemInDir: (...args: unknown[]) => revealMock(...args),
 }));
 
@@ -44,6 +46,7 @@ function provide(provider: ReturnType<typeof fakeTerm>["getProvider"]): Promise<
 
 beforeEach(() => {
   invokeMock.mockReset();
+  openMock.mockClear();
   revealMock.mockClear();
 });
 
@@ -65,16 +68,21 @@ describe("attachFilePathLinks", () => {
     expect(links![0].range.start.y).toBe(1);
   });
 
-  it("Cmd+click reveals the resolved path; plain click does not", async () => {
+  it("Cmd+click opens path; Cmd+Shift+click reveals; plain click does nothing", async () => {
     invokeMock.mockResolvedValue("/abs/a/b.ts");
     const { term, getProvider } = fakeTerm("/a/b.ts");
     attachFilePathLinks(term as never, () => "/cwd");
     const links = await provide(getProvider);
 
-    links![0].activate({ metaKey: false } as MouseEvent, "/a/b.ts");
+    links![0].activate({ metaKey: false, shiftKey: false } as MouseEvent, "/a/b.ts");
+    expect(openMock).not.toHaveBeenCalled();
     expect(revealMock).not.toHaveBeenCalled();
 
-    links![0].activate({ metaKey: true } as MouseEvent, "/a/b.ts");
+    links![0].activate({ metaKey: true, shiftKey: false } as MouseEvent, "/a/b.ts");
+    expect(openMock).toHaveBeenCalledWith("/abs/a/b.ts");
+    expect(revealMock).not.toHaveBeenCalled();
+
+    links![0].activate({ metaKey: true, shiftKey: true } as MouseEvent, "/a/b.ts");
     expect(revealMock).toHaveBeenCalledWith("/abs/a/b.ts");
   });
 

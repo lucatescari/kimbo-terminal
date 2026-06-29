@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Features
+
+- **Open files from the terminal.** Cmd+click a file path in terminal output to open it in your default app for that file type (your editor for code, Preview for images). Cmd+Shift+click still reveals it in Finder.
+
 ### Security
 
 - Enabled a restrictive Content-Security-Policy for the webview (it was previously disabled), constraining script, style, connect, and image sources.
