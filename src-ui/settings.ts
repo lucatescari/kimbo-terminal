@@ -31,6 +31,8 @@ import {
 } from "./keybindings";
 import { isMacOS } from "./platform";
 import { filterThemes, type ThemeMode } from "./theme-filter";
+import { speciesList, SPECIES } from "./screen-pets/sprites";
+import { newPetId } from "./screen-pets";
 import {
   getCachedUpdate,
   forceCheckUpdate,
@@ -65,6 +67,7 @@ export type SettingsCategory =
   | "workspaces"
   | "keybinds"
   | "kimbo"
+  | "screen-pets"
   | "claude-code"
   | "advanced"
   | "about";
@@ -75,7 +78,8 @@ const NAV: { id: SettingsCategory; label: string; icon: IconName }[] = [
   { id: "font",       label: "Font",       icon: "type" },
   { id: "workspaces", label: "Workspaces", icon: "layers" },
   { id: "keybinds",   label: "Keybinds",   icon: "keyboard" },
-  { id: "kimbo",      label: "Kimbo",      icon: "smile" },
+  { id: "kimbo",       label: "Kimbo",      icon: "smile" },
+  { id: "screen-pets", label: "Pets",       icon: "paw" },
   { id: "claude-code", label: "Claude Code", icon: "smile" },
   { id: "advanced",   label: "Advanced",   icon: "wrench" },
   { id: "about",      label: "About",      icon: "info" },
@@ -344,8 +348,9 @@ function renderActive(): void {
     case "font":        renderFont(mainEl); break;
     case "workspaces":  renderWorkspaces(mainEl); break;
     case "keybinds":    renderKeybinds(mainEl); break;
-    case "kimbo":       void renderKimbo(mainEl); break;
-    case "claude-code": void renderClaudeCode(mainEl); break;
+    case "kimbo":        void renderKimbo(mainEl); break;
+    case "screen-pets":  renderScreenPets(mainEl); break;
+    case "claude-code":  void renderClaudeCode(mainEl); break;
     case "advanced":    renderAdvanced(mainEl); break;
     case "about":       void renderAbout(mainEl); break;
   }
@@ -1230,6 +1235,88 @@ async function renderKimbo(el: HTMLElement): Promise<void> {
   }
 
   el.appendChild(shell);
+}
+
+// ===========================================================================
+// Screen Pets
+// ===========================================================================
+
+export function renderScreenPets(el: HTMLElement): void {
+  el.innerHTML = "";
+  const prefs = getPrefs();
+
+  el.appendChild(header("Pets", "Animated companions that roam over the terminal."));
+
+  const general = section("General");
+  general.appendChild(row(
+    "Enable pets",
+    "Show roaming pets on top of the terminal.",
+    toggle(prefs.screenPetsEnabled, (v) => { setPref("screenPetsEnabled", v); renderScreenPets(el); }),
+  ));
+  general.appendChild(row(
+    "Liveliness",
+    "How energetically the pets move.",
+    select(prefs.screenPetsSpeed, [
+      ["calm", "Calm"],
+      ["normal", "Normal"],
+      ["lively", "Lively"],
+    ], (v) => setPref("screenPetsSpeed", v as typeof prefs.screenPetsSpeed)),
+  ));
+  el.appendChild(general);
+
+  const roster = section("Your pets");
+  const list = getPrefs().screenPets;
+  if (list.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = "No pets yet. Add one below.";
+    roster.appendChild(empty);
+  }
+
+  list.forEach((pet) => {
+    const speciesSel = select(pet.species, speciesList().map((s) => [s, s]), (v) => {
+      const next = getPrefs().screenPets.map((p) =>
+        p.id === pet.id ? { ...p, species: v as typeof p.species, color: SPECIES[v as keyof typeof SPECIES].defaultColor } : p);
+      setPref("screenPets", next);
+      renderScreenPets(el);
+    });
+    const colorSel = select(pet.color, SPECIES[pet.species].colors.map((c) => [c, c]), (v) => {
+      setPref("screenPets", getPrefs().screenPets.map((p) => p.id === pet.id ? { ...p, color: v } : p));
+    });
+
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = pet.name;
+    name.className = "settings-input";
+    name.addEventListener("change", () => {
+      setPref("screenPets", getPrefs().screenPets.map((p) => p.id === pet.id ? { ...p, name: name.value } : p));
+    });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      setPref("screenPets", getPrefs().screenPets.filter((p) => p.id !== pet.id));
+      renderScreenPets(el);
+    });
+
+    const controls = document.createElement("div");
+    controls.style.display = "flex";
+    controls.style.gap = "8px";
+    controls.append(speciesSel, colorSel, name, remove);
+    roster.appendChild(row(pet.name || pet.species, "", controls));
+  });
+
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add pet";
+  add.addEventListener("click", () => {
+    const next = [...getPrefs().screenPets, { id: newPetId(), species: "dog" as const, color: SPECIES.dog.defaultColor, name: "Pet" }];
+    setPref("screenPets", next.slice(0, 8)); // hard cap of 8
+    renderScreenPets(el);
+  });
+  roster.appendChild(add);
+  el.appendChild(roster);
 }
 
 // ===========================================================================
