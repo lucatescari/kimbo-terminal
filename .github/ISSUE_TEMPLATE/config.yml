@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lucatescari/kimbo-terminal/security/policy
+    about: Please report security issues privately — see SECURITY.md, do not open a public issue.
+  - name: Themes
+    url: https://github.com/lucatescari/kimbo-themes
+    about: To contribute or browse community themes, use the kimbo-themes repo.

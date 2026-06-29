@@ -1,7 +1,11 @@
 [package]
 name = "kimbo-config"
+description = "Configuration, JSON theme, and keybinding loading for Kimbo"
 version = "0.16.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 toml.workspace = true

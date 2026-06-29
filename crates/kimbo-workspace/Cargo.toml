@@ -1,7 +1,11 @@
 [package]
 name = "kimbo-workspace"
+description = "Project detection and directory scanning for Kimbo"
 version = "0.16.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 serde.workspace = true

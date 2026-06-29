@@ -1,6 +1,28 @@
 # Changelog
 
+All notable changes to Kimbo are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
+
 ## Unreleased
+
+### Security
+
+- Enabled a restrictive Content-Security-Policy for the webview (it was previously disabled), constraining script, style, connect, and image sources.
+- Community theme installs now sanitize the theme slug before touching the filesystem and only download over HTTPS from the official `kimbo-themes` host, closing a path-traversal/SSRF gap if the community index were compromised.
+- The Claude notify socket is now created with private permissions (`0700` directory, `0600` socket), and the unused shell-open capability/plugin was removed to shrink the IPC surface.
+
+### Performance
+
+- The per-pane Claude HUD process probe now runs only for the visible tab and only when the HUD is enabled, eliminating a continuous `ps` scan across hidden tabs and when the HUD is turned off.
+
+### Notes
+
+- Added GitHub issue and pull-request templates and a Code of Conduct.
+- CI now enforces `cargo clippy -D warnings`, `cargo fmt --check`, and a dependency audit.
+
+## 0.16.0
 
 ### Features
 
@@ -13,10 +35,57 @@
 ### Fixes
 
 - Hardened the PTY manager and the Claude integration install paths against rare panics, so a poisoned lock or unusual filesystem path can no longer crash the app.
+- Session layout is now flushed on quit, so the last layout is never lost.
 
 ### Notes
 
 - Kimbo now documents a minimum of **macOS 13 (Ventura)**. Added a `SECURITY.md` with a private vulnerability-disclosure contact.
+
+## 0.15.5
+
+### Fixes
+
+- Restore each tab's working directory on every shell, not just OSC 7-aware ones.
+
+## 0.15.4
+
+### Features
+
+- Settings: keybindings are grouped by category and the whole row is clickable to rebind.
+
+## 0.15.3
+
+### Fixes
+
+- Run blocking Claude Code commands off the main thread, fixing a startup beachball.
+
+## 0.15.2
+
+- Maintenance release.
+
+## 0.15.1
+
+### Fixes
+
+- Light themes are now readable — transparency is only applied when the window is translucent.
+
+## 0.15.0
+
+### Features
+
+- **Opt-in crash reporting.** Sentry-based crash and error reporting for both the Rust backend and the webview, off by default, with a Settings toggle. (#10)
+- **Rebindable keybindings.** All shortcuts are rebindable (macOS-aware: the native menu keeps its accelerators), backed by an action registry with chord support, plus a "Reset all settings" action. (#13)
+- Clickable file paths: Cmd+click a path in the terminal to reveal it in Finder.
+
+### Fixes
+
+- Settings modal no longer opens twice on first open.
+
+## 0.14.2
+
+### Performance
+
+- Added a comprehensive memory-leak regression suite and fixed the leaks it surfaced: leaked `setInterval` handles across tabs/panes/status-bar, leaked blob URLs on terminal disposal, and unbounded growth of the notification timestamp map. Also optimized the OSC 8 hyperlink hot path.
 
 ## 0.14.1
 

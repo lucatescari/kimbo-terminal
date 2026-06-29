@@ -32,6 +32,7 @@ Thumbs.db
 # Development tools
 .superpowers/
 docs/superpowers/
+docs/design/kimbo-handoff/
 TEST_README.md
 
 # MCP config (local)

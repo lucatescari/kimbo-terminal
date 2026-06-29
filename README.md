@@ -16,8 +16,6 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
   <img src="src-ui/public/kimbo_surprised.png" alt="Kimbo (surprised)" width="128" />
 </p>
 
-> **Beta** — Kimbo is in active development. Expect rough edges. Feedback and contributions welcome.
-
 <p align="center">
   <img src="assets/kimbo-general.gif" alt="Kimbo general features demo" width="720" />
 </p>
@@ -67,7 +65,7 @@ The function is skipped if you already have an `imgcat` binary on `PATH` (e.g. i
 
 ### Build from Source
 
-Requires: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) (v18+), [Tauri CLI](https://tauri.app/)
+Requires: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) (v20+), [Tauri CLI](https://tauri.app/)
 
 ```bash
 git clone https://github.com/lucatescari/kimbo-terminal.git

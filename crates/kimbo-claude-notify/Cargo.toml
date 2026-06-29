@@ -1,7 +1,11 @@
 [package]
 name = "kimbo-claude-notify"
+description = "Claude Code per-pane notification shim bundled with Kimbo"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [lib]
 path = "src/lib.rs"

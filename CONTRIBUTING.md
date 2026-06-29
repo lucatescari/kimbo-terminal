@@ -1,6 +1,6 @@
 # Contributing to Kimbo
 
-Thanks for your interest in contributing! Kimbo is in early beta and contributions are welcome.
+Thanks for your interest in contributing! Contributions are welcome.
 
 ## Getting Started
 
