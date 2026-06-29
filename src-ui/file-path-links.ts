@@ -1,7 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "@tauri-apps/api/core";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { detectFilePaths } from "./file-path-detect";
+import { choosePathAction } from "./file-path-action";
 
 // Cap on cached path-resolution results. Like osc8.ts's MAX_TRACKED_RANGES,
 // this keeps a long-lived terminal from growing the cache without bound; oldest
@@ -9,10 +10,11 @@ import { detectFilePaths } from "./file-path-detect";
 const MAX_CACHE = 5_000;
 
 /** Make existing file paths in terminal output clickable: hovering underlines
- *  paths that resolve to a real file/dir on disk, and Cmd+click reveals the
- *  target in Finder (the OS file manager). Relative paths resolve against the
- *  shell's current working directory, supplied lazily via `getCwd` so the
- *  freshest OSC 7 value is used at hover time.
+ *  paths that resolve to a real file/dir on disk. Cmd+click opens the target in
+ *  the OS default app for its type (your editor for code, Preview for images,
+ *  Finder for folders); Cmd+Shift+click reveals it in Finder. Relative paths
+ *  resolve against the shell's current working directory, supplied lazily via
+ *  `getCwd` so the freshest OSC 7 value is used at hover time.
  *
  *  The link provider and its cache live for the Terminal's lifetime and are
  *  released by term.dispose() — no separate teardown needed (same as the OSC 8
@@ -64,12 +66,21 @@ export function attachFilePathLinks(term: Terminal, getCwd: () => string | null)
           },
           text: c.raw,
           // Gate on Cmd to match Kimbo's URL/OSC 8 link behavior and to avoid
-          // hijacking normal text selection.
+          // hijacking normal text selection. Cmd opens in the default app;
+          // Cmd+Shift reveals in Finder.
           activate: (event: MouseEvent) => {
-            if (!event.metaKey) return;
-            revealItemInDir(resolved).catch((e) =>
-              console.error("revealItemInDir failed:", e),
-            );
+            switch (choosePathAction(event)) {
+              case "open":
+                openPath(resolved).catch((e) =>
+                  console.error("openPath failed:", e),
+                );
+                break;
+              case "reveal":
+                revealItemInDir(resolved).catch((e) =>
+                  console.error("revealItemInDir failed:", e),
+                );
+                break;
+            }
           },
         });
       }
