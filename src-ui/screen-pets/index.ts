@@ -3,7 +3,6 @@ import { getPrefs, setPref, onChange } from "../ui-prefs";
 import type { Bounds, PetInstance, Species, PetEntity } from "./types";
 import { SPECIES, spriteUrl, tokenForState } from "./sprites";
 import { PET_W, PET_H } from "./pet";
-import { BALL_SIZE } from "./ball";
 import {
   createWorld, stepWorld, addPet, removePet, setBounds, throwBall, type World,
 } from "./world";
@@ -36,27 +35,33 @@ function computeBounds(): Bounds {
 
 export function initScreenPets(rootEl: HTMLElement): void {
   root = rootEl;
+  // Guard against double-init leaking a prior subscription.
+  unsub?.(); unsub = null;
   // React to enable/roster/speed changes.
   unsub = onChange(() => reconcile());
   reconcile();
 }
 
-export function disposeScreenPets(): void {
+function teardownLayer(): void {
   stopLoop();
-  unsub?.();
-  unsub = null;
-  resizeObs?.disconnect();
-  resizeObs = null;
-  layer?.remove();
-  layer = null;
+  document.removeEventListener("visibilitychange", onVisibility);
+  window.removeEventListener("resize", onWindowResize);
+  resizeObs?.disconnect(); resizeObs = null;
+  ballEl?.remove(); ballEl = null;
+  layer?.remove(); layer = null;
   world = null;
+}
+
+export function disposeScreenPets(): void {
+  unsub?.(); unsub = null;
+  teardownLayer();
 }
 
 /** Build/teardown the layer and world to match current prefs. */
 function reconcile(): void {
   const prefs = getPrefs();
   if (!prefs.screenPetsEnabled) {
-    if (layer) { stopLoop(); resizeObs?.disconnect(); resizeObs = null; layer.remove(); layer = null; world = null; }
+    if (layer) teardownLayer();
     return;
   }
 
