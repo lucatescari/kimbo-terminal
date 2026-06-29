@@ -202,10 +202,12 @@ pub(crate) fn attach_window_lifecycle<R: tauri::Runtime>(win: &tauri::WebviewWin
                 // destroy()s the window — destroy bypasses CloseRequested, so
                 // there's no confirm loop. On cancel the window stays open.
                 //
-                // TODO(multi-window): per-window PTY teardown. The global
-                // PtyManager is keyed by session id, not window, so PTYs
-                // spawned in this window are reaped by kill_all at app exit
-                // rather than the moment the window closes.
+                // Per-window PTY teardown is handled on the frontend: the
+                // window-close-requested handler (requestCloseCurrentWindow in
+                // close-confirm.ts) closes this window's panes' PTYs before
+                // destroy(), so their process trees are reaped now rather than
+                // by kill_all at app exit. (PtyManager is keyed by session id,
+                // not window, so it can't scope the teardown itself.)
                 api.prevent_close();
                 let _ = win_close.emit_to(win_close.label(), "window-close-requested", ());
             }

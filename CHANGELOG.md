@@ -7,9 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixes
+
+- **Closing a secondary window now reaps its shells immediately.** A window opened with ⌘N closes its panes' PTYs (and their whole process trees) the moment the window closes, instead of leaving them running until you quit the app. The global PTY manager is keyed by session rather than window, so the window-close path now tears them down explicitly.
+
+## 0.16.2
+
 ### Features
 
 - **Open files from the terminal.** Cmd+click a file path in terminal output to open it in your default app for that file type (your editor for code, Preview for images). Cmd+Shift+click still reveals it in Finder.
+
+### Fixes
+
+- The surviving pane now fills the window after a resize-then-close, instead of leaving a gap.
+
+### Security
+
+- Bumped `rustls-webpki` to 0.103.13 (RUSTSEC-2026-0104).
+
+### Notes
+
+- CI now runs `cargo audit` directly and fails only on actual vulnerabilities.
+
+## 0.16.1
 
 ### Security
 

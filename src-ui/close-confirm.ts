@@ -10,8 +10,8 @@
 // terminates too — no more init-owned orphans hanging on the port.
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree, getTabCount } from "./tabs";
-import { ptyIsBusy } from "./pty";
+import { getActiveSession, getActiveTab, closeActiveOrTab, closeTab, getTree, getTabCount, collectOpenPanes } from "./tabs";
+import { ptyIsBusy, closePty } from "./pty";
 import { getPrefs, setPref } from "./ui-prefs";
 import { showConfirmDialog } from "./quit-dialog";
 import { confirmAndQuit, confirmDiscardBusyPanes } from "./quit-confirm";
@@ -102,8 +102,8 @@ export async function confirmAndCloseActiveTab(): Promise<boolean> {
 /** Closing the last tab/pane of a window. On a SECONDARY window this must
  *  close only that window, never quit the whole app — Cmd+Q / closing the
  *  MAIN window keeps the confirm-and-quit behavior. (The secondary window's
- *  PTYs are reaped by kill_all at app exit — see the per-window-PTY TODO in
- *  commands/window.rs.) */
+ *  PTYs are closed in requestCloseCurrentWindow before the window is
+ *  destroyed, so they don't linger until app exit.) */
 async function closeLastTabOrQuit(): Promise<boolean> {
   if (getCurrentWindow().label !== "main") {
     return await requestCloseCurrentWindow();
@@ -134,6 +134,16 @@ export async function requestCloseCurrentWindow(): Promise<boolean> {
   closingWindow = true;
   try {
     if (!(await confirmDiscardBusyPanes("close-window"))) return false;
+    // Reap THIS window's PTYs before destroy(). The global PtyManager is
+    // keyed by session id, not by window, so without this the shells spawned
+    // in this window would linger until kill_all at app exit. closePty
+    // SIGHUP/SIGKILLs each session's whole process tree now instead. Errors
+    // are swallowed per-pane so a transiently closed FD can't wedge the close.
+    await Promise.all(
+      collectOpenPanes().map((p) =>
+        closePty(p.ptyId).catch((e) => console.warn("closePty on window close failed:", e)),
+      ),
+    );
     await getCurrentWindow().destroy();
     return true;
   } finally {

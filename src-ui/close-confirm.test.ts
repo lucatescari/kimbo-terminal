@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   getActiveTab: vi.fn(),
   getTree: vi.fn(),
   getTabCount: vi.fn().mockReturnValue(2),
+  collectOpenPanes: vi.fn().mockReturnValue([]),
   confirmAndQuit: vi.fn().mockResolvedValue(true),
   confirmDiscardBusyPanes: vi.fn().mockResolvedValue(true),
   ptyIsBusy: vi.fn().mockResolvedValue(false),
+  closePty: vi.fn().mockResolvedValue(undefined),
   showConfirmDialog: vi.fn(),
   setPref: vi.fn(),
   prefs: { confirmQuit: true } as { confirmQuit: boolean },
@@ -28,8 +30,9 @@ vi.mock("./tabs", () => ({
   getActiveTab: () => mocks.getActiveTab(),
   getTree: () => mocks.getTree(),
   getTabCount: () => mocks.getTabCount(),
+  collectOpenPanes: () => mocks.collectOpenPanes(),
 }));
-vi.mock("./pty", () => ({ ptyIsBusy: mocks.ptyIsBusy }));
+vi.mock("./pty", () => ({ ptyIsBusy: mocks.ptyIsBusy, closePty: mocks.closePty }));
 vi.mock("./ui-prefs", () => ({
   getPrefs: () => mocks.prefs,
   setPref: mocks.setPref,
@@ -50,8 +53,10 @@ beforeEach(() => {
   mocks.getTree.mockReset();
   mocks.getTabCount.mockReset().mockReturnValue(2);
   mocks.confirmAndQuit.mockReset().mockResolvedValue(true);
+  mocks.collectOpenPanes.mockReset().mockReturnValue([]);
   mocks.confirmDiscardBusyPanes.mockReset().mockResolvedValue(true);
   mocks.ptyIsBusy.mockReset().mockResolvedValue(false);
+  mocks.closePty.mockReset().mockResolvedValue(undefined);
   mocks.showConfirmDialog.mockReset();
   mocks.setPref.mockReset();
   mocks.prefs.confirmQuit = true;
@@ -334,6 +339,45 @@ describe("requestCloseCurrentWindow", () => {
     const result = await requestCloseCurrentWindow();
     expect(result).toBe(false);
     expect(mocks.windowDestroy).not.toHaveBeenCalled();
+  });
+
+  it("closes every pane's PTY before destroying the window", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(true);
+    mocks.collectOpenPanes.mockReturnValue([
+      { tabName: "Project", ptyId: 11 },
+      { tabName: "Project", ptyId: 22 },
+      { tabName: "Other", ptyId: 33 },
+    ]);
+    const order: string[] = [];
+    mocks.closePty.mockImplementation((id: number) => {
+      order.push(`close:${id}`);
+      return Promise.resolve();
+    });
+    mocks.windowDestroy.mockImplementation(() => {
+      order.push("destroy");
+      return Promise.resolve();
+    });
+
+    const result = await requestCloseCurrentWindow();
+
+    expect(result).toBe(true);
+    expect(mocks.closePty).toHaveBeenCalledWith(11);
+    expect(mocks.closePty).toHaveBeenCalledWith(22);
+    expect(mocks.closePty).toHaveBeenCalledWith(33);
+    // Every PTY is reaped BEFORE the window is destroyed, so no shells
+    // are left for kill_all to mop up at app exit.
+    expect(order).toEqual(["close:11", "close:22", "close:33", "destroy"]);
+  });
+
+  it("a single pane's closePty failure still destroys the window", async () => {
+    mocks.windowLabel = "win-1";
+    mocks.confirmDiscardBusyPanes.mockResolvedValue(true);
+    mocks.collectOpenPanes.mockReturnValue([{ tabName: "Project", ptyId: 9 }]);
+    mocks.closePty.mockRejectedValue(new Error("FD already closed"));
+    const result = await requestCloseCurrentWindow();
+    expect(result).toBe(true);
+    expect(mocks.windowDestroy).toHaveBeenCalledOnce();
   });
 
   it("re-entry guard: a second call while one is in flight is a no-op", async () => {
