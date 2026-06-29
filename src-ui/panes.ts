@@ -250,6 +250,12 @@ export function closeActive(): void {
   const grandparent = splitNode.element.parentElement!;
   grandparent.replaceChild(sibling.element, splitNode.element);
 
+  // Reset the promoted sibling to fill its new parent. A resize drag pins the
+  // FIRST child of a split to a fixed basis (`flex: 0 0 Npx`, see
+  // split-handle-drag.ts); without this reset, closing the other pane would
+  // leave that survivor stuck at its dragged size instead of going full-size.
+  sibling.element.style.flex = "1";
+
   // Replace in tree.
   replaceSplitWithChild(splitNode, sibling);
 
