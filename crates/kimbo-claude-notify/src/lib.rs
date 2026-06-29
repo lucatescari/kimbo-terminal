@@ -34,7 +34,11 @@ pub fn parse_hook_payload(stdin: &str) -> Option<HookPayload> {
         _ => return None,
     };
     let message = v.get("message").and_then(|m| m.as_str()).map(String::from);
-    Some(HookPayload { session_id, kind, message })
+    Some(HookPayload {
+        session_id,
+        kind,
+        message,
+    })
 }
 
 #[cfg(test)]
@@ -65,7 +69,10 @@ mod parse_tests {
         }"#;
         let got = parse_hook_payload(s).expect("happy path");
         assert_eq!(got.kind, NotifyKind::Notification);
-        assert_eq!(got.message.as_deref(), Some("Claude needs your permission to use Bash"));
+        assert_eq!(
+            got.message.as_deref(),
+            Some("Claude needs your permission to use Bash")
+        );
     }
 
     #[test]
@@ -175,7 +182,9 @@ mod path_tests {
         let dir = tempfile::tempdir().unwrap();
         // SAFETY: tests in this crate are single-threaded inside this module.
         let saved = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", dir.path()); }
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+        }
         let got = resolve_socket_path().unwrap();
         match saved {
             Some(v) => unsafe { std::env::set_var("HOME", v) },

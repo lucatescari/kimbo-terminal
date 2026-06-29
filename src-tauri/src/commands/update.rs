@@ -25,7 +25,9 @@ pub struct UpdateInfo {
 
 /// Strip a leading `v` (case-insensitive) so `v0.3.0` parses as semver.
 fn strip_v_prefix(tag: &str) -> &str {
-    tag.strip_prefix('v').or_else(|| tag.strip_prefix('V')).unwrap_or(tag)
+    tag.strip_prefix('v')
+        .or_else(|| tag.strip_prefix('V'))
+        .unwrap_or(tag)
 }
 
 /// Compare two version strings. Returns `true` iff `latest > current` per semver.
@@ -95,8 +97,7 @@ pub struct UpdateState {
     pub cache: Mutex<Option<UpdateInfo>>,
 }
 
-const LATEST_URL: &str =
-    "https://api.github.com/repos/lucatescari/kimbo-terminal/releases/latest";
+const LATEST_URL: &str = "https://api.github.com/repos/lucatescari/kimbo-terminal/releases/latest";
 const LIST_URL: &str =
     "https://api.github.com/repos/lucatescari/kimbo-terminal/releases?per_page=10";
 const USER_AGENT: &str = "kimbo-terminal";
@@ -248,7 +249,10 @@ mod tests {
     fn parse_release_extracts_fields() {
         let r = parse_single_release(STABLE_RELEASE_JSON).unwrap();
         assert_eq!(r.tag_name, "v0.3.0");
-        assert_eq!(r.html_url, "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0");
+        assert_eq!(
+            r.html_url,
+            "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0"
+        );
         assert_eq!(r.published_at.as_deref(), Some("2026-04-15T10:00:00Z"));
         assert!(r.body.contains("Faster splits"));
         assert!(!r.draft);
@@ -288,7 +292,10 @@ mod tests {
         assert_eq!(info.current, "0.2.1");
         assert_eq!(info.latest, "0.3.0"); // `v` stripped
         assert!(info.is_newer);
-        assert_eq!(info.release_url, "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0");
+        assert_eq!(
+            info.release_url,
+            "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0"
+        );
         assert_eq!(info.published_at, "2026-04-15T10:00:00Z");
         assert!(info.notes.contains("Faster splits"));
     }

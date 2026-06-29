@@ -2,8 +2,8 @@
 //!
 //! See `docs/superpowers/specs/2026-04-30-claude-rate-limits-hud-design.md`.
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // RateLimits / LimitWindow live in the sidecar lib so the cache schema has a
 // single source of truth. Re-export so callers in this crate can use them.
@@ -72,7 +72,9 @@ pub fn decide_install_action(settings_json: Option<&str>, our_wrapper_path: &str
     match cmd {
         None => InstallAction::InstallSilently,
         Some(c) if c == our_wrapper_path => InstallAction::AlreadyOurs,
-        Some(c) => InstallAction::AskFirst { existing: c.to_string() },
+        Some(c) => InstallAction::AskFirst {
+            existing: c.to_string(),
+        },
     }
 }
 
@@ -118,7 +120,9 @@ mod planner_tests {
         let s = r#"{"statusLine":{"type":"command","command":"/usr/local/bin/my-bar"}}"#;
         assert_eq!(
             decide_install_action(Some(s), "/x/wrapper.sh"),
-            InstallAction::AskFirst { existing: "/usr/local/bin/my-bar".into() }
+            InstallAction::AskFirst {
+                existing: "/usr/local/bin/my-bar".into()
+            }
         );
     }
 
@@ -160,10 +164,14 @@ pub fn render_wrapper_script(sidecar_abs_path: &str, app_data_abs_path: &str) ->
 /// other keys verbatim.
 pub fn install_into_settings(current: Option<&str>, wrapper_path: &str) -> Result<String, String> {
     let mut v: serde_json::Value = match current {
-        Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({}))
+        }
         _ => serde_json::json!({}),
     };
-    let map = v.as_object_mut().ok_or_else(|| "settings.json root is not an object".to_string())?;
+    let map = v
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
     map.insert(
         "statusLine".to_string(),
         serde_json::json!({ "type": "command", "command": wrapper_path }),
@@ -178,10 +186,14 @@ pub fn uninstall_from_settings(
     backup: Option<&StatusLineBackup>,
 ) -> Result<String, String> {
     let mut v: serde_json::Value = match current {
-        Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({}))
+        }
         _ => serde_json::json!({}),
     };
-    let map = v.as_object_mut().ok_or_else(|| "settings.json root is not an object".to_string())?;
+    let map = v
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
     match backup {
         Some(b) => {
             map.insert("statusLine".to_string(), b.original_status_line.clone());
@@ -199,7 +211,10 @@ mod install_tests {
 
     #[test]
     fn render_wrapper_script_is_executable_sh_with_env_and_exec() {
-        let s = render_wrapper_script("/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-statusline", "/Users/u/Library/Application Support/kimbo");
+        let s = render_wrapper_script(
+            "/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-statusline",
+            "/Users/u/Library/Application Support/kimbo",
+        );
         assert!(s.starts_with("#!/bin/sh\n"));
         assert!(s.contains("KIMBO_APP_DATA=\"/Users/u/Library/Application Support/kimbo\""));
         assert!(s.contains("exec \"/Apps/Kimbo.app/Contents/MacOS/kimbo-claude-statusline\""));
@@ -210,8 +225,14 @@ mod install_tests {
     fn install_into_empty_settings_creates_status_line() {
         let out = install_into_settings(None, "/x/wrapper.sh").unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v.pointer("/statusLine/type").and_then(|x| x.as_str()), Some("command"));
-        assert_eq!(v.pointer("/statusLine/command").and_then(|x| x.as_str()), Some("/x/wrapper.sh"));
+        assert_eq!(
+            v.pointer("/statusLine/type").and_then(|x| x.as_str()),
+            Some("command")
+        );
+        assert_eq!(
+            v.pointer("/statusLine/command").and_then(|x| x.as_str()),
+            Some("/x/wrapper.sh")
+        );
     }
 
     #[test]
@@ -225,7 +246,8 @@ mod install_tests {
 
     #[test]
     fn uninstall_without_backup_removes_status_line() {
-        let original = r#"{"theme":"dark","statusLine":{"type":"command","command":"/x/wrapper.sh"}}"#;
+        let original =
+            r#"{"theme":"dark","statusLine":{"type":"command","command":"/x/wrapper.sh"}}"#;
         let out = uninstall_from_settings(Some(original), None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert!(v.get("statusLine").is_none());
@@ -241,7 +263,10 @@ mod install_tests {
         };
         let out = uninstall_from_settings(Some(original), Some(&backup)).unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v.pointer("/statusLine/command").and_then(|x| x.as_str()), Some("/usr/local/bin/my-bar"));
+        assert_eq!(
+            v.pointer("/statusLine/command").and_then(|x| x.as_str()),
+            Some("/usr/local/bin/my-bar")
+        );
     }
 
     #[test]
@@ -268,8 +293,14 @@ mod tests {
 
     fn sample() -> RateLimits {
         RateLimits {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 1777902000 }),
-            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
+            five_hour: Some(LimitWindow {
+                used_percentage: 47,
+                resets_at: 1777902000,
+            }),
+            seven_day: Some(LimitWindow {
+                used_percentage: 23,
+                resets_at: 1778234400,
+            }),
             captured_at_ms: 1714478531000,
             version_too_old: false,
             account_email: Some("luca@x.com".to_string()),
@@ -352,13 +383,18 @@ pub fn claude_rate_limits_install(
             if let Some(s) = current.as_deref() {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
                     if let Some(prior) = parsed.get("statusLine").cloned() {
-                        let backup = StatusLineBackup { saved_at_ms: now_ms(), original_status_line: prior };
+                        let backup = StatusLineBackup {
+                            saved_at_ms: now_ms(),
+                            original_status_line: prior,
+                        };
                         let bp = backup_path();
                         std::fs::create_dir_all(
-                            bp.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+                            bp.parent()
+                                .ok_or_else(|| "path has no parent directory".to_string())?,
                         )
                         .map_err(|e| e.to_string())?;
-                        let backup_bytes = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
+                        let backup_bytes =
+                            serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
                         std::fs::write(&bp, backup_bytes).map_err(|e| e.to_string())?;
                     }
                 }
@@ -370,22 +406,29 @@ pub fn claude_rate_limits_install(
     // Write wrapper script.
     let body = render_wrapper_script(&sidecar_abs_path, app_data.to_string_lossy().as_ref());
     std::fs::create_dir_all(
-        wrapper_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+        wrapper_p
+            .parent()
+            .ok_or_else(|| "path has no parent directory".to_string())?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&wrapper_p).map_err(|e| e.to_string())?.permissions();
+        let mut perms = std::fs::metadata(&wrapper_p)
+            .map_err(|e| e.to_string())?
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&wrapper_p, perms).map_err(|e| e.to_string())?;
     }
 
     // Patch settings.json.
-    let new_settings = install_into_settings(current.as_deref(), wrapper_p.to_string_lossy().as_ref())?;
+    let new_settings =
+        install_into_settings(current.as_deref(), wrapper_p.to_string_lossy().as_ref())?;
     std::fs::create_dir_all(
-        settings_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+        settings_p
+            .parent()
+            .ok_or_else(|| "path has no parent directory".to_string())?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
@@ -400,8 +443,8 @@ pub fn claude_rate_limits_uninstall() -> Result<(), String> {
     let backup_p = backup_path();
 
     let current = read_optional(&settings_p);
-    let backup: Option<StatusLineBackup> = read_optional(&backup_p)
-        .and_then(|s| serde_json::from_str(&s).ok());
+    let backup: Option<StatusLineBackup> =
+        read_optional(&backup_p).and_then(|s| serde_json::from_str(&s).ok());
 
     let new_settings = uninstall_from_settings(current.as_deref(), backup.as_ref())?;
     std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;

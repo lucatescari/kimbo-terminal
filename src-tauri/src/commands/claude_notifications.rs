@@ -12,12 +12,19 @@ const HOOK_EVENTS: &[&str] = &["Stop", "Notification"];
 /// path are not duplicated. Other entries (other tools' hooks) are preserved.
 ///
 /// Returns the new pretty-printed settings JSON.
-pub fn install_hooks_into_settings(current: Option<&str>, wrapper_path: &str) -> Result<String, String> {
+pub fn install_hooks_into_settings(
+    current: Option<&str>,
+    wrapper_path: &str,
+) -> Result<String, String> {
     let mut v: serde_json::Value = match current {
-        Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({}))
+        }
         _ => serde_json::json!({}),
     };
-    let map = v.as_object_mut().ok_or_else(|| "settings.json root is not an object".to_string())?;
+    let map = v
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
     let hooks = map
         .entry("hooks".to_string())
         .or_insert_with(|| serde_json::json!({}));
@@ -49,12 +56,19 @@ pub fn install_hooks_into_settings(current: Option<&str>, wrapper_path: &str) ->
 
 /// Pure: remove only entries whose nested command equals `wrapper_path`.
 /// Other entries survive verbatim; empty `hooks.{event}` arrays are removed.
-pub fn uninstall_hooks_from_settings(current: Option<&str>, wrapper_path: &str) -> Result<String, String> {
+pub fn uninstall_hooks_from_settings(
+    current: Option<&str>,
+    wrapper_path: &str,
+) -> Result<String, String> {
     let mut v: serde_json::Value = match current {
-        Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({})),
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!({}))
+        }
         _ => serde_json::json!({}),
     };
-    let map = v.as_object_mut().ok_or_else(|| "settings.json root is not an object".to_string())?;
+    let map = v
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
 
     if let Some(hooks_v) = map.get_mut("hooks") {
         if let Some(hooks) = hooks_v.as_object_mut() {
@@ -80,9 +94,9 @@ fn entry_points_to(entry: &serde_json::Value, wrapper_path: &str) -> bool {
         .get("hooks")
         .and_then(|h| h.as_array())
         .map(|inner| {
-            inner.iter().any(|h| {
-                h.get("command").and_then(|c| c.as_str()) == Some(wrapper_path)
-            })
+            inner
+                .iter()
+                .any(|h| h.get("command").and_then(|c| c.as_str()) == Some(wrapper_path))
         })
         .unwrap_or(false)
 }
@@ -101,7 +115,11 @@ mod install_tests {
             stop[0].pointer("/hooks/0/command").and_then(|c| c.as_str()),
             Some("/x/notify.sh")
         );
-        let notif = v.pointer("/hooks/Notification").unwrap().as_array().unwrap();
+        let notif = v
+            .pointer("/hooks/Notification")
+            .unwrap()
+            .as_array()
+            .unwrap();
         assert_eq!(notif.len(), 1);
     }
 
@@ -132,7 +150,10 @@ mod install_tests {
         assert_eq!(v.get("theme").and_then(|x| x.as_str()), Some("dark"));
         let stop = v.pointer("/hooks/Stop").unwrap().as_array().unwrap();
         assert_eq!(stop.len(), 2, "their entry + ours");
-        assert!(v.pointer("/hooks/PreToolUse").is_some(), "unrelated event survives");
+        assert!(
+            v.pointer("/hooks/PreToolUse").is_some(),
+            "unrelated event survives"
+        );
     }
 
     #[test]
@@ -224,20 +245,35 @@ mod status_tests {
 
     #[test]
     fn missing_settings_is_not_installed() {
-        assert_eq!(compute_status(None, "/x/notify.sh"), InstallStatus::NotInstalled);
-        assert_eq!(compute_status(Some(""), "/x/notify.sh"), InstallStatus::NotInstalled);
-        assert_eq!(compute_status(Some("{}"), "/x/notify.sh"), InstallStatus::NotInstalled);
+        assert_eq!(
+            compute_status(None, "/x/notify.sh"),
+            InstallStatus::NotInstalled
+        );
+        assert_eq!(
+            compute_status(Some(""), "/x/notify.sh"),
+            InstallStatus::NotInstalled
+        );
+        assert_eq!(
+            compute_status(Some("{}"), "/x/notify.sh"),
+            InstallStatus::NotInstalled
+        );
     }
 
     #[test]
     fn malformed_settings_is_unknown() {
-        assert_eq!(compute_status(Some("not json"), "/x/notify.sh"), InstallStatus::Unknown);
+        assert_eq!(
+            compute_status(Some("not json"), "/x/notify.sh"),
+            InstallStatus::Unknown
+        );
     }
 
     #[test]
     fn both_hooks_present_is_installed() {
         let installed = install_hooks_into_settings(None, "/x/notify.sh").unwrap();
-        assert_eq!(compute_status(Some(&installed), "/x/notify.sh"), InstallStatus::Installed);
+        assert_eq!(
+            compute_status(Some(&installed), "/x/notify.sh"),
+            InstallStatus::Installed
+        );
     }
 
     #[test]
@@ -331,30 +367,38 @@ pub fn claude_notifications_install(_app: tauri::AppHandle) -> Result<InstallOut
     // Write/refresh wrapper.
     let body = render_wrapper_script(&sidecar_abs);
     std::fs::create_dir_all(
-        wrapper_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+        wrapper_p
+            .parent()
+            .ok_or_else(|| "path has no parent directory".to_string())?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(&wrapper_p, body).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&wrapper_p).map_err(|e| e.to_string())?.permissions();
+        let mut perms = std::fs::metadata(&wrapper_p)
+            .map_err(|e| e.to_string())?
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&wrapper_p, perms).map_err(|e| e.to_string())?;
     }
 
     // Patch settings.json.
-    let new_settings = install_hooks_into_settings(
-        current.as_deref(),
-        wrapper_p.to_string_lossy().as_ref(),
-    )?;
+    let new_settings =
+        install_hooks_into_settings(current.as_deref(), wrapper_p.to_string_lossy().as_ref())?;
     std::fs::create_dir_all(
-        settings_p.parent().ok_or_else(|| "path has no parent directory".to_string())?,
+        settings_p
+            .parent()
+            .ok_or_else(|| "path has no parent directory".to_string())?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(&settings_p, new_settings).map_err(|e| e.to_string())?;
 
-    Ok(if was_already { InstallOutcome::NoOp } else { InstallOutcome::Installed })
+    Ok(if was_already {
+        InstallOutcome::NoOp
+    } else {
+        InstallOutcome::Installed
+    })
 }
 
 #[tauri::command]
@@ -379,7 +423,10 @@ pub fn claude_notifications_status() -> Result<InstallStatus, String> {
     let wrapper_p = wrapper_path().map_err(|e| e.to_string())?;
     let settings_p = settings_path().map_err(|e| e.to_string())?;
     let current = read_optional(&settings_p);
-    Ok(compute_status(current.as_deref(), wrapper_p.to_string_lossy().as_ref()))
+    Ok(compute_status(
+        current.as_deref(),
+        wrapper_p.to_string_lossy().as_ref(),
+    ))
 }
 
 /// Called from app setup on every launch. If the wrapper exists, rewrite it

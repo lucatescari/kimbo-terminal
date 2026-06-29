@@ -207,8 +207,7 @@ pub(crate) fn attach_window_lifecycle<R: tauri::Runtime>(win: &tauri::WebviewWin
                 // spawned in this window are reaped by kill_all at app exit
                 // rather than the moment the window closes.
                 api.prevent_close();
-                let _ =
-                    win_close.emit_to(win_close.label(), "window-close-requested", ());
+                let _ = win_close.emit_to(win_close.label(), "window-close-requested", ());
             }
         }
         tauri::WindowEvent::Focused(true) => {
@@ -228,26 +227,21 @@ pub(crate) fn attach_window_lifecycle<R: tauri::Runtime>(win: &tauri::WebviewWin
 pub async fn new_window(app: AppHandle) -> Result<(), String> {
     let n = WINDOW_SEQ.fetch_add(1, Ordering::SeqCst);
     let label = format!("win-{n}");
-    let win = tauri::WebviewWindowBuilder::new(
-        &app,
-        &label,
-        tauri::WebviewUrl::App("index.html".into()),
-    )
-    .title("Kimbo")
-    .inner_size(1200.0, 800.0)
-    .min_inner_size(600.0, 400.0)
-    .decorations(false)
-    .transparent(true)
-    .shadow(true)
-    // Let the click that activates a background window land in the webview, so
-    // clicking a pane focuses that pane on the first click. See
-    // src-ui/window-activation.ts for the matching destructive-click guard.
-    .accept_first_mouse(true)
-    .background_throttling(
-        tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
-    )
-    .build()
-    .map_err(|e| e.to_string())?;
+    let win =
+        tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+            .title("Kimbo")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(600.0, 400.0)
+            .decorations(false)
+            .transparent(true)
+            .shadow(true)
+            // Let the click that activates a background window land in the webview, so
+            // clicking a pane focuses that pane on the first click. See
+            // src-ui/window-activation.ts for the matching destructive-click guard.
+            .accept_first_mouse(true)
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+            .build()
+            .map_err(|e| e.to_string())?;
     // Same lifecycle wiring the main window gets in main.rs setup: refresh
     // translucency on refocus + role-appropriate close handling.
     attach_window_lifecycle(&win);

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use kimbo_claude_statusline::{
-    default_claude_json_path, parse_input, read_account_email_from, render_statusline,
-    write_cache, RateLimits,
+    default_claude_json_path, parse_input, read_account_email_from, render_statusline, write_cache,
+    RateLimits,
 };
 
 fn main() -> ExitCode {
@@ -61,7 +61,10 @@ fn now_ms() -> u64 {
 /// environment variable so integration tests can pin time without mocking
 /// `SystemTime`.
 fn resolve_now_secs() -> u64 {
-    if let Some(override_secs) = std::env::var("KIMBO_NOW_SECS").ok().and_then(|s| s.parse().ok()) {
+    if let Some(override_secs) = std::env::var("KIMBO_NOW_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
         return override_secs;
     }
     use std::time::{SystemTime, UNIX_EPOCH};

@@ -75,7 +75,12 @@ pub fn scan_directory(base: &Path, max_depth: usize) -> Vec<DetectedProject> {
     results
 }
 
-fn scan_recursive(dir: &Path, max_depth: usize, current_depth: usize, results: &mut Vec<DetectedProject>) {
+fn scan_recursive(
+    dir: &Path,
+    max_depth: usize,
+    current_depth: usize,
+    results: &mut Vec<DetectedProject>,
+) {
     if current_depth > max_depth {
         return;
     }

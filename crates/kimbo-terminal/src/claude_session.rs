@@ -543,8 +543,7 @@ junk junk
     #[test]
     fn extract_resume_uuid_handles_separated_form() {
         assert_eq!(
-            extract_resume_uuid("claude --resume 5a7f9805-2543-4dd9-94ce-9563047d2c26")
-                .as_deref(),
+            extract_resume_uuid("claude --resume 5a7f9805-2543-4dd9-94ce-9563047d2c26").as_deref(),
             Some("5a7f9805-2543-4dd9-94ce-9563047d2c26")
         );
     }
@@ -552,8 +551,7 @@ junk junk
     #[test]
     fn extract_resume_uuid_handles_equals_form() {
         assert_eq!(
-            extract_resume_uuid("claude --resume=5a7f9805-2543-4dd9-94ce-9563047d2c26")
-                .as_deref(),
+            extract_resume_uuid("claude --resume=5a7f9805-2543-4dd9-94ce-9563047d2c26").as_deref(),
             Some("5a7f9805-2543-4dd9-94ce-9563047d2c26")
         );
     }
@@ -811,14 +809,17 @@ not-json-at-all\n\
                 r#"{{"pid":{p},"sessionId":"abc-123","cwd":"/tmp/x","startedAt":42}}"#,
                 p = our_pid
             ),
-        ).unwrap();
+        )
+        .unwrap();
         std::fs::write(
             projects.join("abc-123.jsonl"),
             "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":10,\"output_tokens\":4},\"content\":[]}}\n",
         ).unwrap();
 
         let saved = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", &dir); }
+        unsafe {
+            std::env::set_var("HOME", &dir);
+        }
 
         let status = read_status_for_pid(our_pid)
             .expect("synthetic sessions/<pid>.json should be picked up");
@@ -838,7 +839,9 @@ not-json-at-all\n\
     fn probe_claude_status_for_pid_missing_sessions_file() {
         let dir = unique_temp_subdir("status-missing");
         let saved = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", &dir); }
+        unsafe {
+            std::env::set_var("HOME", &dir);
+        }
         // No sessions/ directory at all.
         assert!(read_status_for_pid(99999).is_none());
         match saved {

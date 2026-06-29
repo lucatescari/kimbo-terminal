@@ -44,7 +44,12 @@ fn run_with_temp_home<F: FnOnce(&std::path::Path)>(stdin: &str, f: F) {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.as_mut().unwrap().write_all(stdin.as_bytes()).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
     drop(child.stdin.take());
     let status = child.wait().unwrap();
     assert!(status.success(), "sidecar should always exit 0");
@@ -60,7 +65,10 @@ fn run_with_temp_home<F: FnOnce(&std::path::Path)>(stdin: &str, f: F) {
     } else {
         assert_eq!(kind, "notification");
         assert_eq!(session_id, "xyz-789");
-        assert_eq!(parsed["message"], "Claude needs your permission to use Bash");
+        assert_eq!(
+            parsed["message"],
+            "Claude needs your permission to use Bash"
+        );
     }
 }
 
@@ -86,11 +94,19 @@ fn no_socket_means_silent_success() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.as_mut().unwrap().write_all(STOP_JSON.as_bytes()).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(STOP_JSON.as_bytes())
+        .unwrap();
     drop(child.stdin.take());
     // Bound the wait so a hung sidecar fails the test instead of blocking CI.
     let result = child.wait_timeout(Duration::from_secs(2)).unwrap();
-    assert!(result.is_some(), "sidecar should exit fast even with no listener");
+    assert!(
+        result.is_some(),
+        "sidecar should exit fast even with no listener"
+    );
     assert!(result.unwrap().success());
 }
 
@@ -105,10 +121,18 @@ fn malformed_stdin_is_silent_success() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.as_mut().unwrap().write_all(b"not json").unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"not json")
+        .unwrap();
     drop(child.stdin.take());
     let status = child.wait().unwrap();
-    assert!(status.success(), "malformed stdin must not break claude's flow");
+    assert!(
+        status.success(),
+        "malformed stdin must not break claude's flow"
+    );
 }
 
 trait WaitTimeout {

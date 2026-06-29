@@ -7,7 +7,9 @@ pub fn get_config() -> Result<AppConfig, String> {
 
 #[tauri::command]
 pub fn save_config(config: AppConfig) -> Result<(), String> {
-    config.save().map_err(|e| format!("failed to save config: {}", e))
+    config
+        .save()
+        .map_err(|e| format!("failed to save config: {}", e))
 }
 
 #[tauri::command]

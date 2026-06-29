@@ -1,5 +1,5 @@
 use crate::pty_manager::PtyManager;
-use kimbo_terminal::{probe_claude_session_for_pid, ClaudeStatus, probe_claude_status_for_pid};
+use kimbo_terminal::{probe_claude_session_for_pid, probe_claude_status_for_pid, ClaudeStatus};
 use serde::Serialize;
 use std::process::Command;
 use std::sync::Mutex;
@@ -138,7 +138,10 @@ pub fn claude_account_info(
         .and_then(|p| kimbo_claude_statusline::read_account_email_from(&p));
     let mut guard = cache.inner.lock().unwrap_or_else(|e| e.into_inner());
     if should_refetch(guard.as_ref(), current_signal.as_deref(), force_refresh) {
-        *guard = Some(CacheEntry { info: fetch_account_info(), signal: current_signal });
+        *guard = Some(CacheEntry {
+            info: fetch_account_info(),
+            signal: current_signal,
+        });
     }
     Ok(guard.as_ref().and_then(|e| e.info.clone()))
 }
@@ -148,10 +151,17 @@ mod cache_tests {
     use super::*;
 
     fn info(email: &str) -> AccountInfo {
-        AccountInfo { logged_in: true, email: Some(email.to_string()), subscription_type: None }
+        AccountInfo {
+            logged_in: true,
+            email: Some(email.to_string()),
+            subscription_type: None,
+        }
     }
     fn entry(signal: &str) -> CacheEntry {
-        CacheEntry { info: Some(info(signal)), signal: Some(signal.to_string()) }
+        CacheEntry {
+            info: Some(info(signal)),
+            signal: Some(signal.to_string()),
+        }
     }
 
     #[test]
@@ -161,18 +171,30 @@ mod cache_tests {
 
     #[test]
     fn no_refetch_when_signal_unchanged() {
-        assert!(!should_refetch(Some(&entry("a@x.com")), Some("a@x.com"), false));
+        assert!(!should_refetch(
+            Some(&entry("a@x.com")),
+            Some("a@x.com"),
+            false
+        ));
     }
 
     #[test]
     fn refetches_when_signal_changes() {
         // The login-switch case behind issue #9.
-        assert!(should_refetch(Some(&entry("a@x.com")), Some("b@x.com"), false));
+        assert!(should_refetch(
+            Some(&entry("a@x.com")),
+            Some("b@x.com"),
+            false
+        ));
     }
 
     #[test]
     fn refetches_on_force_even_when_signal_unchanged() {
-        assert!(should_refetch(Some(&entry("a@x.com")), Some("a@x.com"), true));
+        assert!(should_refetch(
+            Some(&entry("a@x.com")),
+            Some("a@x.com"),
+            true
+        ));
     }
 
     #[test]

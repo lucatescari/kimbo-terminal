@@ -121,7 +121,8 @@ fn run_and_drain(session: &mut PtySession, cmd: &[u8], phase: u8) -> String {
 #[test]
 #[serial(pty)]
 fn test_pty_spawn_and_write() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     session.write(b"echo KIMBO_TEST_MARKER\n");
 
     let mut output = Vec::new();
@@ -147,7 +148,8 @@ fn test_pty_spawn_and_write() {
 #[test]
 #[serial(pty)]
 fn test_pty_resize() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     session.resize(120, 40); // Should not panic
 }
 
@@ -185,7 +187,9 @@ fn cwd_tracks_cd_without_shell_integration() {
         0,
     );
 
-    let cwd = session.cwd().expect("cwd() should report the shell's directory");
+    let cwd = session
+        .cwd()
+        .expect("cwd() should report the shell's directory");
     assert_eq!(
         cwd, target,
         "cwd() must follow `cd` via the OS query, independent of OSC 7"
@@ -208,8 +212,8 @@ fn cwd_tracks_cd_across_shells() {
         if !std::path::Path::new(shell).exists() {
             continue;
         }
-        let mut session =
-            PtySession::new(Some(shell.to_string()), dirs::home_dir()).expect("failed to spawn PTY");
+        let mut session = PtySession::new(Some(shell.to_string()), dirs::home_dir())
+            .expect("failed to spawn PTY");
         let cmd = format!("cd {}\n", target.display());
         // Re-send `cd` each poll iteration rather than once up front. Shells
         // differ in startup behavior: ksh93 flushes its input queue on
@@ -280,7 +284,8 @@ fn drop_kills_idle_shell() {
 #[test]
 #[serial(pty)]
 fn drop_kills_foreground_job_in_its_own_process_group() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
 
     // Warm the shell: wait for its first prompt before we send anything.
@@ -289,11 +294,7 @@ fn drop_kills_foreground_job_in_its_own_process_group() {
     // output (once for the echo, once for the printf result).
     let _warm = run_and_drain(&mut session, b"true", 0);
 
-    let out = run_and_drain(
-        &mut session,
-        b"sleep 30 & echo KIMBO_CHILD_$!",
-        1,
-    );
+    let out = run_and_drain(&mut session, b"sleep 30 & echo KIMBO_CHILD_$!", 1);
     let child_pid = extract_pid_after("KIMBO_CHILD_", &out)
         .unwrap_or_else(|| panic!("couldn't parse child PID from shell output:\n{}", out));
 
@@ -308,7 +309,8 @@ fn drop_kills_foreground_job_in_its_own_process_group() {
 
     assert!(
         wait_dead(shell_pid, Duration::from_secs(1)),
-        "shell {} survived drop", shell_pid,
+        "shell {} survived drop",
+        shell_pid,
     );
     assert!(
         wait_dead(child_pid, Duration::from_secs(1)),
@@ -324,7 +326,8 @@ fn drop_kills_foreground_job_in_its_own_process_group() {
 #[test]
 #[serial(pty)]
 fn drop_kills_both_fg_group_and_shell_group() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
     let master = session.master_raw_fd();
 
@@ -348,7 +351,11 @@ fn drop_kills_both_fg_group_and_shell_group() {
         fg
     );
     // The group leader's PID equals the PGID. It's the `sleep` process.
-    assert!(is_alive(fg as u32), "fg leader {} should be alive pre-drop", fg);
+    assert!(
+        is_alive(fg as u32),
+        "fg leader {} should be alive pre-drop",
+        fg
+    );
 
     drop(session);
 
@@ -359,7 +366,8 @@ fn drop_kills_both_fg_group_and_shell_group() {
     );
     assert!(
         wait_dead(shell_pid, Duration::from_secs(1)),
-        "shell {} survived drop", shell_pid,
+        "shell {} survived drop",
+        shell_pid,
     );
 }
 
@@ -373,7 +381,8 @@ fn drop_kills_both_fg_group_and_shell_group() {
 #[test]
 #[serial(pty)]
 fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // Subshell that spawns a sleep AND echoes its pid. `CHILD_PID=$!`
@@ -410,7 +419,8 @@ fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
 #[test]
 #[serial(pty)]
 fn drop_kills_concurrently_style_multi_child_tree() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // Two siblings + subshell wrapper, mirroring how concurrently starts
@@ -454,7 +464,8 @@ fn drop_kills_concurrently_style_multi_child_tree() {
 #[test]
 #[serial(pty)]
 fn drop_kills_descendants_that_detached_via_setsid() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // `setsid sh -c '…'` makes the subshell its OWN session leader. Its
@@ -479,7 +490,10 @@ fn drop_kills_descendants_that_detached_via_setsid() {
             return;
         }
     };
-    assert!(is_alive(child), "setsid-detached child should be alive pre-drop");
+    assert!(
+        is_alive(child),
+        "setsid-detached child should be alive pre-drop"
+    );
 
     drop(session);
 
@@ -504,7 +518,8 @@ fn drop_kills_descendants_that_detached_via_setsid() {
 #[test]
 #[serial(pty)]
 fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
-    let mut session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
     // Warm: give zsh time to finish init + prompt, otherwise tcgetpgrp
     // racing with job-control setup returns weird values.
     let _warm = run_and_drain(&mut session, b"true", 0);
@@ -553,8 +568,8 @@ fn kill_tree_terminates_shell_and_backgrounded_descendant() {
     // sleep 60 & — `&` puts sleep in its own pgrp, distinct from the shell.
     // This is the case the original Drop bug missed and the design fixes.
     let output = run_and_drain(&mut session, b"sleep 60 & echo PID=$!", 1);
-    let sleep_pid = extract_pid_after("PID=", &output)
-        .expect("shell should have echoed the bg sleep's PID");
+    let sleep_pid =
+        extract_pid_after("PID=", &output).expect("shell should have echoed the bg sleep's PID");
 
     assert!(is_alive(shell_pid), "shell alive before kill_tree");
     assert!(is_alive(sleep_pid), "sleep alive before kill_tree");

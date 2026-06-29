@@ -114,8 +114,8 @@ pub fn fetch_index_sync() -> anyhow::Result<CommunityIndex> {
         .body_mut()
         .read_to_string()
         .map_err(|e| anyhow::anyhow!("read failed: {e}"))?;
-    let idx: CommunityIndex = serde_json::from_str(&body)
-        .map_err(|e| anyhow::anyhow!("parse failed: {e}"))?;
+    let idx: CommunityIndex =
+        serde_json::from_str(&body).map_err(|e| anyhow::anyhow!("parse failed: {e}"))?;
     Ok(idx)
 }
 
@@ -161,9 +161,15 @@ mod tests {
     fn test_cache_single_flight_guard() {
         let cache = CommunityCache::default();
         assert!(cache.begin_fetch(), "first begin_fetch should succeed");
-        assert!(!cache.begin_fetch(), "second begin_fetch while in-flight should fail");
+        assert!(
+            !cache.begin_fetch(),
+            "second begin_fetch while in-flight should fail"
+        );
         cache.finish_fetch(None);
-        assert!(cache.begin_fetch(), "after finish, begin_fetch should succeed again");
+        assert!(
+            cache.begin_fetch(),
+            "after finish, begin_fetch should succeed again"
+        );
         cache.finish_fetch(None);
     }
 

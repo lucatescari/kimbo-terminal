@@ -7,8 +7,7 @@ use tauri::{AppHandle, Manager};
 pub fn write_kimbo_shell_scripts(app: AppHandle) -> Result<String, String> {
     let cfg_dir = kimbo_config::AppConfig::config_dir().join("shell");
 
-    fs::create_dir_all(&cfg_dir)
-        .map_err(|e| format!("create_dir_all failed: {e}"))?;
+    fs::create_dir_all(&cfg_dir).map_err(|e| format!("create_dir_all failed: {e}"))?;
 
     let resolver = app.path();
     for name in ["kimbo-init.zsh", "kimbo-init.bash", "kimbo-init.fish"] {

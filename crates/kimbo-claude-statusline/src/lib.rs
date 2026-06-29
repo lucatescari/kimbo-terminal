@@ -110,7 +110,11 @@ pub fn parse_input(stdin: &str) -> Result<ParsedInput, serde_json::Error> {
     let v: serde_json::Value = serde_json::from_str(stdin)?;
 
     let rate_limits = v.get("rate_limits");
-    let version_too_old = match v.get("version").and_then(|x| x.as_str()).and_then(parse_semver) {
+    let version_too_old = match v
+        .get("version")
+        .and_then(|x| x.as_str())
+        .and_then(parse_semver)
+    {
         Some(parsed) => parsed < MIN_RATE_LIMITS_VERSION,
         // No parseable `version` field — fall back to the old heuristic so
         // genuinely ancient clients (no `version`, no `rate_limits`) still
@@ -182,8 +186,14 @@ mod cache_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("claude-rate-limits.json");
         let cache = RateLimits {
-            five_hour: Some(LimitWindow { used_percentage: 47, resets_at: 1777902000 }),
-            seven_day: Some(LimitWindow { used_percentage: 23, resets_at: 1778234400 }),
+            five_hour: Some(LimitWindow {
+                used_percentage: 47,
+                resets_at: 1777902000,
+            }),
+            seven_day: Some(LimitWindow {
+                used_percentage: 23,
+                resets_at: 1778234400,
+            }),
             captured_at_ms: 1714478531000,
             version_too_old: false,
             account_email: Some("luca@x.com".to_string()),
@@ -229,8 +239,20 @@ mod tests {
     #[test]
     fn parse_fresh_input_extracts_both_windows() {
         let p = parse_input(INPUT_FRESH).unwrap();
-        assert_eq!(p.five_hour, Some(LimitWindow { used_percentage: 22, resets_at: 1777902000 }));
-        assert_eq!(p.seven_day, Some(LimitWindow { used_percentage: 2, resets_at: 1778234400 }));
+        assert_eq!(
+            p.five_hour,
+            Some(LimitWindow {
+                used_percentage: 22,
+                resets_at: 1777902000
+            })
+        );
+        assert_eq!(
+            p.seven_day,
+            Some(LimitWindow {
+                used_percentage: 2,
+                resets_at: 1778234400
+            })
+        );
         assert!(!p.version_too_old);
     }
 
@@ -356,7 +378,10 @@ mod statusline_tests {
     const NOW: u64 = 1_777_900_000;
 
     fn window(used: u8, resets_at: u64) -> LimitWindow {
-        LimitWindow { used_percentage: used, resets_at }
+        LimitWindow {
+            used_percentage: used,
+            resets_at,
+        }
     }
 
     #[test]
@@ -392,15 +417,16 @@ mod statusline_tests {
             seven_day: Some(window(23, NOW + 5 * 24 * 3600 + 12 * 3600)),
             version_too_old: false,
         };
-        assert_eq!(
-            render_statusline(&parsed, NOW),
-            "5h —% · Wk 23% (5d 12h)",
-        );
+        assert_eq!(render_statusline(&parsed, NOW), "5h —% · Wk 23% (5d 12h)",);
     }
 
     #[test]
     fn both_missing_renders_dashes_without_parentheticals() {
-        let parsed = ParsedInput { five_hour: None, seven_day: None, ..Default::default() };
+        let parsed = ParsedInput {
+            five_hour: None,
+            seven_day: None,
+            ..Default::default()
+        };
         assert_eq!(render_statusline(&parsed, NOW), "5h —% · Wk —%");
     }
 
@@ -411,10 +437,7 @@ mod statusline_tests {
             seven_day: None,
             version_too_old: false,
         };
-        assert_eq!(
-            render_statusline(&parsed, NOW),
-            "5h 47% (2h30m) · Wk —%",
-        );
+        assert_eq!(render_statusline(&parsed, NOW), "5h 47% (2h30m) · Wk —%",);
     }
 }
 
@@ -472,6 +495,9 @@ mod format_remaining_tests {
 
     #[test]
     fn five_days_twelve_hours_renders_with_space() {
-        assert_eq!(format_remaining(NOW, NOW + 5 * 24 * 3600 + 12 * 3600), "5d 12h");
+        assert_eq!(
+            format_remaining(NOW, NOW + 5 * 24 * 3600 + 12 * 3600),
+            "5d 12h"
+        );
     }
 }

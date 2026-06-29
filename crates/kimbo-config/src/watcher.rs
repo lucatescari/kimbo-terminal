@@ -29,10 +29,7 @@ impl ConfigWatcher {
         .context("Failed to create file watcher")?;
 
         // Watch the parent directory (non-recursive) so we catch file creation too
-        let watch_dir = config_path
-            .parent()
-            .unwrap_or(&config_path)
-            .to_path_buf();
+        let watch_dir = config_path.parent().unwrap_or(&config_path).to_path_buf();
 
         if watch_dir.exists() {
             watcher

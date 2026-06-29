@@ -112,8 +112,7 @@ mod tests {
         let toml_str = toml::to_string_pretty(&profile).expect("serialize failed");
 
         // Deserialize back.
-        let restored: WorkspaceProfile =
-            toml::from_str(&toml_str).expect("deserialize failed");
+        let restored: WorkspaceProfile = toml::from_str(&toml_str).expect("deserialize failed");
 
         assert_eq!(profile, restored);
     }

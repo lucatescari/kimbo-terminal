@@ -26,11 +26,20 @@ fn end_to_end_writes_cache_and_prints_status() {
         .spawn()
         .unwrap();
 
-    child.stdin.as_mut().unwrap().write_all(FRESH_JSON.as_bytes()).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(FRESH_JSON.as_bytes())
+        .unwrap();
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
         "5h 47% (2h30m) · Wk 23% (3d 22h)",
@@ -64,10 +73,19 @@ fn end_to_end_stamps_account_email_from_claude_json() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.as_mut().unwrap().write_all(FRESH_JSON.as_bytes()).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(FRESH_JSON.as_bytes())
+        .unwrap();
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let cache_str = String::from_utf8(std::fs::read(&cache_path).unwrap()).unwrap();
     assert!(
@@ -89,7 +107,12 @@ fn malformed_input_exits_non_zero_and_writes_no_cache() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.as_mut().unwrap().write_all(b"not json").unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"not json")
+        .unwrap();
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
 
@@ -99,5 +122,8 @@ fn malformed_input_exits_non_zero_and_writes_no_cache() {
         "expected exit code 3 for malformed JSON, got {:?}",
         out.status.code()
     );
-    assert!(!cache_path.exists(), "cache must not be written on parse failure");
+    assert!(
+        !cache_path.exists(),
+        "cache must not be written on parse failure"
+    );
 }

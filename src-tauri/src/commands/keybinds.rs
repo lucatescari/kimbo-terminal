@@ -32,8 +32,15 @@ pub fn chord_to_accelerator(chord: &str) -> String {
 
 /// Accelerator for a menu id given the user's override map (falls back to the
 /// default chord). Used when building the menu at startup.
-pub fn accelerator_for(bindings: &HashMap<String, String>, id: &str, default_chord: &str) -> String {
-    let chord = bindings.get(id).map(String::as_str).unwrap_or(default_chord);
+pub fn accelerator_for(
+    bindings: &HashMap<String, String>,
+    id: &str,
+    default_chord: &str,
+) -> String {
+    let chord = bindings
+        .get(id)
+        .map(String::as_str)
+        .unwrap_or(default_chord);
     chord_to_accelerator(chord)
 }
 
@@ -66,7 +73,9 @@ pub fn set_menu_accelerator<R: Runtime>(
     id: String,
     chord: Option<String>,
 ) -> Result<(), String> {
-    let menu = app.menu().ok_or_else(|| "no application menu".to_string())?;
+    let menu = app
+        .menu()
+        .ok_or_else(|| "no application menu".to_string())?;
     let item = find_item(&menu, &id).ok_or_else(|| format!("menu item '{}' not found", id))?;
     let accel = chord.as_deref().map(chord_to_accelerator);
     item.set_accelerator(accel).map_err(|e| e.to_string())
