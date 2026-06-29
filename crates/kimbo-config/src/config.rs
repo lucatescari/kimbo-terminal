@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::keybindings::KeybindingSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub general: GeneralConfig,
@@ -56,7 +56,6 @@ pub struct CursorConfig {
     pub blink: bool,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceConfig {
@@ -84,7 +83,7 @@ pub struct WelcomeConfig {
     pub show_on_startup: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TelemetryConfig {
     /// Opt-in anonymous crash/error reporting to Sentry. OFF by default.
@@ -92,24 +91,6 @@ pub struct TelemetryConfig {
     /// at startup to decide whether to initialize Sentry. Takes effect on the
     /// next launch.
     pub enabled: bool,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            font: FontConfig::default(),
-            theme: ThemeConfig::default(),
-            scrollback: ScrollbackConfig::default(),
-            cursor: CursorConfig::default(),
-            keybindings: KeybindingSet::default(),
-            workspace: WorkspaceConfig::default(),
-            kimbo: KimboConfig::default(),
-            updates: UpdatesConfig::default(),
-            welcome: WelcomeConfig::default(),
-            telemetry: TelemetryConfig::default(),
-        }
-    }
 }
 
 impl Default for GeneralConfig {
@@ -156,7 +137,6 @@ impl Default for CursorConfig {
     }
 }
 
-
 impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
@@ -184,13 +164,9 @@ impl Default for UpdatesConfig {
 
 impl Default for WelcomeConfig {
     fn default() -> Self {
-        Self { show_on_startup: true }
-    }
-}
-
-impl Default for TelemetryConfig {
-    fn default() -> Self {
-        Self { enabled: false }
+        Self {
+            show_on_startup: true,
+        }
     }
 }
 
@@ -220,10 +196,10 @@ impl AppConfig {
 
     /// Loads the configuration from a specific file path.
     pub fn load_from(path: &PathBuf) -> Result<Self> {
-        let content =
-            fs::read_to_string(path).with_context(|| format!("Failed to read config from {:?}", path))?;
-        let config: AppConfig =
-            toml::from_str(&content).with_context(|| format!("Failed to parse config from {:?}", path))?;
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config from {:?}", path))?;
+        let config: AppConfig = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse config from {:?}", path))?;
         Ok(config)
     }
 
@@ -234,8 +210,7 @@ impl AppConfig {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create config directory {:?}", parent))?;
         }
-        let content =
-            toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
         fs::write(&path, content)
             .with_context(|| format!("Failed to write config to {:?}", path))?;
         Ok(())

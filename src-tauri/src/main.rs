@@ -4,11 +4,11 @@ mod commands;
 mod notify_socket;
 mod pty_manager;
 
+use commands::theme::ThemeState;
+use commands::update::UpdateState;
 use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
-use commands::theme::ThemeState;
-use commands::update::UpdateState;
 
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
@@ -77,7 +77,6 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_sentry::init(&sentry_client))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -91,7 +90,11 @@ fn main() {
             // Stage Manager / Sonoma (tauri#8255): optional dock-less activation policy.
             // Launch with `KIMBO_MACOS_ACCESSORY_ACTIVATION=1` if translucency still breaks on refocus.
             #[cfg(target_os = "macos")]
-            if std::env::var("KIMBO_MACOS_ACCESSORY_ACTIVATION").ok().as_deref() == Some("1") {
+            if std::env::var("KIMBO_MACOS_ACCESSORY_ACTIVATION")
+                .ok()
+                .as_deref()
+                == Some("1")
+            {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 log::info!("ActivationPolicy::Accessory (KIMBO_MACOS_ACCESSORY_ACTIVATION=1)");
             }
@@ -124,23 +127,59 @@ fn main() {
                 Some(commands::keybinds::accelerator_for(&kb, id, default_chord))
             };
 
-            let settings = MenuItem::with_id(handle, "settings", "Settings...", true, accel("settings", "cmd-,"))?;
-            let quit = MenuItem::with_id(handle, "quit", "Quit Kimbo", true, accel("quit", "cmd-q"))?;
+            let settings = MenuItem::with_id(
+                handle,
+                "settings",
+                "Settings...",
+                true,
+                accel("settings", "cmd-,"),
+            )?;
+            let quit =
+                MenuItem::with_id(handle, "quit", "Quit Kimbo", true, accel("quit", "cmd-q"))?;
 
-            let app_menu = Submenu::with_items(handle, "Kimbo", true, &[
-                &PredefinedMenuItem::about(handle, Some("About Kimbo"), None)?,
-                &PredefinedMenuItem::separator(handle)?,
-                &settings,
-                &PredefinedMenuItem::separator(handle)?,
-                &PredefinedMenuItem::services(handle, None)?,
-                &PredefinedMenuItem::separator(handle)?,
-                &quit,
-            ])?;
+            let app_menu = Submenu::with_items(
+                handle,
+                "Kimbo",
+                true,
+                &[
+                    &PredefinedMenuItem::about(handle, Some("About Kimbo"), None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &settings,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::services(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &quit,
+                ],
+            )?;
 
-            let new_window = MenuItem::with_id(handle, "new_window", "New Window", true, accel("new_window", "cmd-n"))?;
-            let new_tab = MenuItem::with_id(handle, "new_tab", "New Tab", true, accel("new_tab", "cmd-t"))?;
-            let close_pane = MenuItem::with_id(handle, "close_pane", "Close Pane", true, accel("close_pane", "cmd-w"))?;
-            let close_tab = MenuItem::with_id(handle, "close_tab", "Close Tab", true, accel("close_tab", "cmd-shift-w"))?;
+            let new_window = MenuItem::with_id(
+                handle,
+                "new_window",
+                "New Window",
+                true,
+                accel("new_window", "cmd-n"),
+            )?;
+            let new_tab = MenuItem::with_id(
+                handle,
+                "new_tab",
+                "New Tab",
+                true,
+                accel("new_tab", "cmd-t"),
+            )?;
+            let close_pane = MenuItem::with_id(
+                handle,
+                "close_pane",
+                "Close Pane",
+                true,
+                accel("close_pane", "cmd-w"),
+            )?;
+            let close_tab = MenuItem::with_id(
+                handle,
+                "close_tab",
+                "Close Tab",
+                true,
+                accel("close_tab", "cmd-shift-w"),
+            )?;
             let reopen_tab = MenuItem::with_id(
                 handle,
                 "reopen_tab",
@@ -149,43 +188,64 @@ fn main() {
                 accel("reopen_tab", "cmd-shift-t"),
             )?;
 
-            let file_menu = Submenu::with_items(handle, "File", true, &[
-                &new_window,
-                &new_tab,
-                &PredefinedMenuItem::separator(handle)?,
-                &close_pane,
-                &close_tab,
-                &reopen_tab,
-            ])?;
+            let file_menu = Submenu::with_items(
+                handle,
+                "File",
+                true,
+                &[
+                    &new_window,
+                    &new_tab,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &close_pane,
+                    &close_tab,
+                    &reopen_tab,
+                ],
+            )?;
 
-            let edit_menu = Submenu::with_items(handle, "Edit", true, &[
-                &PredefinedMenuItem::copy(handle, None)?,
-                &PredefinedMenuItem::paste(handle, None)?,
-                &PredefinedMenuItem::select_all(handle, None)?,
-            ])?;
+            let edit_menu = Submenu::with_items(
+                handle,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::copy(handle, None)?,
+                    &PredefinedMenuItem::paste(handle, None)?,
+                    &PredefinedMenuItem::select_all(handle, None)?,
+                ],
+            )?;
 
-            let split_v = MenuItem::with_id(handle, "split_vertical", "Split Vertical", true, accel("split_vertical", "cmd-d"))?;
-            let split_h = MenuItem::with_id(handle, "split_horizontal", "Split Horizontal", true, accel("split_horizontal", "cmd-shift-d"))?;
+            let split_v = MenuItem::with_id(
+                handle,
+                "split_vertical",
+                "Split Vertical",
+                true,
+                accel("split_vertical", "cmd-d"),
+            )?;
+            let split_h = MenuItem::with_id(
+                handle,
+                "split_horizontal",
+                "Split Horizontal",
+                true,
+                accel("split_horizontal", "cmd-shift-d"),
+            )?;
 
-            let view_menu = Submenu::with_items(handle, "View", true, &[
-                &split_v,
-                &split_h,
-            ])?;
+            let view_menu = Submenu::with_items(handle, "View", true, &[&split_v, &split_h])?;
 
-            let window_menu = Submenu::with_items(handle, "Window", true, &[
-                &PredefinedMenuItem::minimize(handle, None)?,
-                &PredefinedMenuItem::maximize(handle, None)?,
-                &PredefinedMenuItem::separator(handle)?,
-                &PredefinedMenuItem::fullscreen(handle, None)?,
-            ])?;
+            let window_menu = Submenu::with_items(
+                handle,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(handle, None)?,
+                    &PredefinedMenuItem::maximize(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::fullscreen(handle, None)?,
+                ],
+            )?;
 
-            let menu = Menu::with_items(handle, &[
-                &app_menu,
-                &file_menu,
-                &edit_menu,
-                &view_menu,
-                &window_menu,
-            ])?;
+            let menu = Menu::with_items(
+                handle,
+                &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+            )?;
 
             app.set_menu(menu)?;
 

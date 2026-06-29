@@ -31,9 +31,12 @@ impl PtyManager {
         let event_name = format!("pty-output-{}", id);
         let exit_event = format!("pty-exit-{}", id);
 
-        // Spawn background reader thread.
+        // Spawn background reader thread. A large buffer lets a single read
+        // drain big bursts (e.g. `cat`ing a file or a fast TUI repaint) in one
+        // syscall, cutting the number of base64 encodes and IPC events ~16x
+        // versus a 4 KB buffer.
         std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
+            let mut buf = [0u8; 65536];
             loop {
                 let n = unsafe {
                     // Temporarily switch to blocking mode for this read.
@@ -50,13 +53,15 @@ impl PtyManager {
                     break;
                 }
                 use base64::Engine;
-                let encoded =
-                    base64::engine::general_purpose::STANDARD.encode(&buf[..n as usize]);
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n as usize]);
                 let _ = app.emit(&event_name, encoded);
             }
         });
 
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(id, session);
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, session);
         Ok(id)
     }
 

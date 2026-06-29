@@ -85,7 +85,10 @@ impl PtySession {
         };
 
         if pid < 0 {
-            return Err(anyhow::anyhow!("forkpty failed: {}", io::Error::last_os_error()));
+            return Err(anyhow::anyhow!(
+                "forkpty failed: {}",
+                io::Error::last_os_error()
+            ));
         }
 
         if pid == 0 {
@@ -102,24 +105,31 @@ impl PtySession {
             // Kimbo-specific behavior (for example fastfetch image layout).
             std::env::set_var("TERM_PROGRAM", "kimbo");
 
-            // Build argv for execvp: [shell, "-l", NULL]
-            let c_shell =
-                std::ffi::CString::new(shell_program.as_str()).expect("shell path contains nul");
+            // Build argv for execvp: [shell, "-l", NULL]. We're in the forked
+            // child here, so on the (practically impossible) chance a path
+            // contains an interior NUL, `_exit` instead of panicking — a panic
+            // would unwind through a half-initialized forked process.
+            let c_shell = match std::ffi::CString::new(shell_program.as_str()) {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("kimbo: shell path contains an interior NUL byte");
+                    unsafe { libc::_exit(1) }
+                }
+            };
             // Use the basename preceded by '-' as argv[0] for login shell convention,
             // and pass -l as an explicit argument as well.
-            let basename = shell_program
-                .rsplit('/')
-                .next()
-                .unwrap_or(&shell_program);
-            let login_argv0 =
-                std::ffi::CString::new(format!("-{}", basename)).expect("argv0 contains nul");
+            let basename = shell_program.rsplit('/').next().unwrap_or(&shell_program);
+            let login_argv0 = match std::ffi::CString::new(format!("-{}", basename)) {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("kimbo: shell argv0 contains an interior NUL byte");
+                    unsafe { libc::_exit(1) }
+                }
+            };
             let flag_l = std::ffi::CString::new("-l").unwrap();
 
-            let argv: [*const libc::c_char; 3] = [
-                login_argv0.as_ptr(),
-                flag_l.as_ptr(),
-                std::ptr::null(),
-            ];
+            let argv: [*const libc::c_char; 3] =
+                [login_argv0.as_ptr(), flag_l.as_ptr(), std::ptr::null()];
 
             unsafe {
                 libc::execvp(c_shell.as_ptr(), argv.as_ptr());
@@ -193,9 +203,7 @@ impl PtySession {
     /// nothing is available. Returns `Ok(0)` on EOF (shell exited).
     pub fn try_read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let fd = self.master_fd.as_raw_fd();
-        let ret = unsafe {
-            libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-        };
+        let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if ret < 0 {
             Err(io::Error::last_os_error())
         } else {
@@ -218,9 +226,7 @@ impl PtySession {
             return Err(io::Error::last_os_error());
         }
 
-        let ret = unsafe {
-            libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-        };
+        let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
 
         // Restore O_NONBLOCK regardless of read result
         let _ = unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
@@ -243,10 +249,7 @@ impl PtySession {
         };
         let ret = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &ws) };
         if ret < 0 {
-            log::warn!(
-                "TIOCSWINSZ failed: {}",
-                io::Error::last_os_error()
-            );
+            log::warn!("TIOCSWINSZ failed: {}", io::Error::last_os_error());
         }
     }
 
@@ -480,7 +483,10 @@ fn list_descendant_pids(root: libc::pid_t) -> Vec<libc::pid_t> {
         if ret <= 0 {
             continue;
         }
-        children.entry(info.pbsi_ppid as libc::pid_t).or_default().push(pid);
+        children
+            .entry(info.pbsi_ppid as libc::pid_t)
+            .or_default()
+            .push(pid);
     }
 
     // BFS from root: anything reachable via child edges is a descendant.
@@ -505,18 +511,32 @@ fn list_descendant_pids(root: libc::pid_t) -> Vec<libc::pid_t> {
     // once, BFS from root. Same shape as the macOS path above.
     use std::collections::{HashMap, HashSet, VecDeque};
     let mut children: HashMap<libc::pid_t, Vec<libc::pid_t>> = HashMap::new();
-    let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new(); };
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
     for entry in dir.flatten() {
-        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue; };
-        let Ok(pid) = name.parse::<libc::pid_t>() else { continue; };
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<libc::pid_t>() else {
+            continue;
+        };
         let stat_path = format!("/proc/{}/stat", pid);
-        let Ok(stat) = std::fs::read_to_string(&stat_path) else { continue; };
+        let Ok(stat) = std::fs::read_to_string(&stat_path) else {
+            continue;
+        };
         // PPID is field 4. Field 2 is `(comm)` which can contain spaces;
         // parse by finding the closing ')'.
-        let Some(after_comm) = stat.rsplit(')').next() else { continue; };
+        let Some(after_comm) = stat.rsplit(')').next() else {
+            continue;
+        };
         let fields: Vec<&str> = after_comm.trim().split_whitespace().collect();
-        if fields.len() < 2 { continue; }
-        let Ok(ppid) = fields[1].parse::<libc::pid_t>() else { continue; };
+        if fields.len() < 2 {
+            continue;
+        }
+        let Ok(ppid) = fields[1].parse::<libc::pid_t>() else {
+            continue;
+        };
         children.entry(ppid).or_default().push(pid);
     }
     let mut seen: HashSet<libc::pid_t> = HashSet::new();
@@ -577,10 +597,16 @@ fn list_session_pids(sid: libc::pid_t) -> Vec<libc::pid_t> {
     // Linux: scan /proc for PIDs whose `status`/`stat` file reports our
     // session. Small allocations, called at-most-twice per pane close.
     let mut out = Vec::new();
-    let Ok(dir) = std::fs::read_dir("/proc") else { return out; };
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return out;
+    };
     for entry in dir.flatten() {
-        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue; };
-        let Ok(pid) = name.parse::<libc::pid_t>() else { continue; };
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<libc::pid_t>() else {
+            continue;
+        };
         if unsafe { libc::getsid(pid) } == sid {
             out.push(pid);
         }

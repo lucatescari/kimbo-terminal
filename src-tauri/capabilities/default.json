@@ -4,7 +4,6 @@
   "windows": ["main", "win-*"],
   "permissions": [
     "core:default",
-    "shell:allow-open",
     "core:event:default",
     "opener:default",
     "opener:allow-open-url",

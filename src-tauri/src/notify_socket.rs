@@ -23,7 +23,12 @@ pub fn parse_event_line(line: &str) -> Option<NotifyEvent> {
     }
     let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
     let message = v.get("message").and_then(|m| m.as_str()).map(String::from);
-    Some(NotifyEvent { session_id, kind, ts, message })
+    Some(NotifyEvent {
+        session_id,
+        kind,
+        ts,
+        message,
+    })
 }
 
 use std::path::{Path, PathBuf};
@@ -68,6 +73,7 @@ pub fn spawn_listener<F>(path: PathBuf, on_event: F)
 where
     F: Fn(NotifyEvent) + Send + Sync + 'static,
 {
+    use std::os::unix::fs::PermissionsExt;
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::net::UnixListener;
 
@@ -76,9 +82,14 @@ where
     tauri::async_runtime::spawn(async move {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
+            // Restrict the directory to the owner so no other local user can
+            // reach the notify socket (or anything else) inside it.
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
         if let Err(()) = clear_stale_socket(&path) {
-            log::info!("notify-socket: another kimbo is listening; this window will not receive events");
+            log::info!(
+                "notify-socket: another kimbo is listening; this window will not receive events"
+            );
             return;
         }
         let listener = match UnixListener::bind(&path) {
@@ -88,6 +99,9 @@ where
                 return;
             }
         };
+        // Owner-only socket: only this user's processes (the sidecar) may
+        // connect, so another local user can't inject spoofed notifications.
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         log::info!("notify-socket listening at {path:?}");
         loop {
             let (stream, _) = match listener.accept().await {

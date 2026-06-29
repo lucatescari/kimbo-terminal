@@ -1,7 +1,11 @@
 [package]
 name = "kimbo-app"
+description = "Kimbo — a fast, themeable terminal emulator built with Rust and Tauri"
 version = "0.16.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 build = "build.rs"
 
 [build-dependencies]
@@ -13,7 +17,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -32,7 +32,9 @@ pub struct ThemeState {
 
 impl Default for ThemeState {
     fn default() -> Self {
-        Self { cache: CommunityCache::new() }
+        Self {
+            cache: CommunityCache::new(),
+        }
     }
 }
 
@@ -48,24 +50,24 @@ pub fn get_theme(name: String) -> Result<JsonResolvedTheme, String> {
     // it was built-in but is now community-only).
     if let Some(idx) = fetch_index_sync_opt() {
         if let Some(entry) = idx.themes.iter().find(|e| e.slug == name) {
-            let body = ureq::get(&entry.download_url)
-                .header("User-Agent", "kimbo-terminal")
-                .call()
-                .ok()
-                .and_then(|mut r| r.body_mut().read_to_string().ok());
-            if let Some(body) = body {
-                if serde_json::from_str::<JsonTheme>(&body).is_ok() {
-                    let dir = kimbo_config::AppConfig::config_dir().join("themes");
-                    if std::fs::create_dir_all(&dir).is_ok() {
-                        let path = dir.join(format!("{}.json", name));
-                        let _ = std::fs::write(&path, &body);
-                    }
-                    if let Some(theme) = JsonTheme::load_by_name(&name) {
-                        log::info!(
-                            "auto-installed '{}' from community manifest",
-                            name
-                        );
-                        return Ok(theme.resolve());
+            let safe_slug = sanitize_slug(&entry.slug);
+            if !safe_slug.is_empty() && validate_download_url(&entry.download_url).is_ok() {
+                let body = ureq::get(&entry.download_url)
+                    .header("User-Agent", "kimbo-terminal")
+                    .call()
+                    .ok()
+                    .and_then(|mut r| r.body_mut().read_to_string().ok());
+                if let Some(body) = body {
+                    if serde_json::from_str::<JsonTheme>(&body).is_ok() {
+                        let dir = kimbo_config::AppConfig::config_dir().join("themes");
+                        if std::fs::create_dir_all(&dir).is_ok() {
+                            let path = dir.join(format!("{}.json", safe_slug));
+                            let _ = std::fs::write(&path, &body);
+                        }
+                        if let Some(theme) = JsonTheme::load_by_name(&safe_slug) {
+                            log::info!("auto-installed '{}' from community manifest", safe_slug);
+                            return Ok(theme.resolve());
+                        }
                     }
                 }
             }
@@ -125,14 +127,25 @@ pub fn install_theme(
     slug: String,
     active_slug: Option<String>,
 ) -> Result<(), String> {
-    let idx = state.cache.get_fresh().or_else(fetch_index_sync_opt).ok_or_else(|| {
-        "community manifest unavailable (offline or rate-limited)".to_string()
-    })?;
+    let idx = state
+        .cache
+        .get_fresh()
+        .or_else(fetch_index_sync_opt)
+        .ok_or_else(|| "community manifest unavailable (offline or rate-limited)".to_string())?;
     let entry = idx
         .themes
         .iter()
         .find(|e| e.slug == slug)
         .ok_or_else(|| format!("theme '{}' not found in community manifest", slug))?;
+
+    // Defense-in-depth: the entry's slug and download URL come from a remotely
+    // fetched manifest, so sanitize the slug before it touches the filesystem
+    // and confirm the URL points at a trusted host over HTTPS.
+    let safe_slug = sanitize_slug(&entry.slug);
+    if safe_slug.is_empty() {
+        return Err(format!("theme '{}' has an invalid slug", slug));
+    }
+    validate_download_url(&entry.download_url)?;
 
     let body = ureq::get(&entry.download_url)
         .header("User-Agent", "kimbo-terminal")
@@ -147,7 +160,7 @@ pub fn install_theme(
 
     let dir = kimbo_config::AppConfig::config_dir().join("themes");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir failed: {}", e))?;
-    let path = dir.join(format!("{}.json", slug));
+    let path = dir.join(format!("{}.json", safe_slug));
     std::fs::write(&path, body).map_err(|e| format!("write failed: {}", e))?;
 
     // Re-emit so the UI re-renders without a manual refresh.
@@ -174,8 +187,8 @@ pub fn install_theme_from_file(
     active_slug: Option<String>,
 ) -> Result<String, String> {
     let src = std::path::PathBuf::from(&file_path);
-    let body = std::fs::read_to_string(&src)
-        .map_err(|e| format!("read '{}': {}", src.display(), e))?;
+    let body =
+        std::fs::read_to_string(&src).map_err(|e| format!("read '{}': {}", src.display(), e))?;
     let _validated: JsonTheme =
         serde_json::from_str(&body).map_err(|e| format!("invalid theme: {}", e))?;
 
@@ -217,12 +230,42 @@ pub fn install_theme_from_file(
 }
 
 /// Keep lowercase ASCII letters/digits/`-`/`_`, drop everything else. Used
-/// to turn an arbitrary filename stem into a safe theme slug.
+/// to turn an arbitrary filename stem into a safe theme slug. Because `/`,
+/// `.`, and other path separators are dropped, a malicious community slug
+/// such as `../../evil` collapses to a harmless `evil`, neutralizing path
+/// traversal before the slug is ever joined onto a filesystem path.
 fn sanitize_slug(stem: &str) -> String {
     stem.chars()
         .map(|c| c.to_ascii_lowercase())
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect()
+}
+
+/// Restrict community theme downloads to HTTPS on GitHub-owned hosts. The
+/// `download_url` comes from a remotely-fetched `index.json`; without this a
+/// compromised or MITM'd index could redirect us to an internal host (SSRF)
+/// or a plaintext endpoint. Returns the URL unchanged when it is acceptable.
+fn validate_download_url(url: &str) -> Result<(), String> {
+    const ALLOWED_HOSTS: &[&str] = &[
+        "raw.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "github.com",
+    ];
+    let rest = url
+        .strip_prefix("https://")
+        .ok_or_else(|| format!("refusing non-HTTPS theme URL: {}", url))?;
+    // Host is everything before the first '/', minus any userinfo/port.
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = host.split(':').next().unwrap_or(host);
+    if ALLOWED_HOSTS.contains(&host) {
+        Ok(())
+    } else {
+        Err(format!(
+            "refusing theme download from untrusted host '{}'",
+            host
+        ))
+    }
 }
 
 /// Delete an installed community theme. Refuses Builtin and the active theme.
@@ -261,22 +304,28 @@ pub fn delete_theme(
 // -------------------------------------------------------------------------
 
 fn installed_theme_slugs() -> Vec<String> {
-    let Some(dir) = dirs::config_dir() else { return Vec::new(); };
+    let Some(dir) = dirs::config_dir() else {
+        return Vec::new();
+    };
     let themes_dir = dir.join("kimbo").join("themes");
-    let Ok(entries) = std::fs::read_dir(themes_dir) else { return Vec::new(); };
+    let Ok(entries) = std::fs::read_dir(themes_dir) else {
+        return Vec::new();
+    };
     let mut slugs: Vec<String> = entries
         .flatten()
         .filter_map(|e| {
             let path = e.path();
             if path.extension().is_some_and(|x| x == "json") {
-                path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
             } else {
                 None
             }
         })
         .collect();
     // Drop any slug that's also a builtin (builtin wins — prevents dupes).
-    slugs.retain(|s| !BUILTIN_JSON_NAMES.iter().any(|b| *b == s.as_str()));
+    slugs.retain(|s| !BUILTIN_JSON_NAMES.contains(&s.as_str()));
     slugs
 }
 
@@ -336,7 +385,10 @@ fn emit_full_list(app: AppHandle, cache: Arc<CommunityCache>, active: String) {
         log::info!("community index: cache hit ({} entries)", idx.themes.len());
         Some(idx)
     } else if cache.begin_fetch() {
-        log::info!("community index: cache miss, fetching {}", INDEX_URL_FOR_LOG);
+        log::info!(
+            "community index: cache miss, fetching {}",
+            INDEX_URL_FOR_LOG
+        );
         // RAII guard: always call finish_fetch even if fetch_index_sync panics.
         // Without this, a panic inside ureq or serde leaves the single-flight
         // flag stuck at `true` until process restart.
@@ -349,7 +401,10 @@ fn emit_full_list(app: AppHandle, cache: Arc<CommunityCache>, active: String) {
                 self.cache.finish_fetch(self.result.take());
             }
         }
-        let mut guard = FetchGuard { cache: &cache, result: None };
+        let mut guard = FetchGuard {
+            cache: &cache,
+            result: None,
+        };
         guard.result = fetch_index_sync().ok();
         guard.result.clone()
     } else {
@@ -359,7 +414,10 @@ fn emit_full_list(app: AppHandle, cache: Arc<CommunityCache>, active: String) {
     };
 
     if let Some(idx) = idx_opt {
-        log::info!("community index resolved with {} entries; classifying…", idx.themes.len());
+        log::info!(
+            "community index resolved with {} entries; classifying…",
+            idx.themes.len()
+        );
         catalog_size = idx.themes.len();
         resolved = true;
         for entry in &idx.themes {
@@ -385,9 +443,18 @@ fn emit_full_list(app: AppHandle, cache: Arc<CommunityCache>, active: String) {
         }
     }
 
-    let available = unified.iter().filter(|t| t.source == ThemeSource::Available).count();
-    let installed_cnt = unified.iter().filter(|t| t.source == ThemeSource::Installed).count();
-    let builtin_cnt = unified.iter().filter(|t| t.source == ThemeSource::Builtin).count();
+    let available = unified
+        .iter()
+        .filter(|t| t.source == ThemeSource::Available)
+        .count();
+    let installed_cnt = unified
+        .iter()
+        .filter(|t| t.source == ThemeSource::Installed)
+        .count();
+    let builtin_cnt = unified
+        .iter()
+        .filter(|t| t.source == ThemeSource::Builtin)
+        .count();
     log::info!(
         "emit themes://community-ready: total={} (builtin={}, installed={}, available={}) catalog={} resolved={}",
         unified.len(), builtin_cnt, installed_cnt, available, catalog_size, resolved,
@@ -413,5 +480,48 @@ fn fetch_index_sync_opt() -> Option<CommunityIndex> {
             log::warn!("community index fetch failed: {}", e);
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_slug_neutralizes_path_traversal() {
+        // Path separators and dots are stripped, so a hostile community slug
+        // can never escape the themes directory.
+        assert_eq!(sanitize_slug("../../../../etc/passwd"), "etcpasswd");
+        assert_eq!(sanitize_slug("../evil"), "evil");
+        assert_eq!(sanitize_slug("a/b/c"), "abc");
+        // Legitimate slugs survive unchanged.
+        assert_eq!(sanitize_slug("catppuccin-mocha"), "catppuccin-mocha");
+        assert_eq!(sanitize_slug("tokyo_night"), "tokyo_night");
+        // A slug made entirely of separators collapses to empty (rejected by callers).
+        assert_eq!(sanitize_slug("../.."), "");
+    }
+
+    #[test]
+    fn validate_download_url_accepts_github_https() {
+        assert!(validate_download_url(
+            "https://raw.githubusercontent.com/lucatescari/kimbo-themes/main/themes/mocha.json"
+        )
+        .is_ok());
+        assert!(validate_download_url("https://github.com/lucatescari/kimbo-themes/x").is_ok());
+    }
+
+    #[test]
+    fn validate_download_url_rejects_untrusted_and_plaintext() {
+        // Non-HTTPS.
+        assert!(validate_download_url("http://raw.githubusercontent.com/x.json").is_err());
+        // Arbitrary / internal hosts (SSRF).
+        assert!(validate_download_url("https://evil.example/x.json").is_err());
+        assert!(validate_download_url("https://169.254.169.254/latest/meta-data").is_err());
+        // Host spoofing via userinfo must not bypass the allowlist.
+        assert!(
+            validate_download_url("https://raw.githubusercontent.com@evil.example/x.json").is_err()
+        );
+        // Non-URL junk.
+        assert!(validate_download_url("file:///etc/passwd").is_err());
     }
 }

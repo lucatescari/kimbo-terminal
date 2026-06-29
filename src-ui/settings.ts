@@ -669,13 +669,12 @@ function renderAppearance(el: HTMLElement): void {
         title: "Import Kimbo theme",
       });
       if (typeof selected !== "string") return; // user cancelled
-      const slug = await invoke<string>("install_theme_from_file", {
+      await invoke<string>("install_theme_from_file", {
         filePath: selected,
         activeSlug: config?.theme.name ?? null,
       });
       // The rust command spawns an emit of `themes://community-ready` which
       // the gallery listener already picks up; nothing else to do here.
-      console.log(`[kimbo.theme] imported '${slug}' from ${selected}`);
     } catch (e) {
       alert(`Could not import theme:\n\n${e instanceof Error ? e.message : String(e)}`);
     }

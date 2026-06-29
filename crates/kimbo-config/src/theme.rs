@@ -124,10 +124,18 @@ impl Theme {
             let luminance = (bg.0 as u16 + bg.1 as u16 + bg.2 as u16) / 3;
             if luminance < 128 {
                 // Dark theme: lighten
-                (bg.0.saturating_add(18), bg.1.saturating_add(18), bg.2.saturating_add(24))
+                (
+                    bg.0.saturating_add(18),
+                    bg.1.saturating_add(18),
+                    bg.2.saturating_add(24),
+                )
             } else {
                 // Light theme: darken
-                (bg.0.saturating_sub(18), bg.1.saturating_sub(18), bg.2.saturating_sub(12))
+                (
+                    bg.0.saturating_sub(18),
+                    bg.1.saturating_sub(18),
+                    bg.2.saturating_sub(12),
+                )
             }
         };
         ResolvedTheme {
@@ -281,7 +289,11 @@ impl Theme {
 
     /// Returns all built-in themes.
     pub fn builtin_themes() -> Vec<Theme> {
-        vec![Self::kimbo_dark(), Self::catppuccin_mocha(), Self::catppuccin_latte()]
+        vec![
+            Self::kimbo_dark(),
+            Self::catppuccin_mocha(),
+            Self::catppuccin_latte(),
+        ]
     }
 
     /// Loads a theme by name. Checks in order:
@@ -298,7 +310,10 @@ impl Theme {
             return Some(theme);
         }
         // Try downloading from community repo.
-        log::info!("theme '{}' not found locally, trying community repo...", name);
+        log::info!(
+            "theme '{}' not found locally, trying community repo...",
+            name
+        );
         match Self::install_from_repo(name) {
             Ok(theme) => {
                 log::info!("installed theme '{}' from community repo", name);
@@ -350,10 +365,8 @@ impl Theme {
         let entries: Vec<serde_json::Value> = serde_json::from_str(&body)
             .map_err(|e| anyhow::anyhow!("failed to parse GitHub API response: {e}"))?;
 
-        let local_themes: std::collections::HashSet<String> = Self::all_available()
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
+        let local_themes: std::collections::HashSet<String> =
+            Self::all_available().into_iter().map(|t| t.name).collect();
 
         let mut themes = Vec::new();
         for entry in entries {
@@ -382,8 +395,8 @@ impl Theme {
     fn fetch_theme_content(name: &str) -> anyhow::Result<Theme> {
         let url = format!("{}/{name}.toml", Self::THEMES_REPO_URL);
         let body = ureq::get(&url).call()?.body_mut().read_to_string()?;
-        let theme: Theme = toml::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("invalid theme file: {e}"))?;
+        let theme: Theme =
+            toml::from_str(&body).map_err(|e| anyhow::anyhow!("invalid theme file: {e}"))?;
         Ok(theme)
     }
 
@@ -394,8 +407,8 @@ impl Theme {
         let body = ureq::get(&url).call()?.body_mut().read_to_string()?;
 
         // Parse to validate it's a real theme.
-        let theme: Theme = toml::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("invalid theme file: {e}"))?;
+        let theme: Theme =
+            toml::from_str(&body).map_err(|e| anyhow::anyhow!("invalid theme file: {e}"))?;
 
         // Save to user themes directory.
         let dir = dirs::config_dir()
@@ -485,7 +498,10 @@ pub const BUILTIN_JSON_NAMES: &[&str] = &["kimbo-dark", "kimbo-light"];
 impl JsonTheme {
     /// Returns a color from the `colors` map, or `fallback` if the key is absent.
     fn color_or(&self, key: &str, fallback: &str) -> String {
-        self.colors.get(key).cloned().unwrap_or_else(|| fallback.to_string())
+        self.colors
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| fallback.to_string())
     }
 
     /// Load and parse a JSON theme from a file path.
@@ -510,7 +526,10 @@ impl JsonTheme {
     pub fn load_by_name(name: &str) -> Option<Self> {
         // Try user themes directory first.
         if let Some(dir) = dirs::config_dir() {
-            let path = dir.join("kimbo").join("themes").join(format!("{name}.json"));
+            let path = dir
+                .join("kimbo")
+                .join("themes")
+                .join(format!("{name}.json"));
             if path.exists() {
                 if let Ok(theme) = Self::load_from_file(&path) {
                     return Some(theme);
@@ -636,7 +655,7 @@ impl JsonTheme {
 /// Classify a theme slug given the list of slugs present in the user's
 /// themes directory. Precedence: Builtin > Installed > Available.
 pub fn classify_slug(slug: &str, installed_slugs: &[String]) -> ThemeSource {
-    if BUILTIN_JSON_NAMES.iter().any(|b| *b == slug) {
+    if BUILTIN_JSON_NAMES.contains(&slug) {
         ThemeSource::Builtin
     } else if installed_slugs.iter().any(|s| s == slug) {
         ThemeSource::Installed
@@ -827,19 +846,28 @@ mod json_tests {
         // kimbo-dark is in BUILTIN_JSON_NAMES, so classification is Builtin
         // even if a file exists in the user's themes dir (not tested here
         // directly — validated in command-layer tests).
-        assert_eq!(classify_slug("kimbo-dark", &["kimbo-dark".to_string()]), ThemeSource::Builtin);
+        assert_eq!(
+            classify_slug("kimbo-dark", &["kimbo-dark".to_string()]),
+            ThemeSource::Builtin
+        );
         assert_eq!(classify_slug("kimbo-light", &[]), ThemeSource::Builtin);
     }
 
     #[test]
     fn test_classify_slug_installed_when_on_disk() {
         let installed = vec!["catppuccin-mocha".to_string()];
-        assert_eq!(classify_slug("catppuccin-mocha", &installed), ThemeSource::Installed);
+        assert_eq!(
+            classify_slug("catppuccin-mocha", &installed),
+            ThemeSource::Installed
+        );
     }
 
     #[test]
     fn test_classify_slug_available_when_neither() {
         let installed: Vec<String> = vec![];
-        assert_eq!(classify_slug("some-cool-theme", &installed), ThemeSource::Available);
+        assert_eq!(
+            classify_slug("some-cool-theme", &installed),
+            ThemeSource::Available
+        );
     }
 }

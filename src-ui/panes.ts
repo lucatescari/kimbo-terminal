@@ -626,11 +626,33 @@ async function maybeAutoInstallNotifications(): Promise<void> {
   }
 }
 
+/** True when `node` or any ancestor is hidden via `display:none` — which is
+ * exactly how an inactive tab's container is hidden (tabs.ts). Reads inline
+ * styles so it also works under jsdom (which performs no layout). */
+function isInHiddenTab(node: HTMLElement | null): boolean {
+  for (let cur: HTMLElement | null = node; cur; cur = cur.parentElement) {
+    if (cur.style && cur.style.display === "none") return true;
+  }
+  return false;
+}
+
 async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: number): Promise<void> {
-  const { claudeStatus } = await import("./claude-status");
-  const { getAccountInfo } = await import("./claude-account");
   const { renderClaudeHud } = await import("./claude-hud");
   const { getPrefs } = await import("./ui-prefs");
+  const prefs = getPrefs();
+
+  // The status probe shells out `ps` over the whole process table on the Rust
+  // side, so skip it entirely when the HUD is disabled or the pane lives in a
+  // hidden (background) tab — otherwise every pane in every tab would scan the
+  // process table every poll tick regardless of settings or visibility.
+  if (!prefs.claudeHudEnabled || isInHiddenTab(paneEl)) {
+    const stale = paneEl.querySelector(":scope > .claude-hud");
+    if (stale) stale.remove();
+    return;
+  }
+
+  const { claudeStatus } = await import("./claude-status");
+  const { getAccountInfo } = await import("./claude-account");
   const { getRateLimits } = await import("./claude-rate-limits");
   const { setSessionPane } = await import("./claude-session-map");
 
@@ -646,7 +668,6 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: n
     void maybeAutoInstallNotifications();
   }
 
-  const prefs = getPrefs();
   const newHud = renderClaudeHud(status, account, rateLimits, {
     hudEnabled: prefs.claudeHudEnabled,
     extendedFields: prefs.claudeHudExtended,
