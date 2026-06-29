@@ -98,6 +98,7 @@ function mountLayer(): void {
   const toy = document.createElement("button");
   toy.className = "screen-pet-toy";
   toy.type = "button";
+  toy.style.pointerEvents = "auto";
   toy.title = "Throw a ball";
   toy.setAttribute("aria-label", "Throw a ball for the pets");
   toy.textContent = "\u{1F3BE}"; // tennis ball glyph as a lightweight label

@@ -195,7 +195,7 @@ export function initCommandPalette(): void {
     id: "pets-throw-ball",
     label: "Pets: Throw ball",
     icon: "paw",
-    hint: "",
+    hint: "Pets",
     keywords: ["pet", "ball", "play", "toy"],
     run: () => { throwPetBall(); },
   });
