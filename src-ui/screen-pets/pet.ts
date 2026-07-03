@@ -3,8 +3,8 @@ import { SPECIES } from "./sprites";
 import { applyGravity, integrate, clampInside, distance } from "./physics";
 import { BALL_SIZE } from "./ball";
 
-export const PET_W = 48;
-export const PET_H = 48;
+export const PET_W = 40;
+export const PET_H = 40;
 
 const BASE_WALK = 55;     // px/s at speedMul 1
 const RUN_MULT = 2.2;
