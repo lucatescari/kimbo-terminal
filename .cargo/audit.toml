@@ -1,0 +1,7 @@
+[advisories]
+# quick-xml <0.41 pulled transitively via plist (tauri) and
+# tauri-winrt-notification (tauri-plugin-notification, Windows-only).
+# No upstream fix available as of 2026-07-09: latest plist (1.9.0) requires
+# quick-xml ^0.39, latest tauri-winrt-notification (0.7.2) requires ^0.37.
+# Remove these once upstream bumps to quick-xml >=0.41.
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
