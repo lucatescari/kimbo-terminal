@@ -24,6 +24,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Vitest browser test artifacts (Playwright screenshots + attachments)
+src-ui/.vitest-attachments/
+src-ui/__screenshots__/
+
 # Environment
 .env
 .env.local
