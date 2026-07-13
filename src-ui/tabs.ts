@@ -58,6 +58,14 @@ let terminalAreaEl: HTMLElement;
 let scrollRegionEl: HTMLElement | null = null;
 let leftArrowEl: HTMLElement | null = null;
 let rightArrowEl: HTMLElement | null = null;
+/** Persistent tab-button elements keyed by tab id. renderTabBar() reconciles
+ *  against this map instead of tearing down the DOM every call — reusing
+ *  elements is what stops the tab bar from flashing on cosmetic re-renders
+ *  (badges, OSC titles, the CWD poll). */
+const tabElById = new Map<number, HTMLElement>();
+/** Tab currently being renamed inline; its label holds an <input> that
+ *  reconciliation must not clobber. Cleared when the rename commits. */
+let renamingTabId: number | null = null;
 
 type BadgeKind = "stop" | "perm" | "bell" | null;
 const tabBadge: Map<number, BadgeKind> = new Map();
@@ -97,6 +105,13 @@ let tabNamePoller: ReturnType<typeof setInterval> | null = null;
 export function initTabs(tabBar: HTMLElement, terminalArea: HTMLElement) {
   tabBarEl = tabBar;
   terminalAreaEl = terminalArea;
+  // Fresh mount — drop any skeleton/element cache from a previous tabBar so
+  // renderTabBar() rebuilds the skeleton against this element.
+  scrollRegionEl = null;
+  leftArrowEl = null;
+  rightArrowEl = null;
+  renamingTabId = null;
+  tabElById.clear();
   initPanes(terminalArea);
 
   tabBarEl.addEventListener("scroll", () => updateScrollArrows(), { capture: true });
@@ -541,10 +556,10 @@ export function beginRenameTab(tabId: number): void {
   input.className = "tab-rename-input";
   input.value = tabDisplayName(tab);
   input.spellcheck = false;
-  // Guard against double-commit: renderTabBar() clears tabBarEl.innerHTML,
-  // which removes the focused input and synchronously fires its blur handler.
-  // Without this flag, Escape (commit(false)) would re-enter via blur as
-  // commit(true) and wrongly save the edit.
+  renamingTabId = tabId;
+  // Guard against double-commit: removing the focused input synchronously fires
+  // its blur handler. Without this flag, Escape (commit(false)) would re-enter
+  // via blur as commit(true) and wrongly save the edit.
   let committed = false;
   const commit = (save: boolean) => {
     if (committed) return;
@@ -553,6 +568,11 @@ export function beginRenameTab(tabId: number): void {
       const v = input.value.trim();
       tab.userName = v.length > 0 ? v.slice(0, 64) : undefined;
     }
+    // Clear the guard and drop the input before re-rendering so reconciliation
+    // repaints the label with the committed name (updateTabEl skips a label
+    // that still hosts the rename input).
+    renamingTabId = null;
+    input.remove();
     renderTabBar();
   };
   input.addEventListener("keydown", (e) => {
@@ -583,94 +603,148 @@ function hideAllContainers() {
   }
 }
 
-function renderTabBar() {
-  cancelDrag();
+/** Build the static tab-bar chrome (arrows, scroll region, new-tab button)
+ *  exactly once per mount. Returns early if the skeleton is already attached
+ *  to the current tabBarEl. Rebuilding this every render was the source of the
+ *  flashing; now only tab buttons churn, and only when they actually change. */
+function ensureSkeleton() {
+  if (scrollRegionEl && scrollRegionEl.parentElement === tabBarEl) return;
   tabBarEl.innerHTML = "";
+  tabElById.clear();
 
-  // Left scroll arrow
   const leftArrow = document.createElement("button");
   leftArrow.type = "button";
   leftArrow.className = "tab-scroll-arrow left";
   leftArrow.appendChild(icon("chevron-l", 12, 1.5));
   leftArrow.addEventListener("click", () => scrollByOneTab(-1));
-  tabBarEl.appendChild(leftArrow);
   leftArrowEl = leftArrow;
 
-  // Scroll region (holds all tab buttons)
   const scrollRegion = document.createElement("div");
   scrollRegion.className = "tab-scroll-region";
-  tabBarEl.appendChild(scrollRegion);
   scrollRegionEl = scrollRegion;
 
-  tabs.forEach((tab, i) => {
-    const el = document.createElement("button");
-    const badge = tabBadge.get(tab.id) ?? null;
-    const badgeCls = badge ? ` tab--badge tab--badge-${badge}` : "";
-    el.className = "tab" + (tab.id === activeTabId ? " active" : "") + badgeCls;
-    el.type = "button";
-    el.dataset.tabId = String(tab.id);
-    el.dataset.tabIndex = String(i);
-    const displayName = tabDisplayName(tab);
-    el.title = displayName;
-
-    const idx = document.createElement("span");
-    idx.className = "tab-index";
-    idx.textContent = String(i + 1);
-    el.appendChild(idx);
-
-    const label = document.createElement("span");
-    label.className = "tab-label";
-    label.textContent = displayName;
-    el.appendChild(label);
-
-    if (tabs.length > 1) {
-      const close = document.createElement("span");
-      close.className = "tab-close";
-      close.title = "Close (⌘⇧W)";
-      close.appendChild(icon("close", 10, 2));
-      close.addEventListener("click", (e) => {
-        e.stopPropagation();
-        // Ignore the click that just activated a background window so it can't
-        // accidentally close a tab while the user was only bringing Kimbo
-        // forward (acceptFirstMouse makes that click live over the chrome).
-        if (isActivatingClick()) return;
-        closeTab(tab.id);
-      });
-      el.appendChild(close);
-    }
-
-    el.addEventListener("click", () => {
-      if (!wasJustDragging()) switchTab(tab.id);
-    });
-    el.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      beginRenameTab(tab.id);
-    });
-    el.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      showContextMenu([{ label: "Rename", onClick: () => beginRenameTab(tab.id) }], e.clientX, e.clientY);
-    });
-    scrollRegion.appendChild(el);
-  });
-
-  // Right scroll arrow
   const rightArrow = document.createElement("button");
   rightArrow.type = "button";
   rightArrow.className = "tab-scroll-arrow right";
   rightArrow.appendChild(icon("chevron-r", 12, 1.5));
   rightArrow.addEventListener("click", () => scrollByOneTab(1));
-  tabBarEl.appendChild(rightArrow);
   rightArrowEl = rightArrow;
 
-  // New tab button (pinned outside scroll region)
   const newBtn = document.createElement("button");
   newBtn.type = "button";
   newBtn.className = "tab-new";
   newBtn.title = "New tab (⌘T)";
   newBtn.appendChild(icon("plus", 14));
   newBtn.addEventListener("click", () => createTab());
-  tabBarEl.appendChild(newBtn);
+
+  // Arrows are absolute overlays (see .tab-scroll-arrow in style.css); DOM
+  // order among them is irrelevant. The scroll region + new-tab button are the
+  // only flex children.
+  tabBarEl.append(leftArrow, scrollRegion, rightArrow, newBtn);
+}
+
+/** Create the persistent DOM for one tab. Listeners are wired once here and
+ *  survive across re-renders because the element is cached in tabElById. The
+ *  handlers close over `tabId` (stable), never over the tab's array index. */
+function createTabEl(tabId: number): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "tab";
+  el.dataset.tabId = String(tabId);
+
+  const idx = document.createElement("span");
+  idx.className = "tab-index";
+  el.appendChild(idx);
+
+  const label = document.createElement("span");
+  label.className = "tab-label";
+  el.appendChild(label);
+
+  const close = document.createElement("span");
+  close.className = "tab-close";
+  close.title = "Close (⌘⇧W)";
+  close.appendChild(icon("close", 10, 2));
+  close.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Ignore the click that just activated a background window so it can't
+    // accidentally close a tab while the user was only bringing Kimbo
+    // forward (acceptFirstMouse makes that click live over the chrome).
+    if (isActivatingClick()) return;
+    closeTab(tabId);
+  });
+  el.appendChild(close);
+
+  el.addEventListener("click", () => {
+    if (!wasJustDragging()) switchTab(tabId);
+  });
+  el.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    beginRenameTab(tabId);
+  });
+  el.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu([{ label: "Rename", onClick: () => beginRenameTab(tabId) }], e.clientX, e.clientY);
+  });
+  return el;
+}
+
+const BADGE_KINDS: BadgeKind[] = ["stop", "perm", "bell"];
+
+/** Patch a cached tab element to match current tab state without recreating it. */
+function updateTabEl(el: HTMLElement, tab: Tab, index: number) {
+  el.classList.toggle("active", tab.id === activeTabId);
+  const badge = tabBadge.get(tab.id) ?? null;
+  el.classList.toggle("tab--badge", badge !== null);
+  for (const kind of BADGE_KINDS) {
+    el.classList.toggle(`tab--badge-${kind}`, badge === kind);
+  }
+  el.dataset.tabIndex = String(index);
+
+  const displayName = tabDisplayName(tab);
+  if (el.title !== displayName) el.title = displayName;
+
+  const idx = el.querySelector<HTMLElement>(".tab-index")!;
+  const idxText = String(index + 1);
+  if (idx.textContent !== idxText) idx.textContent = idxText;
+
+  // Skip the label while it hosts a live rename <input> so we don't clobber
+  // the user's in-progress edit on a background re-render.
+  if (renamingTabId !== tab.id) {
+    const label = el.querySelector<HTMLElement>(".tab-label")!;
+    if (label.textContent !== displayName) label.textContent = displayName;
+  }
+
+  // Single tab can't be closed; hide (don't remove) its close affordance.
+  const close = el.querySelector<HTMLElement>(".tab-close")!;
+  close.style.display = tabs.length > 1 ? "" : "none";
+}
+
+function renderTabBar() {
+  cancelDrag();
+  ensureSkeleton();
+  const region = scrollRegionEl!;
+
+  // Drop elements for tabs that no longer exist.
+  for (const [id, el] of tabElById) {
+    if (!tabs.some((t) => t.id === id)) {
+      el.remove();
+      tabElById.delete(id);
+    }
+  }
+
+  // Upsert + order each tab, reusing cached elements.
+  tabs.forEach((tab, i) => {
+    let el = tabElById.get(tab.id);
+    if (!el) {
+      el = createTabEl(tab.id);
+      tabElById.set(tab.id, el);
+    }
+    if (region.children[i] !== el) {
+      region.insertBefore(el, region.children[i] ?? null);
+    }
+    updateTabEl(el, tab, i);
+  });
 
   updateScrollArrows();
   scrollActiveTabIntoView();
@@ -696,8 +770,21 @@ function updateScrollArrows() {
 function scrollActiveTabIntoView() {
   if (!scrollRegionEl) return;
   const active = scrollRegionEl.querySelector(".tab.active") as HTMLElement | null;
-  if (active && typeof active.scrollIntoView === "function") {
-    active.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
+  if (!active) return;
+
+  // Only correct the scroll position when the active tab is actually clipped.
+  // Calling this on every render (badges, OSC titles, the CWD poll) with a
+  // smooth scrollIntoView is what made the bar slide continuously; an instant,
+  // conditional nudge here is a no-op once the tab is already visible.
+  const viewLeft = scrollRegionEl.scrollLeft;
+  const viewRight = viewLeft + scrollRegionEl.clientWidth;
+  const tabLeft = active.offsetLeft;
+  const tabRight = tabLeft + active.offsetWidth;
+
+  if (tabLeft < viewLeft) {
+    scrollRegionEl.scrollLeft = tabLeft;
+  } else if (tabRight > viewRight) {
+    scrollRegionEl.scrollLeft = tabRight - scrollRegionEl.clientWidth;
   }
 }
 
