@@ -65,6 +65,10 @@ async function buildOverflowingBar(tabCount: number) {
 
   initTabs(tabBar, area);
   for (let i = 0; i < tabCount; i++) await createTab(`/Users/x/project-number-${i}`);
+  // Web fonts load async; tab text (and thus tab/scroll widths) keeps shifting
+  // until they're ready. Wait so width-dependent measurements are stable —
+  // otherwise a font settling mid-test moves scrollLeft under us.
+  await document.fonts.ready;
   await NEXT_FRAME();
   return { tabBar };
 }
@@ -106,18 +110,24 @@ describe("tab bar far-right oscillation", () => {
     await NEXT_FRAME();
 
     const r = region(tabBar);
-    const settledScroll = r.scrollLeft;
-    expect(settledScroll).toBeGreaterThan(0); // active tab is genuinely far right
+    expect(r.scrollLeft).toBeGreaterThan(0); // active tab is genuinely far right
     const elBefore = tabBar.querySelector(`.tab[data-tab-id="${lastId}"]`);
 
-    // Frequent re-renders like OSC titles / the CWD poll / bell badges.
+    // Warm-up render so scrollActiveTabIntoView has settled on its resting
+    // position; capture that as the baseline the loop must not drift from.
+    setTabBadge(lastId, "bell");
+    await NEXT_FRAME();
+    const settledScroll = r.scrollLeft;
+
+    // Frequent re-renders like OSC titles / the CWD poll / bell badges. The bug
+    // was that each one restarted a smooth scroll and the bar slid forever;
+    // here the position must converge — every subsequent render is a no-op.
     for (let i = 0; i < 6; i++) {
-      setTabBadge(lastId, i % 2 === 0 ? "bell" : null);
+      setTabBadge(lastId, i % 2 === 0 ? null : "bell");
       await NEXT_FRAME();
+      expect(r.scrollLeft).toBe(settledScroll);
     }
 
-    // No unprompted sliding: the scroll position must not drift.
-    expect(r.scrollLeft).toBe(settledScroll);
     // No flashing: the tab element is reused, not torn down and rebuilt.
     const elAfter = tabBar.querySelector(`.tab[data-tab-id="${lastId}"]`);
     expect(elAfter).toBe(elBefore);
