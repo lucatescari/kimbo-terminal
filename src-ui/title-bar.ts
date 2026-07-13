@@ -125,8 +125,10 @@ function trafficGlyph(kind: "close" | "min" | "max"): string {
       // Horizontal bar
       return '<line x1="3" y1="6" x2="9" y2="6" />';
     case "max":
-      // Two triangles (enter full-screen glyph)
-      return '<path d="M4.5 4.5 L4.5 7.5 L7.5 4.5 Z" /><path d="M7.5 7.5 L7.5 4.5 L4.5 7.5 Z" />';
+      // Native zoom glyph: two solid triangles (top-left / bottom-right)
+      // separated by a diagonal gap. stroke="none" keeps the fill edges
+      // crisp — the shared .glyph stroke would otherwise close the gap.
+      return '<path d="M3 3 L7.7 3 L3 7.7 Z" stroke="none" /><path d="M9 9 L4.3 9 L9 4.3 Z" stroke="none" />';
   }
 }
 
