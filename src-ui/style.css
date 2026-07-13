@@ -330,6 +330,8 @@ body {
   border-bottom: 1px solid var(--divider);
   height: 38px;
   flex-shrink: 0;
+  /* Anchor for the absolutely-positioned scroll arrows. */
+  position: relative;
 }
 
 .tab-scroll-region {
@@ -343,12 +345,21 @@ body {
 }
 .tab-scroll-region::-webkit-scrollbar { display: none; }
 
+/* Scroll arrows overlay the edges of the strip instead of taking part in the
+   flex layout. This is load-bearing: when they were flex-shrink:0 siblings of
+   the flex:1 scroll region, toggling their visibility changed the region's
+   clientWidth — the same value updateScrollArrows() reads to decide whether to
+   show them — producing an oscillation loop at the far-right edge. As overlays
+   the region width is constant regardless of arrow state. */
 .tab-scroll-arrow {
   display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
   align-items: center;
   justify-content: center;
   width: 24px;
-  flex-shrink: 0;
+  z-index: 5;
   background: transparent;
   border: 0;
   color: var(--fg-muted);
@@ -356,9 +367,22 @@ body {
   transition: color 0.12s, background 0.12s;
   padding: 0;
 }
+.tab-scroll-arrow.left {
+  left: 0;
+  /* Fade the underlying edge tab out beneath the chevron. */
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
+    transparent);
+}
+.tab-scroll-arrow.right {
+  /* Sit just left of the pinned new-tab button (28px + 2×4px margin). */
+  right: 36px;
+  background: linear-gradient(to left,
+    color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
+    transparent);
+}
 .tab-scroll-arrow:hover {
   color: var(--fg);
-  background: var(--bg-hover);
 }
 .tab-scroll-arrow.visible {
   display: flex;
