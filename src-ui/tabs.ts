@@ -703,12 +703,43 @@ function scrollActiveTabIntoView() {
 
 /** Override or clear the title for a given session's tab. Pass null to revert
     to the default tab name. The argument is the *terminal session* id (not
-    the tab id) since OSC 0/2 fires from a terminal. */
+    the tab id) since OSC 0/2 fires from a terminal.
+
+    This is a hot path: codex (and other TUIs) animate a spinner in the
+    terminal title at ~10 updates/sec for minutes at a time. It must NOT go
+    through renderTabBar() — a full innerHTML rebuild destroys the button
+    under the cursor, which restarts the hover transitions every frame
+    (visible flicker) and swallows clicks whose mousedown/mouseup straddle
+    a rebuild. Patch the existing button in place instead. */
 export function setTabTitle(sessionId: number, title: string | null): void {
   const tab = findTabBySessionId(sessionId);
   if (!tab) return;
-  tab.titleOverride = title ?? undefined;
-  renderTabBar();
+  const next = title ?? undefined;
+  if (tab.titleOverride === next) return;
+  tab.titleOverride = next;
+  updateTabButtonInPlace(tab);
+}
+
+/** Refresh one tab button's label/tooltip without rebuilding the tab bar.
+ *  Falls back to a full render when the button isn't mounted (shouldn't
+ *  happen — every tab mutation renders — but a rebuild is always correct). */
+function updateTabButtonInPlace(tab: Tab): void {
+  const el = tabBarEl?.querySelector<HTMLElement>(`[data-tab-id="${tab.id}"]`);
+  if (!el) {
+    renderTabBar();
+    return;
+  }
+  const displayName = tabDisplayName(tab);
+  el.title = displayName;
+  const label = el.querySelector<HTMLElement>(".tab-label");
+  // Leave the label alone while an inline rename <input> owns it; the next
+  // full render repaints the display name after the rename commits.
+  if (label && !label.querySelector(".tab-rename-input") && label.textContent !== displayName) {
+    label.textContent = displayName;
+  }
+  // A longer/shorter title can change the tab's width and thus overflow.
+  updateScrollArrows();
+  try { renderTitle(); } catch (_) { /* title-bar may not be mounted yet */ }
 }
 
 function findTabBySessionId(sessionId: number): Tab | undefined {

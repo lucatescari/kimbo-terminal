@@ -997,3 +997,74 @@ describe("tab badge", () => {
     expect(h.tabs.getTabBadge(3)).toBe("stop");
   });
 });
+
+describe("high-frequency title updates (codex title spinner)", () => {
+  // Regression: codex animates a braille spinner in the terminal title —
+  // ~10 OSC 0 updates per second for as long as it works. Each update used
+  // to go through a full renderTabBar() innerHTML rebuild, so the tab under
+  // the cursor was destroyed/recreated 10x/sec: hover transitions restarted
+  // forever (visible flicker) and mousedown/mouseup pairs straddled a
+  // rebuild (clicks never fired). A title change must patch the existing
+  // button in place.
+  it("setTabTitle patches the existing tab button in place (same DOM node)", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    await h.tabs.createTab();
+
+    const before = h.tabBar.querySelector<HTMLElement>('[data-tab-id="1"]');
+    expect(before).not.toBeNull();
+
+    h.tabs.setTabTitle(1, "⠋ codex");
+    const after = h.tabBar.querySelector<HTMLElement>('[data-tab-id="1"]');
+
+    expect(after).toBe(before);
+    expect(after!.querySelector(".tab-label")!.textContent).toBe("⠋ codex");
+    expect(after!.title).toBe("⠋ codex");
+  });
+
+  it("a repeated identical title is a no-op (label text node untouched)", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    h.tabs.setTabTitle(1, "⠋ codex");
+    const label = h.tabBar.querySelector('[data-tab-id="1"] .tab-label')!;
+    const textNode = label.firstChild;
+
+    h.tabs.setTabTitle(1, "⠋ codex");
+
+    const labelAfter = h.tabBar.querySelector('[data-tab-id="1"] .tab-label')!;
+    expect(labelAfter).toBe(label);
+    expect(labelAfter.firstChild).toBe(textNode);
+  });
+
+  it("clearing the title (OSC with empty payload) reverts the label in place", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    const autoName = h.tabBar.querySelector('[data-tab-id="1"] .tab-label')!.textContent;
+    h.tabs.setTabTitle(1, "⠋ codex");
+    const before = h.tabBar.querySelector<HTMLElement>('[data-tab-id="1"]');
+
+    h.tabs.setTabTitle(1, null);
+    const after = h.tabBar.querySelector<HTMLElement>('[data-tab-id="1"]');
+
+    expect(after).toBe(before);
+    expect(after!.querySelector(".tab-label")!.textContent).toBe(autoName);
+  });
+
+  it("a title update while the rename input is open does not clobber the input", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+
+    h.tabs.beginRenameTab(1);
+    const input = h.tabBar.querySelector<HTMLInputElement>(".tab-rename-input");
+    expect(input).not.toBeNull();
+    input!.value = "my name";
+
+    h.tabs.setTabTitle(1, "⠙ codex");
+
+    const inputAfter = h.tabBar.querySelector<HTMLInputElement>(".tab-rename-input");
+    expect(inputAfter).toBe(input);
+    expect(inputAfter!.value).toBe("my name");
+  });
+});

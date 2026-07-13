@@ -5,6 +5,12 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Fixes
+
+- **The tab bar no longer flickers or swallows clicks while a TUI animates the terminal title.** Programs like codex update the title with a spinner ~10 times per second; each update used to rebuild the whole tab bar, destroying the tab under the cursor mid-hover and mid-click. Title changes now patch the existing tab label in place.
+
 ## 1.0.0 - 2026-06-29
 
 First stable release. Kimbo is out of beta: the config format, keybindings, and
