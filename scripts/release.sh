@@ -123,7 +123,10 @@ export APPLE_API_ISSUER="${APPLE_API_ISSUER:-277572be-01f6-4e99-9a67-336fc6fdc28
 # Build only the .app bundle. We skip Tauri's DMG step because macOS System
 # Policy (syspolicyd) denies copy-helper from writing to /Volumes/Kimbo/Kimbo.app
 # on this machine — a persistent ExecPolicy record from a prior run. We build
-# the DMG ourselves below with a different volume name to sidestep the block.
+# the DMG ourselves below with create-dmg (scripts/dmg/bundle_dmg.sh), which
+# stages the app with a plain `cp -R` into a `-mountrandom` disk image instead
+# of copy-helper, sidestepping the block (verified: volname "Kimbo" builds and
+# mounts cleanly this way).
 # `createUpdaterArtifacts: true` in tauri.conf.json makes the bundler also emit
 # Kimbo.app.tar.gz + Kimbo.app.tar.gz.sig next to the .app.
 npm run tauri -- build --bundles app
@@ -208,13 +211,21 @@ fi
 echo -e "  ${GREEN}All required entitlements present${NC}"
 
 # ---- Step 2c: Bundle, sign, notarize, and staple the DMG ----
-# We do this ourselves (instead of letting Tauri do it) because the sandbox
-# rejects writes to /Volumes/Kimbo/Kimbo.app on this machine. We mount at
-# /Volumes/Kimbo Terminal/ instead, which is not blocked.
+# We build the DMG ourselves (instead of letting Tauri do it) because Tauri's
+# copy-helper is blocked from writing to /Volumes/Kimbo/Kimbo.app on this
+# machine. create-dmg stages via `cp -R` into a `-mountrandom` image, which is
+# not blocked, so we can use the volume name "Kimbo" directly.
+#
+# The installer window is designed art: a flat dark Catppuccin base with the
+# Kimbo wordmark, both icons on light tiles (so Finder's dark label text stays
+# legible), and a drag arrow — rendered to scripts/dmg/dmg-background.tiff by
+# scripts/dmg/make-background.mjs. The window is 32pt taller than the 400pt
+# background to account for the title bar so the art sits flush (see that
+# script's header for the sizing rationale).
 echo ""
-echo -e "${CYAN}Bundling DMG (volname: Kimbo Terminal)...${NC}"
+echo -e "${CYAN}Bundling DMG (volname: Kimbo)...${NC}"
 
-DMG_VOLNAME="Kimbo Terminal"
+DMG_VOLNAME="Kimbo"
 DMG_STAGE=$(mktemp -d -t kimbo-dmg-stage)
 trap 'rm -rf "$DMG_STAGE"' EXIT
 
@@ -228,12 +239,21 @@ if [[ -f "$VOLICON_PATH" ]]; then
   VOLICON_ARGS=(--volicon "$VOLICON_PATH")
 fi
 
+DMG_BACKGROUND="scripts/dmg/dmg-background.tiff"
+BACKGROUND_ARGS=()
+if [[ -f "$DMG_BACKGROUND" ]]; then
+  BACKGROUND_ARGS=(--background "$DMG_BACKGROUND")
+fi
+
 scripts/dmg/bundle_dmg.sh \
   --volname "$DMG_VOLNAME" \
   "${VOLICON_ARGS[@]}" \
-  --icon "Kimbo.app" 180 170 \
-  --app-drop-link 480 170 \
-  --window-size 660 400 \
+  "${BACKGROUND_ARGS[@]}" \
+  --icon-size 128 \
+  --text-size 13 \
+  --icon "Kimbo.app" 180 200 \
+  --app-drop-link 480 200 \
+  --window-size 660 432 \
   --hide-extension "Kimbo.app" \
   "$DMG_PATH" \
   "$DMG_STAGE"
