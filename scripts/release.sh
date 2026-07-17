@@ -134,8 +134,12 @@ if [[ "$CHANNEL" == "unstable" ]]; then
   # Edit version files for the build only — never committed. Restored on
   # EXIT (combined below with the DMG_STAGE cleanup trap) so the working
   # tree is clean again even if a later step fails under `set -e`.
+  # Cargo.lock is included because the build regenerates it with the
+  # X.Y.Z-unstable.N version entries; without restoring it the unstable path
+  # would leave `git status` dirty (violating "unstable must not mutate git").
   RESTORE_FILES=(package.json src-tauri/tauri.conf.json Cargo.toml src-tauri/Cargo.toml \
-    crates/kimbo-terminal/Cargo.toml crates/kimbo-config/Cargo.toml crates/kimbo-workspace/Cargo.toml)
+    crates/kimbo-terminal/Cargo.toml crates/kimbo-config/Cargo.toml crates/kimbo-workspace/Cargo.toml \
+    Cargo.lock)
   # Cleanup is unconditional: a failed `git checkout` must NOT skip the temp-dir
   # removal or mask the real exit code, so guard the checkout with `|| true`.
   trap '{ git checkout -- "${RESTORE_FILES[@]}" || true; } 2>/dev/null; rm -rf "${DMG_STAGE:-}" 2>/dev/null' EXIT
