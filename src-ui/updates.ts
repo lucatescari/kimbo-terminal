@@ -1,20 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { showToast } from "./toast";
 import { openSettingsToCategory } from "./settings";
 
-export interface UpdateInfo {
+export interface UpdateStatus {
   current: string;
-  latest: string;
-  is_newer: boolean;
+  available: boolean;
+  latest: string | null;
+  notes: string | null;
   release_url: string;
-  published_at: string;
-  notes: string;
-}
-
-interface ConfigShape {
-  updates: { auto_check: boolean };
 }
 
 export interface DownloadProgress {
@@ -24,14 +18,23 @@ export interface DownloadProgress {
   total: number | null;
 }
 
-let cached: UpdateInfo | null = null;
+interface ConfigShape {
+  updates?: { auto_check?: boolean; channel?: string };
+}
 
-/** Called once at app startup. Honors the auto_check toggle. Never throws. */
+let cached: UpdateStatus | null = null;
+
+function channelOf(config: ConfigShape): string {
+  return config.updates?.channel === "unstable" ? "unstable" : "stable";
+}
+
+/** Called once at app startup. Honors auto_check. Never throws. */
 export async function initUpdateCheck(config: ConfigShape): Promise<void> {
   if (!config.updates?.auto_check) return;
+  const channel = channelOf(config);
   try {
-    cached = await invoke<UpdateInfo>("check_for_updates", { force: false });
-    if (cached?.is_newer) {
+    cached = await invoke<UpdateStatus>("check_update", { channel, force: false });
+    if (cached?.available) {
       showToast({
         kind: "info",
         message: `Update available: v${cached.latest}`,
@@ -48,55 +51,47 @@ export async function initUpdateCheck(config: ConfigShape): Promise<void> {
 }
 
 /** Synchronous read of the in-memory cache. */
-export function getCachedUpdate(): UpdateInfo | null {
+export function getCachedUpdate(): UpdateStatus | null {
   return cached;
 }
 
 /** Bypass the backend cache, refetch, and update the in-memory cache. */
-export async function forceCheckUpdate(): Promise<UpdateInfo> {
-  const info = await invoke<UpdateInfo>("check_for_updates", { force: true });
+export async function forceCheckUpdate(channel: string): Promise<UpdateStatus> {
+  const info = await invoke<UpdateStatus>("check_update", { channel, force: true });
   cached = info;
   return info;
 }
 
-/** Convenience: true iff a check has succeeded and the remote is newer. */
+/** Convenience: true iff a check has succeeded and an update is available. */
 export function hasPendingUpdate(): boolean {
-  return cached?.is_newer === true;
+  return cached?.available === true;
+}
+
+function progressChannel(onProgress?: (p: DownloadProgress) => void): Channel<DownloadProgress> {
+  const ch = new Channel<DownloadProgress>();
+  if (onProgress) ch.onmessage = (p) => onProgress(p);
+  return ch;
 }
 
 /**
- * Download the latest release via tauri-plugin-updater and install it.
+ * Install the newest build on `channel`.
  *
- * The plugin hits `plugins.updater.endpoints` in tauri.conf.json, fetches
- * the signed tarball, verifies it against the embedded pubkey, writes it
- * over the current .app bundle, and relaunches. The `onProgress` callback
- * fires once with `downloaded: 0` when the transfer starts, periodically
- * during the download, and once with `downloaded === total` when done.
- *
- * Throws if no update is available, signature verification fails, or the
- * server is unreachable. Never returns on success — the process relaunches.
+ * Progress is streamed from the backend via a Tauri `Channel` and forwarded
+ * to `onProgress`. Never returns on success — the process relaunches.
  */
-export async function downloadAndInstallUpdate(
+export async function installUpdate(
+  channel: string,
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
-  const update: Update | null = await check();
-  if (!update) throw new Error("No update available");
+  await invoke("install_update", { channel, onProgress: progressChannel(onProgress) });
+  await relaunch();
+}
 
-  let downloaded = 0;
-  let total: number | null = null;
-
-  await update.downloadAndInstall((event) => {
-    if (event.event === "Started") {
-      total = typeof event.data.contentLength === "number" ? event.data.contentLength : null;
-      onProgress?.({ downloaded: 0, total });
-    } else if (event.event === "Progress") {
-      downloaded += event.data.chunkLength;
-      onProgress?.({ downloaded, total });
-    } else if (event.event === "Finished") {
-      onProgress?.({ downloaded: total ?? downloaded, total });
-    }
-  });
-
+/** Force-install the latest stable build even if it is a downgrade. */
+export async function reinstallStable(
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
+  await invoke("reinstall_stable", { onProgress: progressChannel(onProgress) });
   await relaunch();
 }
 
