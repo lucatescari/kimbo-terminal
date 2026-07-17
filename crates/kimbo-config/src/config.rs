@@ -75,6 +75,8 @@ pub struct KimboConfig {
 #[serde(default)]
 pub struct UpdatesConfig {
     pub auto_check: bool,
+    /// Release channel: "stable" (default) or "unstable" (preview builds).
+    pub channel: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,7 +160,10 @@ impl Default for KimboConfig {
 
 impl Default for UpdatesConfig {
     fn default() -> Self {
-        Self { auto_check: true }
+        Self {
+            auto_check: true,
+            channel: "stable".to_string(),
+        }
     }
 }
 
@@ -392,6 +397,34 @@ size = 16.0
 "#;
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert!(config.updates.auto_check);
+    }
+
+    #[test]
+    fn test_default_updates_channel_is_stable() {
+        let config = AppConfig::default();
+        assert_eq!(config.updates.channel, "stable");
+    }
+
+    #[test]
+    fn test_parse_updates_channel_toml() {
+        let toml = r#"
+[updates]
+auto_check = true
+channel = "unstable"
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.updates.channel, "unstable");
+    }
+
+    #[test]
+    fn test_updates_channel_missing_uses_default() {
+        let toml = r#"
+[updates]
+auto_check = false
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.updates.channel, "stable");
+        assert!(!config.updates.auto_check);
     }
 
     #[test]
