@@ -15,13 +15,21 @@ const UNSTABLE_PAGE: &str = "https://github.com/lucatescari/kimbo-terminal/relea
 
 /// Map a channel to its `latest.json` URL. Unknown channels fall back to stable.
 pub(crate) fn manifest_url(channel: &str) -> tauri::Url {
-    let raw = if channel == "unstable" { UNSTABLE_MANIFEST } else { STABLE_MANIFEST };
+    let raw = if channel == "unstable" {
+        UNSTABLE_MANIFEST
+    } else {
+        STABLE_MANIFEST
+    };
     tauri::Url::parse(raw).expect("hardcoded manifest URL is valid")
 }
 
 /// Human-readable release page for the channel (for the "Release page" link).
 pub(crate) fn release_url(channel: &str) -> &'static str {
-    if channel == "unstable" { UNSTABLE_PAGE } else { STABLE_PAGE }
+    if channel == "unstable" {
+        UNSTABLE_PAGE
+    } else {
+        STABLE_PAGE
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,7 +76,10 @@ pub async fn check_update(
         .build()
         .map_err(|e| format!("updater build error: {e}"))?;
 
-    let maybe = updater.check().await.map_err(|e| format!("check failed: {e}"))?;
+    let maybe = updater
+        .check()
+        .await
+        .map_err(|e| format!("check failed: {e}"))?;
     let status = match maybe {
         Some(update) => UpdateStatus {
             current,
@@ -115,7 +126,9 @@ async fn run_install(
         // Treat any version different from current as installable.
         builder = builder.version_comparator(|current, remote| remote.version != current);
     }
-    let updater = builder.build().map_err(|e| format!("updater build error: {e}"))?;
+    let updater = builder
+        .build()
+        .map_err(|e| format!("updater build error: {e}"))?;
 
     let update = updater
         .check()
@@ -129,7 +142,10 @@ async fn run_install(
         .download_and_install(
             move |chunk_len, content_len| {
                 downloaded += chunk_len as u64;
-                let _ = progress.send(DownloadProgress { downloaded, total: content_len });
+                let _ = progress.send(DownloadProgress {
+                    downloaded,
+                    total: content_len,
+                });
             },
             || {},
         )
@@ -171,7 +187,10 @@ mod tests {
             "https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json"
         );
         // Unknown channel falls back to stable.
-        assert_eq!(manifest_url("wat").as_str(), manifest_url("stable").as_str());
+        assert_eq!(
+            manifest_url("wat").as_str(),
+            manifest_url("stable").as_str()
+        );
     }
 
     #[test]
