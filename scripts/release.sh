@@ -114,7 +114,12 @@ if [[ "$CHANNEL" == "unstable" ]]; then
 
   # Default next-stable target = patch bump of the committed stable version.
   DEFAULT_BASE="${MAJOR}.${MINOR}.$((PATCH + 1))"
-  if [[ -n "$PREV_BASE" ]] && [[ "$PREV_BASE" != "$CURRENT" ]]; then
+  # Reuse the in-flight target only when it is STRICTLY AHEAD of the committed
+  # stable version (semver, via `sort -V`). Bases are plain X.Y.Z with no
+  # prerelease suffix, so `sort -V` orders them correctly. A plain `!=` would
+  # wrongly reuse a stale base after a minor/major stable bump landed ahead of it.
+  if [[ -n "$PREV_BASE" && "$PREV_BASE" != "$CURRENT" \
+        && "$(printf '%s\n%s\n' "$CURRENT" "$PREV_BASE" | sort -V | tail -1)" == "$PREV_BASE" ]]; then
     # Reuse the in-flight target and bump N.
     BASE="$PREV_BASE"; N=$((PREV_N + 1))
   else
@@ -131,7 +136,9 @@ if [[ "$CHANNEL" == "unstable" ]]; then
   # tree is clean again even if a later step fails under `set -e`.
   RESTORE_FILES=(package.json src-tauri/tauri.conf.json Cargo.toml src-tauri/Cargo.toml \
     crates/kimbo-terminal/Cargo.toml crates/kimbo-config/Cargo.toml crates/kimbo-workspace/Cargo.toml)
-  trap 'git checkout -- "${RESTORE_FILES[@]}" 2>/dev/null; rm -rf "${DMG_STAGE:-}" 2>/dev/null' EXIT
+  # Cleanup is unconditional: a failed `git checkout` must NOT skip the temp-dir
+  # removal or mask the real exit code, so guard the checkout with `|| true`.
+  trap '{ git checkout -- "${RESTORE_FILES[@]}" || true; } 2>/dev/null; rm -rf "${DMG_STAGE:-}" 2>/dev/null' EXIT
 fi
 
 # ---- Step 1: Update version in all files ----
@@ -453,6 +460,12 @@ fi
 # ---- Step 5 (unstable): overwrite the rolling "unstable" pre-release ----
 if [[ "$CHANNEL" == "unstable" ]]; then
   echo -e "${CYAN}Publishing to the unstable channel...${NC}"
+  # Guard the updater artifacts up front: `set -e` does NOT catch a failed
+  # `cat "$UPDATER_SIG"` inside the jq --arg command-substitution below, so a
+  # missing/stale sig or tarball would otherwise silently publish an empty
+  # "signature" to the live unstable release.
+  [[ -f "$UPDATER_TARBALL" ]] || { echo -e "${RED}Updater tarball missing at ${UPDATER_TARBALL}.${NC}"; exit 1; }
+  [[ -f "$UPDATER_SIG" ]] || { echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"; exit 1; }
   # latest.json for the unstable manifest (same shape as stable).
   TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
   jq -n --arg version "$NEW_VERSION" \
