@@ -152,6 +152,18 @@ describe("updates: cache behavior", () => {
     await initUpdateCheck({ updates: { auto_check: false, channel: "stable" } });
     expect(fn).not.toHaveBeenCalled();
   });
+
+  it("normalizes a missing channel to stable", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ ...fakeStatus, available: false });
+    await initUpdateCheck({ updates: { auto_check: true } });
+    expect(invoke).toHaveBeenCalledWith("check_update", { channel: "stable", force: false });
+  });
+
+  it("normalizes an unknown channel value to stable", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ ...fakeStatus, available: false });
+    await initUpdateCheck({ updates: { auto_check: true, channel: "beta" } });
+    expect(invoke).toHaveBeenCalledWith("check_update", { channel: "stable", force: false });
+  });
 });
 
 describe("updates: launch toast", () => {
