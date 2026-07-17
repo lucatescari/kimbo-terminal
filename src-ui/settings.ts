@@ -35,8 +35,9 @@ import {
   getCachedUpdate,
   forceCheckUpdate,
   hasPendingUpdate,
-  downloadAndInstallUpdate,
-  type UpdateInfo,
+  installUpdate,
+  reinstallStable,
+  type UpdateStatus,
   type DownloadProgress,
 } from "./updates";
 
@@ -53,7 +54,7 @@ interface AppConfig {
   keybindings: { bindings: Record<string, string> };
   workspace: { auto_detect: boolean; scan_dirs: string[] };
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
-  updates: { auto_check: boolean };
+  updates: { auto_check: boolean; channel: string };
   welcome: { show_on_startup: boolean };
   telemetry: { enabled: boolean };
 }
@@ -1555,12 +1556,50 @@ async function renderAbout(el: HTMLElement): Promise<void> {
 
   // Updates
   const upd = section("Updates");
+
+  const channelRow = document.createElement("div");
+  channelRow.style.cssText = "display:flex; gap:8px; align-items:center; margin-bottom:10px;";
+  const channelLabel = document.createElement("span");
+  channelLabel.textContent = "Update channel";
+  channelLabel.style.cssText = "font-size:13px;";
+  channelRow.appendChild(channelLabel);
+
+  const unstableNote = document.createElement("div");
+  unstableNote.textContent = "Unstable builds are preview releases and may be rough.";
+  unstableNote.style.cssText =
+    "font-size:12px; color:var(--fg-muted); margin-bottom:8px;";
+  unstableNote.style.display = config!.updates.channel === "unstable" ? "block" : "none";
+
+  const mkChannelBtn = (value: "stable" | "unstable", text: string) => {
+    return button(text, async () => {
+      if (config!.updates.channel === value) return;
+      config!.updates.channel = value;
+      await saveConfig();
+      stableBtn.classList.toggle("primary", value === "stable");
+      unstableBtn.classList.toggle("primary", value === "unstable");
+      unstableNote.style.display = value === "unstable" ? "block" : "none";
+      try {
+        renderUpdateState(await forceCheckUpdate(value), null);
+      } catch (e) {
+        renderUpdateState(null, String(e));
+      }
+    });
+  };
+  const stableBtn = mkChannelBtn("stable", "Stable");
+  const unstableBtn = mkChannelBtn("unstable", "Unstable");
+  stableBtn.classList.toggle("primary", config!.updates.channel !== "unstable");
+  unstableBtn.classList.toggle("primary", config!.updates.channel === "unstable");
+  channelRow.appendChild(stableBtn);
+  channelRow.appendChild(unstableBtn);
+  upd.appendChild(channelRow);
+  upd.appendChild(unstableNote);
+
   const status = document.createElement("div");
   status.style.cssText = "font-size: 13px; margin-bottom: 8px;";
   const release = document.createElement("div");
   release.style.cssText = "margin-bottom: 8px;";
 
-  const renderUpdateState = (state: UpdateInfo | null, error: string | null): void => {
+  const renderUpdateState = (state: UpdateStatus | null, error: string | null): void => {
     release.innerHTML = "";
     if (error) {
       status.textContent = "Couldn't check (offline?)";
@@ -1572,25 +1611,25 @@ async function renderAbout(el: HTMLElement): Promise<void> {
       status.style.color = "var(--fg-muted)";
       return;
     }
-    if (state.is_newer) {
-      const date = state.published_at?.slice(0, 10) ?? "";
+    if (state.available) {
       status.innerHTML = "";
       const s = document.createElement("strong");
       s.textContent = `v${state.latest}`;
       status.appendChild(s);
-      status.append(` is available${date ? ` (released ${date})` : ""}.`);
+      status.append(" is available.");
       status.style.color = "var(--fg)";
 
       const row2 = document.createElement("div");
-      row2.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 6px;";
+      row2.style.cssText = "display:flex; gap:8px; align-items:center; margin-top:6px;";
+      const progress = document.createElement("div");
+      progress.style.cssText =
+        "font-size:12px; color:var(--fg-muted); margin-top:6px; min-height:16px;";
       const install = button("Download & install", async () => {
         install.disabled = true;
-        install.innerHTML = "";
-        install.appendChild(icon("download", 12));
-        install.appendChild(document.createTextNode(" Starting…"));
+        install.textContent = "Starting…";
         progress.textContent = "";
         try {
-          await downloadAndInstallUpdate((p: DownloadProgress) => {
+          await installUpdate(config!.updates.channel, (p: DownloadProgress) => {
             if (p.total && p.total > 0) {
               const pct = Math.min(100, Math.floor((p.downloaded / p.total) * 100));
               install.textContent = `Downloading ${pct}%`;
@@ -1615,8 +1654,6 @@ async function renderAbout(el: HTMLElement): Promise<void> {
       });
       pageLink.classList.add("ghost");
       row2.appendChild(pageLink);
-      const progress = document.createElement("div");
-      progress.style.cssText = "font-size: 12px; color: var(--fg-muted); margin-top: 6px; min-height: 16px;";
       release.appendChild(row2);
       release.appendChild(progress);
     } else {
@@ -1624,13 +1661,13 @@ async function renderAbout(el: HTMLElement): Promise<void> {
       status.style.color = "var(--fg)";
     }
   };
-  renderUpdateState(info, null);
+  renderUpdateState(getCachedUpdate(), null);
 
   const checkBtn = button("Check for updates", async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = "Checking…";
     try {
-      const fresh = await forceCheckUpdate();
+      const fresh = await forceCheckUpdate(config!.updates.channel);
       renderUpdateState(fresh, null);
       render();
     } catch (e) {
@@ -1655,6 +1692,20 @@ async function renderAbout(el: HTMLElement): Promise<void> {
   row3.appendChild(status);
   row3.appendChild(release);
   upd.appendChild(row3);
+
+  const reinstallBtn = button("Reinstall latest stable", async () => {
+    reinstallBtn.disabled = true;
+    try {
+      await reinstallStable();
+    } catch (e) {
+      reinstallBtn.disabled = false;
+      const { showToast } = await import("./toast");
+      showToast({ kind: "error", message: `Reinstall failed: ${e}` });
+    }
+  });
+  reinstallBtn.classList.add("ghost");
+  upd.appendChild(reinstallBtn);
+
   el.appendChild(upd);
 
   // Links

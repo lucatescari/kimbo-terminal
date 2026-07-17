@@ -1,163 +1,175 @@
-//! Update check: compares the current build version against the latest
-//! GitHub release of `lucatescari/kimbo-terminal` and reports whether a
-//! newer build is available. The result is cached for the lifetime of
-//! the process — the user can force a refresh from the About settings tab.
+//! Channel-aware update checks and installs, built on tauri-plugin-updater.
+//! The channel ("stable" | "unstable") selects which `latest.json` manifest
+//! the updater reads. The same signing key verifies both channels.
 
 use serde::Serialize;
 use std::sync::Mutex;
+use tauri_plugin_updater::UpdaterExt;
 
-/// Information about the latest release vs. the current build.
+const STABLE_MANIFEST: &str =
+    "https://github.com/lucatescari/kimbo-terminal/releases/latest/download/latest.json";
+const UNSTABLE_MANIFEST: &str =
+    "https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json";
+const STABLE_PAGE: &str = "https://github.com/lucatescari/kimbo-terminal/releases/latest";
+const UNSTABLE_PAGE: &str = "https://github.com/lucatescari/kimbo-terminal/releases/tag/unstable";
+
+/// Map a channel to its `latest.json` URL. Unknown channels fall back to stable.
+pub(crate) fn manifest_url(channel: &str) -> tauri::Url {
+    let raw = if channel == "unstable" {
+        UNSTABLE_MANIFEST
+    } else {
+        STABLE_MANIFEST
+    };
+    tauri::Url::parse(raw).expect("hardcoded manifest URL is valid")
+}
+
+/// Human-readable release page for the channel (for the "Release page" link).
+pub(crate) fn release_url(channel: &str) -> &'static str {
+    if channel == "unstable" {
+        UNSTABLE_PAGE
+    } else {
+        STABLE_PAGE
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
-pub struct UpdateInfo {
-    /// Current build version (from `CARGO_PKG_VERSION`), e.g. "0.2.1".
+pub struct UpdateStatus {
+    /// Current build version, e.g. "1.2.0" or "1.3.0-unstable.4".
     pub current: String,
-    /// Latest release tag with any leading `v` stripped, e.g. "0.3.0".
-    pub latest: String,
-    /// True if `latest` parses as a strictly greater semver than `current`.
-    pub is_newer: bool,
-    /// `html_url` from the GitHub release JSON (the human-readable page).
+    /// True iff the channel manifest offers a newer version.
+    pub available: bool,
+    /// The offered version when `available`, else None.
+    pub latest: Option<String>,
+    /// Release notes from the manifest when `available`, else None.
+    pub notes: Option<String>,
+    /// Channel release page URL.
     pub release_url: String,
-    /// `published_at` from the release JSON (ISO 8601, passed through verbatim).
-    pub published_at: String,
-    /// Release notes (`body` field, raw markdown).
-    pub notes: String,
 }
 
-/// Strip a leading `v` (case-insensitive) so `v0.3.0` parses as semver.
-fn strip_v_prefix(tag: &str) -> &str {
-    tag.strip_prefix('v')
-        .or_else(|| tag.strip_prefix('V'))
-        .unwrap_or(tag)
-}
-
-/// Compare two version strings. Returns `true` iff `latest > current` per semver.
-/// Logs a warning and returns `false` if either side fails to parse.
-pub(crate) fn is_newer(current: &str, latest: &str) -> bool {
-    let current_v = match semver::Version::parse(strip_v_prefix(current)) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("failed to parse current version '{}': {}", current, e);
-            return false;
-        }
-    };
-    let latest_v = match semver::Version::parse(strip_v_prefix(latest)) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("failed to parse latest version '{}': {}", latest, e);
-            return false;
-        }
-    };
-    latest_v > current_v
-}
-
-/// Subset of the GitHub release JSON we use. Fields outside this set are
-/// ignored by serde — see the GitHub REST docs for the full schema.
-#[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct GhRelease {
-    pub tag_name: String,
-    pub draft: bool,
-    pub prerelease: bool,
-    pub html_url: String,
-    pub published_at: Option<String>,
-    pub body: String,
-}
-
-/// Parse a single `/releases/latest` response.
-pub(crate) fn parse_single_release(json: &str) -> Result<GhRelease, String> {
-    serde_json::from_str::<GhRelease>(json).map_err(|e| format!("malformed release: {}", e))
-}
-
-/// Parse a `/releases?per_page=N` list and return the first non-draft, non-prerelease item.
-pub(crate) fn pick_first_stable(json: &str) -> Result<GhRelease, String> {
-    let releases: Vec<GhRelease> =
-        serde_json::from_str(json).map_err(|e| format!("malformed release list: {}", e))?;
-    releases
-        .into_iter()
-        .find(|r| !r.draft && !r.prerelease)
-        .ok_or_else(|| "no stable release found in latest 10".to_string())
-}
-
-/// Convert a parsed release + the current build version into an `UpdateInfo`.
-pub(crate) fn build_update_info(current: &str, release: GhRelease) -> UpdateInfo {
-    let latest = strip_v_prefix(&release.tag_name).to_string();
-    let is_newer = is_newer(current, &release.tag_name);
-    UpdateInfo {
-        current: current.to_string(),
-        latest,
-        is_newer,
-        release_url: release.html_url,
-        published_at: release.published_at.unwrap_or_default(),
-        notes: release.body,
-    }
-}
-
-/// Process-lifetime cache of the latest successful check. Tauri-managed.
+/// Process-lifetime cache keyed by channel. Tauri-managed.
 #[derive(Default)]
-pub struct UpdateState {
-    pub cache: Mutex<Option<UpdateInfo>>,
-}
+pub struct UpdateCache(pub Mutex<Option<(String, UpdateStatus)>>);
 
-const LATEST_URL: &str = "https://api.github.com/repos/lucatescari/kimbo-terminal/releases/latest";
-const LIST_URL: &str =
-    "https://api.github.com/repos/lucatescari/kimbo-terminal/releases?per_page=10";
-const USER_AGENT: &str = "kimbo-terminal";
-
-/// Fetch a URL and return the response body as a String. Maps HTTP errors
-/// into our `Result<_, String>` shape so the command layer can surface them.
-fn fetch_text(url: &str) -> Result<String, String> {
-    let mut response = ureq::get(url)
-        .header("User-Agent", USER_AGENT)
-        .call()
-        .map_err(|e| format!("network error: {}", e))?;
-    if response.status().as_u16() >= 300 {
-        return Err(format!("github returned {}", response.status()));
-    }
-    response
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| format!("read failed: {}", e))
-}
-
-/// Fetch the latest release. If the API returns a draft/prerelease for
-/// `/releases/latest` (rare but possible), fall back to the recent list and
-/// pick the first stable item.
-fn fetch_latest_release() -> Result<GhRelease, String> {
-    let body = fetch_text(LATEST_URL)?;
-    let release = parse_single_release(&body)?;
-    if !release.draft && !release.prerelease {
-        return Ok(release);
-    }
-    log::info!("latest release was draft/prerelease; falling back to /releases list");
-    let list_body = fetch_text(LIST_URL)?;
-    pick_first_stable(&list_body)
-}
-
-/// Tauri command: returns the cached `UpdateInfo` if `force` is false and a
-/// previous check succeeded; otherwise hits GitHub. On success, populates
-/// the cache. On failure, returns an error string and leaves the cache alone.
+/// Check the given channel for an update. Caches per channel; `force` bypasses.
 #[tauri::command]
-pub fn check_for_updates(
-    state: tauri::State<'_, UpdateState>,
+pub async fn check_update(
+    app: tauri::AppHandle,
+    cache: tauri::State<'_, UpdateCache>,
+    channel: String,
     force: bool,
-) -> Result<UpdateInfo, String> {
+) -> Result<UpdateStatus, String> {
     if !force {
-        if let Ok(guard) = state.cache.lock() {
-            if let Some(cached) = guard.as_ref() {
-                return Ok(cached.clone());
+        if let Ok(guard) = cache.0.lock() {
+            if let Some((ch, status)) = guard.as_ref() {
+                if *ch == channel {
+                    return Ok(status.clone());
+                }
             }
         }
     }
 
-    let release = fetch_latest_release().map_err(|e| {
-        log::warn!("update check failed: {}", e);
-        e
-    })?;
-    let info = build_update_info(env!("CARGO_PKG_VERSION"), release);
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![manifest_url(&channel)])
+        .map_err(|e| format!("endpoint error: {e}"))?
+        .build()
+        .map_err(|e| format!("updater build error: {e}"))?;
 
-    if let Ok(mut guard) = state.cache.lock() {
-        *guard = Some(info.clone());
+    let maybe = updater
+        .check()
+        .await
+        .map_err(|e| format!("check failed: {e}"))?;
+    let status = match maybe {
+        Some(update) => UpdateStatus {
+            current,
+            available: true,
+            latest: Some(update.version.clone()),
+            notes: update.body.clone(),
+            release_url: release_url(&channel).to_string(),
+        },
+        None => UpdateStatus {
+            current,
+            available: false,
+            latest: None,
+            notes: None,
+            release_url: release_url(&channel).to_string(),
+        },
+    };
+
+    if let Ok(mut guard) = cache.0.lock() {
+        *guard = Some((channel, status.clone()));
     }
-    Ok(info)
+    Ok(status)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+/// Shared install routine: build the updater for `url`, optionally allowing a
+/// downgrade, download with progress, install, and restart. Never returns on
+/// success (the process restarts).
+async fn run_install(
+    app: tauri::AppHandle,
+    url: tauri::Url,
+    allow_downgrade: bool,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| format!("endpoint error: {e}"))?;
+    if allow_downgrade {
+        // Treat any version different from current as installable.
+        builder = builder.version_comparator(|current, remote| remote.version != current);
+    }
+    let updater = builder
+        .build()
+        .map_err(|e| format!("updater build error: {e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check failed: {e}"))?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    let mut downloaded: u64 = 0;
+    let progress = on_progress.clone();
+    update
+        .download_and_install(
+            move |chunk_len, content_len| {
+                downloaded += chunk_len as u64;
+                let _ = progress.send(DownloadProgress {
+                    downloaded,
+                    total: content_len,
+                });
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("install failed: {e}"))?;
+
+    app.restart();
+}
+
+#[tauri::command]
+pub async fn install_update(
+    app: tauri::AppHandle,
+    channel: String,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    run_install(app.clone(), manifest_url(&channel), false, on_progress).await
+}
+
+#[tauri::command]
+pub async fn reinstall_stable(
+    app: tauri::AppHandle,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    run_install(app.clone(), manifest_url("stable"), true, on_progress).await
 }
 
 #[cfg(test)]
@@ -165,153 +177,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_newer_strips_v_prefix() {
-        assert!(is_newer("0.2.1", "v0.3.0"));
-        assert!(is_newer("v0.2.1", "0.3.0"));
-    }
-
-    #[test]
-    fn is_newer_equal_versions() {
-        assert!(!is_newer("0.2.1", "0.2.1"));
-        assert!(!is_newer("v0.2.1", "v0.2.1"));
-    }
-
-    #[test]
-    fn is_newer_older_remote() {
-        assert!(!is_newer("0.2.1", "0.1.0"));
-        assert!(!is_newer("0.2.1", "v0.2.0"));
-    }
-
-    #[test]
-    fn is_newer_invalid_semver() {
-        // No panic — just `false`.
-        assert!(!is_newer("garbage", "0.3.0"));
-        assert!(!is_newer("0.2.1", "garbage"));
-        assert!(!is_newer("not-a-version", "still-not"));
-    }
-
-    const STABLE_RELEASE_JSON: &str = "{\
-        \"tag_name\": \"v0.3.0\",\
-        \"draft\": false,\
-        \"prerelease\": false,\
-        \"html_url\": \"https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0\",\
-        \"published_at\": \"2026-04-15T10:00:00Z\",\
-        \"body\": \"## What's new\\n- Faster splits\\n- Bug fixes\"\
-    }";
-
-    const PRERELEASE_LIST_JSON: &str = "[\
-        {\
-            \"tag_name\": \"v0.4.0-beta\",\
-            \"draft\": false,\
-            \"prerelease\": true,\
-            \"html_url\": \"https://example.com/beta\",\
-            \"published_at\": \"2026-04-17T00:00:00Z\",\
-            \"body\": \"beta\"\
-        },\
-        {\
-            \"tag_name\": \"v0.3.0\",\
-            \"draft\": false,\
-            \"prerelease\": false,\
-            \"html_url\": \"https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0\",\
-            \"published_at\": \"2026-04-15T10:00:00Z\",\
-            \"body\": \"stable notes\"\
-        },\
-        {\
-            \"tag_name\": \"v0.2.1\",\
-            \"draft\": false,\
-            \"prerelease\": false,\
-            \"html_url\": \"https://example.com/old\",\
-            \"published_at\": \"2026-03-01T00:00:00Z\",\
-            \"body\": \"old\"\
-        }\
-    ]";
-
-    const DRAFT_THEN_STABLE_JSON: &str = "[\
-        {\
-            \"tag_name\": \"v0.5.0\",\
-            \"draft\": true,\
-            \"prerelease\": false,\
-            \"html_url\": \"https://example.com/draft\",\
-            \"published_at\": null,\
-            \"body\": \"draft\"\
-        },\
-        {\
-            \"tag_name\": \"v0.3.0\",\
-            \"draft\": false,\
-            \"prerelease\": false,\
-            \"html_url\": \"https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0\",\
-            \"published_at\": \"2026-04-15T10:00:00Z\",\
-            \"body\": \"stable\"\
-        }\
-    ]";
-
-    #[test]
-    fn parse_release_extracts_fields() {
-        let r = parse_single_release(STABLE_RELEASE_JSON).unwrap();
-        assert_eq!(r.tag_name, "v0.3.0");
+    fn manifest_url_selects_channel() {
         assert_eq!(
-            r.html_url,
-            "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0"
+            manifest_url("stable").as_str(),
+            "https://github.com/lucatescari/kimbo-terminal/releases/latest/download/latest.json"
         );
-        assert_eq!(r.published_at.as_deref(), Some("2026-04-15T10:00:00Z"));
-        assert!(r.body.contains("Faster splits"));
-        assert!(!r.draft);
-        assert!(!r.prerelease);
-    }
-
-    #[test]
-    fn parse_release_rejects_invalid_json() {
-        assert!(parse_single_release("not json").is_err());
-    }
-
-    #[test]
-    fn pick_first_stable_skips_prereleases_and_drafts() {
-        let picked = pick_first_stable(PRERELEASE_LIST_JSON).unwrap();
-        assert_eq!(picked.tag_name, "v0.3.0");
-        assert_eq!(picked.body, "stable notes");
-    }
-
-    #[test]
-    fn pick_first_stable_skips_drafts() {
-        let picked = pick_first_stable(DRAFT_THEN_STABLE_JSON).unwrap();
-        assert_eq!(picked.tag_name, "v0.3.0");
-    }
-
-    #[test]
-    fn pick_first_stable_errors_when_none_available() {
-        let only_prereleases = r#"[
-            {"tag_name":"v1.0.0-beta","draft":false,"prerelease":true,"html_url":"x","published_at":null,"body":""}
-        ]"#;
-        assert!(pick_first_stable(only_prereleases).is_err());
-    }
-
-    #[test]
-    fn build_update_info_from_release() {
-        let r = parse_single_release(STABLE_RELEASE_JSON).unwrap();
-        let info = build_update_info("0.2.1", r);
-        assert_eq!(info.current, "0.2.1");
-        assert_eq!(info.latest, "0.3.0"); // `v` stripped
-        assert!(info.is_newer);
         assert_eq!(
-            info.release_url,
-            "https://github.com/lucatescari/kimbo-terminal/releases/tag/v0.3.0"
+            manifest_url("unstable").as_str(),
+            "https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json"
         );
-        assert_eq!(info.published_at, "2026-04-15T10:00:00Z");
-        assert!(info.notes.contains("Faster splits"));
+        // Unknown channel falls back to stable.
+        assert_eq!(
+            manifest_url("wat").as_str(),
+            manifest_url("stable").as_str()
+        );
     }
 
     #[test]
-    fn build_update_info_handles_missing_published_at() {
-        let json = r#"{
-            "tag_name": "v0.3.0",
-            "draft": false,
-            "prerelease": false,
-            "html_url": "https://example.com/r",
-            "published_at": null,
-            "body": ""
-        }"#;
-        let r = parse_single_release(json).unwrap();
-        let info = build_update_info("0.2.1", r);
-        assert_eq!(info.published_at, "");
+    fn release_url_selects_channel() {
+        assert_eq!(
+            release_url("unstable"),
+            "https://github.com/lucatescari/kimbo-terminal/releases/tag/unstable"
+        );
+        assert_eq!(
+            release_url("stable"),
+            "https://github.com/lucatescari/kimbo-terminal/releases/latest"
+        );
     }
 }

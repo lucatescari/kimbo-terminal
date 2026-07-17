@@ -5,7 +5,7 @@ mod notify_socket;
 mod pty_manager;
 
 use commands::theme::ThemeState;
-use commands::update::UpdateState;
+use commands::update::UpdateCache;
 use pty_manager::PtyManager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
@@ -85,7 +85,7 @@ fn main() {
         .manage(PtyManager::new())
         .manage(commands::claude::ClaudeAccountCache::default())
         .manage(ThemeState::default())
-        .manage(UpdateState::default())
+        .manage(UpdateCache::default())
         .setup(|app| {
             // Stage Manager / Sonoma (tauri#8255): optional dock-less activation policy.
             // Launch with `KIMBO_MACOS_ACCESSORY_ACTIVATION=1` if translucency still breaks on refocus.
@@ -352,7 +352,9 @@ fn main() {
             commands::keybinds::set_menu_accelerator,
             commands::path::resolve_existing_path,
             commands::workspace::list_projects,
-            commands::update::check_for_updates,
+            commands::update::check_update,
+            commands::update::install_update,
+            commands::update::reinstall_stable,
             commands::window::refresh_window_translucency,
             commands::window::new_window,
             commands::claude_rate_limits::claude_rate_limits,

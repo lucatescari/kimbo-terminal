@@ -44,45 +44,105 @@ if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
   exit 1
 fi
 
+# Release channel: stable bumps version + commits/tags/pushes + publishes a
+# normal tagged GitHub release; unstable builds a preview (X.Y.Z-unstable.N)
+# with no git mutations and overwrites the rolling "unstable" pre-release.
+echo ""
+echo -e "${CYAN}Release channel?${NC}"
+echo -e "  ${GREEN}1)${NC} Stable    (official release: bumps version, commits, tags)"
+echo -e "  ${GREEN}2)${NC} Unstable  (preview build: no git changes, overwrites the 'unstable' pre-release)"
+read -p "Choose [1/2]: " CHANNEL_CHOICE
+case "$CHANNEL_CHOICE" in
+  1) CHANNEL="stable" ;;
+  2) CHANNEL="unstable" ;;
+  *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
+esac
+
 # Get current version from package.json
 CURRENT=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
-echo ""
-echo -e "${CYAN}Kimbo Terminal Release${NC}"
-echo -e "Current version: ${YELLOW}v${CURRENT}${NC}"
-echo ""
-echo "Which version segment to bump?"
-echo -e "  ${GREEN}1)${NC} Patch   → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
-echo -e "  ${GREEN}2)${NC} Minor   → v${MAJOR}.$((MINOR + 1)).0  (new features)"
-echo -e "  ${GREEN}3)${NC} Major   → v$((MAJOR + 1)).0.0  (breaking changes)"
-echo -e "  ${GREEN}4)${NC} Keep    → v${CURRENT}  (use current version as-is)"
-echo ""
-read -p "Choose [1/2/3/4]: " CHOICE
+if [[ "$CHANNEL" == "stable" ]]; then
+  echo ""
+  echo -e "${CYAN}Kimbo Terminal Release${NC}"
+  echo -e "Current version: ${YELLOW}v${CURRENT}${NC}"
+  echo ""
+  echo "Which version segment to bump?"
+  echo -e "  ${GREEN}1)${NC} Patch   → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
+  echo -e "  ${GREEN}2)${NC} Minor   → v${MAJOR}.$((MINOR + 1)).0  (new features)"
+  echo -e "  ${GREEN}3)${NC} Major   → v$((MAJOR + 1)).0.0  (breaking changes)"
+  echo -e "  ${GREEN}4)${NC} Keep    → v${CURRENT}  (use current version as-is)"
+  echo ""
+  read -p "Choose [1/2/3/4]: " CHOICE
 
-case $CHOICE in
-  1) PATCH=$((PATCH + 1)) ;;
-  2) MINOR=$((MINOR + 1)); PATCH=0 ;;
-  3) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-  4) ;;  # keep current
-  *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
-esac
+  case $CHOICE in
+    1) PATCH=$((PATCH + 1)) ;;
+    2) MINOR=$((MINOR + 1)); PATCH=0 ;;
+    3) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+    4) ;;  # keep current
+    *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
+  esac
 
-NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-TAG="v${NEW_VERSION}"
+  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+  TAG="v${NEW_VERSION}"
 
-# Abort if the tag already exists (avoids clobbering a prior release).
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-  echo -e "${RED}Tag ${TAG} already exists.${NC}"
-  exit 1
+  # Abort if the tag already exists (avoids clobbering a prior release).
+  if git rev-parse "$TAG" >/dev/null 2>&1; then
+    echo -e "${RED}Tag ${TAG} already exists.${NC}"
+    exit 1
+  fi
+
+  echo ""
+  echo -e "New version: ${GREEN}v${NEW_VERSION}${NC}"
+  read -p "Continue? [y/N]: " CONFIRM
+  if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+    echo "Aborted."
+    exit 0
+  fi
 fi
 
-echo ""
-echo -e "New version: ${GREEN}v${NEW_VERSION}${NC}"
-read -p "Continue? [y/N]: " CONFIRM
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-  echo "Aborted."
-  exit 0
+if [[ "$CHANNEL" == "unstable" ]]; then
+  # Fetch the version currently on the unstable channel (empty if none).
+  UNSTABLE_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json"
+  PREV_UNSTABLE=$(curl -fsSL "$UNSTABLE_URL" 2>/dev/null | jq -r '.version // empty')
+
+  if [[ "$PREV_UNSTABLE" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-unstable\.([0-9]+)$ ]]; then
+    PREV_BASE="${BASH_REMATCH[1]}"; PREV_N="${BASH_REMATCH[2]}"
+  else
+    PREV_BASE=""; PREV_N=0
+  fi
+
+  # Default next-stable target = patch bump of the committed stable version.
+  DEFAULT_BASE="${MAJOR}.${MINOR}.$((PATCH + 1))"
+  # Reuse the in-flight target only when it is STRICTLY AHEAD of the committed
+  # stable version (semver, via `sort -V`). Bases are plain X.Y.Z with no
+  # prerelease suffix, so `sort -V` orders them correctly. A plain `!=` would
+  # wrongly reuse a stale base after a minor/major stable bump landed ahead of it.
+  if [[ -n "$PREV_BASE" && "$PREV_BASE" != "$CURRENT" \
+        && "$(printf '%s\n%s\n' "$CURRENT" "$PREV_BASE" | sort -V | tail -1)" == "$PREV_BASE" ]]; then
+    # Reuse the in-flight target and bump N.
+    BASE="$PREV_BASE"; N=$((PREV_N + 1))
+  else
+    read -p "Unstable base target [${DEFAULT_BASE}]: " BASE
+    BASE="${BASE:-$DEFAULT_BASE}"; N=1
+  fi
+  NEW_VERSION="${BASE}-unstable.${N}"
+  echo -e "Unstable version: ${GREEN}v${NEW_VERSION}${NC}"
+  read -p "Continue? [y/N]: " CONFIRM
+  [[ "$CONFIRM" == "y" || "$CONFIRM" == "Y" ]] || { echo "Aborted."; exit 0; }
+
+  # Edit version files for the build only — never committed. Restored on
+  # EXIT (combined below with the DMG_STAGE cleanup trap) so the working
+  # tree is clean again even if a later step fails under `set -e`.
+  # Cargo.lock is included because the build regenerates it with the
+  # X.Y.Z-unstable.N version entries; without restoring it the unstable path
+  # would leave `git status` dirty (violating "unstable must not mutate git").
+  RESTORE_FILES=(package.json src-tauri/tauri.conf.json Cargo.toml src-tauri/Cargo.toml \
+    crates/kimbo-terminal/Cargo.toml crates/kimbo-config/Cargo.toml crates/kimbo-workspace/Cargo.toml \
+    Cargo.lock)
+  # Cleanup is unconditional: a failed `git checkout` must NOT skip the temp-dir
+  # removal or mask the real exit code, so guard the checkout with `|| true`.
+  trap '{ git checkout -- "${RESTORE_FILES[@]}" || true; } 2>/dev/null; rm -rf "${DMG_STAGE:-}" 2>/dev/null' EXIT
 fi
 
 # ---- Step 1: Update version in all files ----
@@ -227,7 +287,12 @@ echo -e "${CYAN}Bundling DMG (volname: Kimbo)...${NC}"
 
 DMG_VOLNAME="Kimbo"
 DMG_STAGE=$(mktemp -d -t kimbo-dmg-stage)
-trap 'rm -rf "$DMG_STAGE"' EXIT
+# Unstable already installed a combined trap (restore version files + remove
+# DMG_STAGE) above; only (re)install the plain cleanup trap for stable so we
+# don't clobber it.
+if [[ "$CHANNEL" == "stable" ]]; then
+  trap 'rm -rf "$DMG_STAGE"' EXIT
+fi
 
 cp -R "$APP_PATH" "$DMG_STAGE/"
 mkdir -p "$DMG_DIR"
@@ -309,23 +374,26 @@ echo -e "${CYAN}Running tests...${NC}"
 npm run test:release
 echo -e "  ${GREEN}All tests passed${NC}"
 
-# ---- Step 4: Commit, tag, push ----
-echo ""
-echo -e "${CYAN}Committing and tagging...${NC}"
+# ---- Step 4: Commit, tag, push (stable only — unstable never touches git) ----
+if [[ "$CHANNEL" == "stable" ]]; then
+  echo ""
+  echo -e "${CYAN}Committing and tagging...${NC}"
 
-git add -A
-git commit -m "release: v${NEW_VERSION}"
-git tag -a "$TAG" -m "Release ${TAG}"
-git push origin HEAD
-git push origin "$TAG"
+  git add -A
+  git commit -m "release: v${NEW_VERSION}"
+  git tag -a "$TAG" -m "Release ${TAG}"
+  git push origin HEAD
+  git push origin "$TAG"
 
-echo -e "  ${GREEN}Pushed${NC} ${TAG}"
+  echo -e "  ${GREEN}Pushed${NC} ${TAG}"
+fi
 
 # ---- Step 5: Create GitHub release ----
-echo ""
-echo -e "${CYAN}Creating GitHub release...${NC}"
+if [[ "$CHANNEL" == "stable" ]]; then
+  echo ""
+  echo -e "${CYAN}Creating GitHub release...${NC}"
 
-NOTES=$(cat <<EOF
+  NOTES=$(cat <<EOF
 ## Kimbo v${NEW_VERSION}
 
 ### Downloads
@@ -338,56 +406,93 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 EOF
 )
 
-# ---- Step 5a: Build the updater manifest (latest.json) ----
-# tauri-plugin-updater fetches this file from the endpoint configured in
-# tauri.conf.json. It needs: version, pub_date, notes, platforms.<target>.url
-# and platforms.<target>.signature (contents of Kimbo.app.tar.gz.sig).
-echo -e "${CYAN}Building updater manifest...${NC}"
+  # ---- Step 5a: Build the updater manifest (latest.json) ----
+  # tauri-plugin-updater fetches this file from the endpoint configured in
+  # tauri.conf.json. It needs: version, pub_date, notes, platforms.<target>.url
+  # and platforms.<target>.signature (contents of Kimbo.app.tar.gz.sig).
+  echo -e "${CYAN}Building updater manifest...${NC}"
 
-if [[ ! -f "$UPDATER_TARBALL" ]]; then
-  echo -e "${RED}Updater tarball missing at ${UPDATER_TARBALL}.${NC}"
-  echo "tauri-bundler should produce it when createUpdaterArtifacts is true."
-  exit 1
+  if [[ ! -f "$UPDATER_TARBALL" ]]; then
+    echo -e "${RED}Updater tarball missing at ${UPDATER_TARBALL}.${NC}"
+    echo "tauri-bundler should produce it when createUpdaterArtifacts is true."
+    exit 1
+  fi
+  if [[ ! -f "$UPDATER_SIG" ]]; then
+    echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"
+    exit 1
+  fi
+
+  PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  SIG_CONTENT=$(cat "$UPDATER_SIG")
+  TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/${TAG}/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+
+  LATEST_JSON="target/release/bundle/macos/latest.json"
+  # jq keeps the JSON syntactically valid regardless of what's in NOTES / SIG_CONTENT.
+  jq -n \
+    --arg version "$NEW_VERSION" \
+    --arg notes "See https://github.com/lucatescari/kimbo-terminal/releases/tag/${TAG}" \
+    --arg pub_date "$PUB_DATE" \
+    --arg sig "$SIG_CONTENT" \
+    --arg url "$TARBALL_URL" \
+    '{
+      version: $version,
+      notes: $notes,
+      pub_date: $pub_date,
+      platforms: {
+        "darwin-aarch64": { signature: $sig, url: $url }
+      }
+    }' > "$LATEST_JSON"
+  echo -e "  ${GREEN}Wrote:${NC} ${LATEST_JSON}"
+
+  # The GitHub asset name must match the URL in latest.json, hence the rename.
+  RENAMED_TARBALL="target/release/bundle/macos/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+  cp "$UPDATER_TARBALL" "$RENAMED_TARBALL"
+
+  gh release create "$TAG" \
+    --title "Kimbo v${NEW_VERSION}" \
+    --notes "$NOTES" \
+    "$DMG_PATH" \
+    "$RENAMED_TARBALL" \
+    "$LATEST_JSON"
+
+  echo ""
+  echo -e "${GREEN}Release v${NEW_VERSION} published!${NC}"
+  echo -e "View: ${CYAN}$(gh release view "$TAG" --json url -q .url)${NC}"
+  echo ""
 fi
-if [[ ! -f "$UPDATER_SIG" ]]; then
-  echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"
-  exit 1
+
+# ---- Step 5 (unstable): overwrite the rolling "unstable" pre-release ----
+if [[ "$CHANNEL" == "unstable" ]]; then
+  echo -e "${CYAN}Publishing to the unstable channel...${NC}"
+  # Guard the updater artifacts up front: `set -e` does NOT catch a failed
+  # `cat "$UPDATER_SIG"` inside the jq --arg command-substitution below, so a
+  # missing/stale sig or tarball would otherwise silently publish an empty
+  # "signature" to the live unstable release.
+  [[ -f "$UPDATER_TARBALL" ]] || { echo -e "${RED}Updater tarball missing at ${UPDATER_TARBALL}.${NC}"; exit 1; }
+  [[ -f "$UPDATER_SIG" ]] || { echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"; exit 1; }
+  # latest.json for the unstable manifest (same shape as stable).
+  TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+  jq -n --arg version "$NEW_VERSION" \
+    --arg notes "Unstable preview build v${NEW_VERSION}" \
+    --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg sig "$(cat "$UPDATER_SIG")" --arg url "$TARBALL_URL" \
+    '{version:$version, notes:$notes, pub_date:$pub_date,
+      platforms:{"darwin-aarch64":{signature:$sig, url:$url}}}' \
+    > "target/release/bundle/macos/latest.json"
+  RENAMED_TARBALL="target/release/bundle/macos/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+  cp "$UPDATER_TARBALL" "$RENAMED_TARBALL"
+
+  # Ensure the rolling pre-release exists, then overwrite its assets.
+  if ! gh release view unstable >/dev/null 2>&1; then
+    gh release create unstable --prerelease --title "Kimbo (unstable)" \
+      --notes "Rolling preview channel. Assets are replaced on each unstable build."
+  fi
+  gh release edit unstable --title "Kimbo (unstable) — v${NEW_VERSION}" \
+    --notes "Unstable preview build v${NEW_VERSION} ($(date -u +%Y-%m-%d))."
+  gh release upload unstable \
+    "$DMG_PATH" "$RENAMED_TARBALL" "target/release/bundle/macos/latest.json" --clobber
+
+  echo -e "${GREEN}Unstable v${NEW_VERSION} published.${NC}"
+  echo -e "View: ${CYAN}$(gh release view unstable --json url -q .url)${NC}"
+  exit 0
 fi
-
-PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-SIG_CONTENT=$(cat "$UPDATER_SIG")
-TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/${TAG}/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
-
-LATEST_JSON="target/release/bundle/macos/latest.json"
-# jq keeps the JSON syntactically valid regardless of what's in NOTES / SIG_CONTENT.
-jq -n \
-  --arg version "$NEW_VERSION" \
-  --arg notes "See https://github.com/lucatescari/kimbo-terminal/releases/tag/${TAG}" \
-  --arg pub_date "$PUB_DATE" \
-  --arg sig "$SIG_CONTENT" \
-  --arg url "$TARBALL_URL" \
-  '{
-    version: $version,
-    notes: $notes,
-    pub_date: $pub_date,
-    platforms: {
-      "darwin-aarch64": { signature: $sig, url: $url }
-    }
-  }' > "$LATEST_JSON"
-echo -e "  ${GREEN}Wrote:${NC} ${LATEST_JSON}"
-
-# The GitHub asset name must match the URL in latest.json, hence the rename.
-RENAMED_TARBALL="target/release/bundle/macos/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
-cp "$UPDATER_TARBALL" "$RENAMED_TARBALL"
-
-gh release create "$TAG" \
-  --title "Kimbo v${NEW_VERSION}" \
-  --notes "$NOTES" \
-  "$DMG_PATH" \
-  "$RENAMED_TARBALL" \
-  "$LATEST_JSON"
-
-echo ""
-echo -e "${GREEN}Release v${NEW_VERSION} published!${NC}"
-echo -e "View: ${CYAN}$(gh release view "$TAG" --json url -q .url)${NC}"
-echo ""
