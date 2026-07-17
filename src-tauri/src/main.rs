@@ -353,6 +353,8 @@ fn main() {
             commands::path::resolve_existing_path,
             commands::workspace::list_projects,
             commands::update::check_update,
+            commands::update::install_update,
+            commands::update::reinstall_stable,
             commands::window::refresh_window_translucency,
             commands::window::new_window,
             commands::claude_rate_limits::claude_rate_limits,

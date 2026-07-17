@@ -92,6 +92,70 @@ pub async fn check_update(
     Ok(status)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+/// Shared install routine: build the updater for `url`, optionally allowing a
+/// downgrade, download with progress, install, and restart. Never returns on
+/// success (the process restarts).
+async fn run_install(
+    app: tauri::AppHandle,
+    url: tauri::Url,
+    allow_downgrade: bool,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    let mut builder = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| format!("endpoint error: {e}"))?;
+    if allow_downgrade {
+        // Treat any version different from current as installable.
+        builder = builder.version_comparator(|current, remote| remote.version != current);
+    }
+    let updater = builder.build().map_err(|e| format!("updater build error: {e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check failed: {e}"))?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    let mut downloaded: u64 = 0;
+    let progress = on_progress.clone();
+    update
+        .download_and_install(
+            move |chunk_len, content_len| {
+                downloaded += chunk_len as u64;
+                let _ = progress.send(DownloadProgress { downloaded, total: content_len });
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("install failed: {e}"))?;
+
+    app.restart();
+}
+
+#[tauri::command]
+pub async fn install_update(
+    app: tauri::AppHandle,
+    channel: String,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    run_install(app.clone(), manifest_url(&channel), false, on_progress).await
+}
+
+#[tauri::command]
+pub async fn reinstall_stable(
+    app: tauri::AppHandle,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> Result<(), String> {
+    run_install(app.clone(), manifest_url("stable"), true, on_progress).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
