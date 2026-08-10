@@ -489,6 +489,25 @@ if [[ "$CHANNEL" == "unstable" ]]; then
   fi
   gh release edit unstable --title "Kimbo (unstable) — v${NEW_VERSION}" \
     --notes "Unstable preview build v${NEW_VERSION} ($(date -u +%Y-%m-%d))."
+
+  # Prune superseded binaries BEFORE uploading. The `--clobber` below only
+  # replaces assets with the SAME name, and the .dmg/.tar.gz names embed
+  # ${NEW_VERSION} — so it can never remove the previous build's binaries.
+  # Without this they accumulate on the rolling release forever (observed:
+  # unstable.1's dmg + tarball survived the unstable.2 publish, leaving four
+  # binaries and a stale download for anyone browsing the release page).
+  # Only latest.json has a constant name, which is why it alone was actually
+  # being replaced. Keep the current version's names in case of a re-run.
+  gh release view unstable --json assets -q '.assets[].name' 2>/dev/null \
+    | grep -E '^Kimbo_.+_aarch64\.(dmg|app\.tar\.gz)$' \
+    | grep -vx "Kimbo_${NEW_VERSION}_aarch64.dmg" \
+    | grep -vx "Kimbo_${NEW_VERSION}_aarch64.app.tar.gz" \
+    | while IFS= read -r OLD_ASSET; do
+        echo -e "  ${YELLOW}Removing superseded asset:${NC} ${OLD_ASSET}"
+        # Non-fatal: a failed prune must not abort an otherwise good publish.
+        gh release delete-asset unstable "$OLD_ASSET" --yes || true
+      done
+
   gh release upload unstable \
     "$DMG_PATH" "$RENAMED_TARBALL" "target/release/bundle/macos/latest.json" --clobber
 
