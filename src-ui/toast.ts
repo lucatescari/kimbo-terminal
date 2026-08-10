@@ -7,8 +7,9 @@
 // Mounts a single host element to <body> on first call; subsequent calls
 // just append toast nodes. Toasts slide in from the nearest viewport edge,
 // hold for `durationMs`, then slide back out. Click any toast to dismiss
-// it early. Stacks newest closest to that edge. Position is bottom by
-// default; setToastPosition("top") moves the host (see style.css).
+// it early. Stacks oldest closest to that edge, with newer toasts stacking
+// away from it. Position is bottom by default; setToastPosition("top")
+// moves the host (see style.css).
 //
 // Pass onClick to make a toast actionable: it gets a right-edge chevron,
 // the callback fires on click, and durationMs: 0 keeps it visible until
@@ -131,9 +132,10 @@ export function showToast(opts: ToastOptions): void {
   }
 }
 
-/** Normalize an arbitrary config string to a valid position. Anything
- *  unrecognized falls back to "bottom", mirroring channelOf() in updates.ts
- *  so a hand-edited config.toml can never leave the host unstyled. */
+/** Normalize an arbitrary config string to a valid position, echoing the
+ *  same shape as channelOf() in updates.ts. Anything unrecognized falls
+ *  back to "bottom", so a hand-edited config.toml can never leave the host
+ *  unstyled. */
 export function normalizeToastPosition(
   v: string | null | undefined,
 ): ToastPosition {

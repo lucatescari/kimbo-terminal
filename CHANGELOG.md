@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-- **Notifications can now appear at the top of the window.** Settings → Appearance → Notifications switches between bottom (default) and top. The change applies immediately, including to notifications already on screen.
+- **Notifications can now appear at the top of the window.** Settings → Appearance → Notifications switches between bottom (default) and top. The change applies immediately in the current window, including to notifications already on screen.
 
 ### Fixes
 

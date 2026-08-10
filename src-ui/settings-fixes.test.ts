@@ -81,6 +81,8 @@ vi.mock("./updates", () => ({
 }));
 vi.mock("./toast", () => ({
   showToast: vi.fn(),
+  setToastPosition: vi.fn(),
+  normalizeToastPosition: (v: string) => (v === "top" ? "top" : "bottom"),
 }));
 vi.mock("./platform", () => ({ isMacOS: () => true }));
 vi.mock("./ui-prefs", () => ({
