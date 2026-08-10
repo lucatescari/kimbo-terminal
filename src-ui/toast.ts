@@ -5,16 +5,19 @@
 //   showToast({ message: "Copied", detail: "claude --resume …" });
 //
 // Mounts a single host element to <body> on first call; subsequent calls
-// just append toast nodes. Toasts slide up from the bottom, hold for
-// `durationMs`, then slide back down. Click any toast to dismiss it
-// early. Stacks newest-on-top so the most recent message is closest to
-// the viewport edge.
+// just append toast nodes. Toasts slide in from the nearest viewport edge,
+// hold for `durationMs`, then slide back out. Click any toast to dismiss
+// it early. Stacks oldest closest to that edge, with newer toasts stacking
+// away from it. Position is bottom by default; setToastPosition("top")
+// moves the host (see style.css).
 //
 // Pass onClick to make a toast actionable: it gets a right-edge chevron,
 // the callback fires on click, and durationMs: 0 keeps it visible until
 // then.
 
 export type ToastKind = "success" | "info" | "error";
+
+export type ToastPosition = "bottom" | "top";
 
 export interface ToastOptions {
   /** Primary message (required). UI font, ~13px. */
@@ -43,6 +46,7 @@ const ICONS: Record<ToastKind, string> = {
 };
 
 let host: HTMLElement | null = null;
+let position: ToastPosition = "bottom";
 
 function ensureHost(): HTMLElement {
   if (host && document.body.contains(host)) return host;
@@ -50,6 +54,7 @@ function ensureHost(): HTMLElement {
   host.id = "toast-host";
   host.setAttribute("role", "status");
   host.setAttribute("aria-live", "polite");
+  host.dataset.position = position;
   document.body.appendChild(host);
   return host;
 }
@@ -127,9 +132,30 @@ export function showToast(opts: ToastOptions): void {
   }
 }
 
+/** Normalize an arbitrary config string to a valid position, echoing the
+ *  same shape as channelOf() in updates.ts. Anything unrecognized falls
+ *  back to "bottom", so a hand-edited config.toml can never leave the host
+ *  unstyled. */
+export function normalizeToastPosition(
+  v: string | null | undefined,
+): ToastPosition {
+  return v === "top" ? "top" : "bottom";
+}
+
+/** Set where toasts appear. Applies immediately — if the host already
+ *  exists, its attribute is updated in place, so toasts currently on
+ *  screen move with it rather than waiting for the next one. */
+export function setToastPosition(pos: ToastPosition): void {
+  position = pos;
+  if (host && document.body.contains(host)) {
+    host.dataset.position = position;
+  }
+}
+
 /** Test-only — drop the host element and reset module state between
  *  tests so each test starts with a clean slate. */
 export function clearToastsForTesting(): void {
   if (host) host.remove();
   host = null;
+  position = "bottom";
 }

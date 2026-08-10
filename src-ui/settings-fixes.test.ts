@@ -81,6 +81,8 @@ vi.mock("./updates", () => ({
 }));
 vi.mock("./toast", () => ({
   showToast: vi.fn(),
+  setToastPosition: vi.fn(),
+  normalizeToastPosition: (v: string) => (v === "top" ? "top" : "bottom"),
 }));
 vi.mock("./platform", () => ({ isMacOS: () => true }));
 vi.mock("./ui-prefs", () => ({
@@ -125,6 +127,7 @@ const DEFAULT_CONFIG = {
   kimbo: { enabled: true, corner: "bottom_right", shell_integration: false },
   updates: { auto_check: true },
   welcome: { show_on_startup: false },
+  toast: { position: "bottom" },
 };
 
 beforeEach(async () => {

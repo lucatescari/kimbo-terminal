@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { showToast, clearToastsForTesting } from "./toast";
+import {
+  showToast,
+  clearToastsForTesting,
+  setToastPosition,
+  normalizeToastPosition,
+} from "./toast";
 
 beforeEach(() => {
   clearToastsForTesting();
@@ -112,5 +117,41 @@ describe("showToast", () => {
     showToast({ message: "x", accent: "perm" });
     const el = document.querySelector(".toast");
     expect(el?.classList.contains("toast--accent-perm")).toBe(true);
+  });
+});
+
+describe("toast position", () => {
+  it("stamps bottom on the host by default", () => {
+    showToast({ message: "x" });
+    expect(host()!.dataset.position).toBe("bottom");
+  });
+
+  it("stamps the configured position on a host created later", () => {
+    setToastPosition("top");
+    showToast({ message: "x" });
+    expect(host()!.dataset.position).toBe("top");
+  });
+
+  it("moves an existing host when the position changes", () => {
+    showToast({ message: "x" });
+    expect(host()!.dataset.position).toBe("bottom");
+    setToastPosition("top");
+    expect(host()!.dataset.position).toBe("top");
+  });
+
+  it("keeps on-screen toasts when the position changes", () => {
+    showToast({ message: "a" });
+    showToast({ message: "b" });
+    setToastPosition("top");
+    expect(host()!.querySelectorAll(".toast").length).toBe(2);
+  });
+
+  it("normalizes unknown, missing, and valid positions", () => {
+    expect(normalizeToastPosition("top")).toBe("top");
+    expect(normalizeToastPosition("bottom")).toBe("bottom");
+    expect(normalizeToastPosition("sideways")).toBe("bottom");
+    expect(normalizeToastPosition("")).toBe("bottom");
+    expect(normalizeToastPosition(undefined)).toBe("bottom");
+    expect(normalizeToastPosition(null)).toBe("bottom");
   });
 });

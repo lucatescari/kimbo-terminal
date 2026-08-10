@@ -2194,7 +2194,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  flex-direction: column-reverse;  /* newest at bottom of stack = closest to viewport edge = visually on top of the older ones above */
+  flex-direction: column-reverse;  /* oldest at bottom of stack = closest to viewport edge; newer ones stack upward, visually on top of the older ones below */
   gap: 8px;
   pointer-events: none;  /* the host itself; toasts re-enable below */
   z-index: 1000;
@@ -2267,6 +2267,36 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast--leaving { animation-duration: 1ms; }
+}
+
+/* Top placement (opt-in via [toast] position = "top"). Three things must
+   flip together or this looks broken: the offset, the stack direction, and
+   both animations. Offset mirrors the bottom rule — there it's 22px
+   #status-bar + 8px breathing; here it's 36px #title-bar + 38px #tab-bar
+   + 8px. #title-bar and #tab-bar are separate siblings (index.html), and
+   box-sizing: border-box means those heights already include their 1px
+   borders. If either chrome height changes, change this too. */
+#toast-host[data-position="top"] {
+  top: 82px;
+  bottom: auto;
+  /* Oldest nearest the top edge, newer ones stacking downward — the mirror of
+     column-reverse at the bottom. */
+  flex-direction: column;
+}
+#toast-host[data-position="top"] .toast {
+  animation-name: toast-in-top;
+}
+#toast-host[data-position="top"] .toast--leaving {
+  animation-name: toast-out-top;
+}
+
+@keyframes toast-in-top {
+  from { transform: translateY(-12px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes toast-out-top {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(-8px);  opacity: 0; }
 }
 
 .toast--accent-stop {

@@ -107,6 +107,7 @@ const DEFAULT_CONFIG = {
   kimbo: { enabled: true, corner: "bottom_right", shell_integration: false },
   updates: { auto_check: true },
   welcome: { show_on_startup: false },
+  toast: { position: "bottom" },
 };
 
 beforeEach(() => {

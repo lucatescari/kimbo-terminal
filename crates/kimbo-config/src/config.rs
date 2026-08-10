@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub updates: UpdatesConfig,
     pub welcome: WelcomeConfig,
     pub telemetry: TelemetryConfig,
+    pub toast: ToastConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +78,14 @@ pub struct UpdatesConfig {
     pub auto_check: bool,
     /// Release channel: "stable" (default) or "unstable" (preview builds).
     pub channel: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToastConfig {
+    /// Where toasts appear in the window: "bottom" (default) or "top".
+    /// Unknown values are normalized to "bottom" by the frontend.
+    pub position: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +176,14 @@ impl Default for UpdatesConfig {
     }
 }
 
+impl Default for ToastConfig {
+    fn default() -> Self {
+        Self {
+            position: "bottom".to_string(),
+        }
+    }
+}
+
 impl Default for WelcomeConfig {
     fn default() -> Self {
         Self {
@@ -244,6 +261,24 @@ mod tests {
         assert_eq!(config.kimbo.corner, "bottom_right");
         // Telemetry is opt-in: OFF by default.
         assert!(!config.telemetry.enabled);
+    }
+
+    #[test]
+    fn test_default_toast_position_is_bottom() {
+        let config = AppConfig::default();
+        assert_eq!(config.toast.position, "bottom");
+    }
+
+    #[test]
+    fn test_config_without_toast_section_uses_default() {
+        // A config.toml written before this feature existed has no [toast]
+        // section; #[serde(default)] must fill it in rather than fail to parse.
+        let toml_src = r#"
+[theme]
+name = "kimbo-dark"
+"#;
+        let config: AppConfig = toml::from_str(toml_src).expect("should parse");
+        assert_eq!(config.toast.position, "bottom");
     }
 
     #[test]
