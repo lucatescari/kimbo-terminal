@@ -57,6 +57,7 @@ interface AppConfig {
   updates: { auto_check: boolean; channel: string };
   welcome: { show_on_startup: boolean };
   telemetry: { enabled: boolean };
+  toast: { position: string };
 }
 
 export type SettingsCategory =
@@ -644,6 +645,24 @@ function renderAppearance(el: HTMLElement): void {
   ));
   el.appendChild(accentSec);
   el.appendChild(themeSec);
+
+  // Notifications section — toast placement.
+  const toastCfg = config.toast;
+  const notifySec = section("Notifications");
+  notifySec.appendChild(row(
+    "Notification position",
+    "Where notifications appear in the window.",
+    select(toastCfg.position, [
+      ["bottom", "Bottom"],
+      ["top", "Top"],
+    ], async (v) => {
+      toastCfg.position = v;
+      await saveConfig();
+      const { setToastPosition, normalizeToastPosition } = await import("./toast");
+      setToastPosition(normalizeToastPosition(v));
+    }),
+  ));
+  el.appendChild(notifySec);
 
   // Community gallery
   const gallery = section("Community gallery");

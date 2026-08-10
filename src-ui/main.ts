@@ -22,6 +22,7 @@ import { initCommandPalette } from "./command-palette";
 import { initWindowActivationTracking } from "./window-activation";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
 import { loadSession, startSessionAutosave } from "./session-state";
+import { setToastPosition, normalizeToastPosition } from "./toast";
 
 interface BootConfig {
   font: { family: string; size: number; line_height: number };
@@ -29,6 +30,7 @@ interface BootConfig {
   scrollback: { lines: number };
   cursor: { style: string; blink: boolean };
   kimbo: { enabled: boolean; corner: string; shell_integration: boolean };
+  toast?: { position: string };
   updates: { auto_check: boolean };
   welcome: { show_on_startup: boolean };
   keybindings?: { bindings: Record<string, string> };
@@ -89,6 +91,9 @@ async function init() {
     console.warn("Failed to load theme, using defaults:", e);
   }
   applyRoot();
+
+  // Position toasts from persisted config; unknown values fall back to bottom.
+  setToastPosition(normalizeToastPosition(cfg?.toast?.position));
 
   // Init Kimbo from persisted config.
   try {
