@@ -644,9 +644,9 @@ function renderAppearance(el: HTMLElement): void {
     ], (v) => setPref("tabStyle", v as TabStyle)),
   ));
   el.appendChild(accentSec);
-  el.appendChild(themeSec);
 
-  // Notifications section — toast placement.
+  // Notifications section — toast placement. Sits above Theme so that Theme
+  // and Community gallery stay adjacent; they read as one unit.
   const toastCfg = config.toast;
   const notifySec = section("Notifications");
   notifySec.appendChild(row(
@@ -663,6 +663,8 @@ function renderAppearance(el: HTMLElement): void {
     }),
   ));
   el.appendChild(notifySec);
+
+  el.appendChild(themeSec);
 
   // Community gallery
   const gallery = section("Community gallery");
