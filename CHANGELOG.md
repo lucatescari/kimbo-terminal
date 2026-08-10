@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Features
+
+- **Notifications can now appear at the top of the window.** Settings → Appearance → Notifications switches between bottom (default) and top. The change applies immediately, including to notifications already on screen.
+
 ### Fixes
 
 - **The tab bar no longer flickers or swallows clicks while a TUI animates the terminal title.** Programs like codex update the title with a spinner ~10 times per second; each update used to rebuild the whole tab bar, destroying the tab under the cursor mid-hover and mid-click. Title changes now patch the existing tab label in place.
+- Claude notifications now clear after 15 seconds instead of 30, so they no longer read as stuck.
 
 ## 1.0.0 - 2026-06-29
 
