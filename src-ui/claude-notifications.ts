@@ -40,6 +40,11 @@ export interface Routing {
   paint(req: PaintRequest): void;
 }
 
+/** How long the "Claude needs permission / finished" toast stays up.
+ *  Was 30s, which read as "stuck" to users; 15s is long enough to notice
+ *  and act on without feeling frozen. */
+export const CLAUDE_NOTIFY_TOAST_MS = 15_000;
+
 const COALESCE_WINDOW_MS = 500;
 /** Cap the timestamp map so it can't grow unboundedly in long sessions. The
  *  map only needs entries young enough for the coalesce window to fire, so
@@ -245,7 +250,7 @@ export async function wireClaudeNotifications(): Promise<void> {
               ? `Claude needs permission in ${req.tabName}`
               : `Claude finished in ${req.tabName}`,
           detail: req.message ?? undefined,
-          durationMs: 30_000,
+          durationMs: CLAUDE_NOTIFY_TOAST_MS,
           onClick: focusPane,
         });
 

@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   handleNotifyEvent,
   setRoutingForTesting,
+  CLAUDE_NOTIFY_TOAST_MS,
   type NotifyEvent,
   type PaintRequest,
   type Routing,
@@ -223,5 +224,13 @@ describe("claude-notifications: notification timestamp map bounded growth", () =
       onPaint,
       "stop for a pruned session must paint — its coalesce entry was dropped",
     ).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("claude-notifications: toast duration", () => {
+  it("locks the notification hold at a deliberate 15s", () => {
+    // Product decision: 30s read as "stuck". Change this only
+    // deliberately — the constant is the single source of truth.
+    expect(CLAUDE_NOTIFY_TOAST_MS).toBe(15_000);
   });
 });
