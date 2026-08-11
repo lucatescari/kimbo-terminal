@@ -25,10 +25,18 @@ interface CapturedLinkProvider {
   provideLinks(line: number, cb: (links: unknown[]) => void): void;
 }
 
+interface MockMarker {
+  line: number;
+  isDisposed: boolean;
+  dispose(): void;
+  onDispose(): { dispose(): void };
+}
+
 function makeMockTerm() {
   const cursor = { baseY: 0, cursorY: 0, cursorX: 0 };
   let osc8: CapturedOscHandler | null = null;
   let provider: CapturedLinkProvider | null = null;
+  const markers: MockMarker[] = [];
 
   const term = {
     cols: 80,
@@ -39,11 +47,34 @@ function makeMockTerm() {
         return { dispose() {} };
       },
     },
+    // Mirrors xterm's IMarker: anchored to a buffer line, moved as the buffer
+    // trims, disposed once its line falls out of scrollback entirely.
+    registerMarker(offset = 0): MockMarker {
+      const m: MockMarker = {
+        line: cursor.baseY + cursor.cursorY + offset,
+        isDisposed: false,
+        dispose() { this.isDisposed = true; },
+        onDispose() { return { dispose() {} }; },
+      };
+      markers.push(m);
+      return m;
+    },
     registerLinkProvider(p: CapturedLinkProvider) {
       provider = p;
       return { dispose() {} };
     },
   };
+
+  /** Simulate xterm trimming `n` lines off the top of a full scrollback: every
+   *  live marker slides up by n, and any marker whose line falls off the top is
+   *  disposed. This is exactly what xterm does to real markers, and what raw
+   *  stored line numbers do NOT track. */
+  function trimLines(n: number): void {
+    for (const m of markers) {
+      m.line -= n;
+      if (m.line < 0) m.isDisposed = true;
+    }
+  }
 
   // Helper: emit one full OSC 8 hyperlink (open + close) at the current cursor.
   function emitHyperlink(url: string): void {
@@ -62,7 +93,7 @@ function makeMockTerm() {
     return count;
   }
 
-  return { term, emitHyperlink, callProvideLinks, cursor };
+  return { term, emitHyperlink, callProvideLinks, cursor, trimLines };
 }
 
 describe("OSC 8 link tracker bounded growth (regression: input lag grew over a long session)", () => {
@@ -120,5 +151,66 @@ describe("OSC 8 link tracker bounded growth (regression: input lag grew over a l
     // guard; this only needs to fail on a gross blow-up, so 1000ms keeps wide
     // CI headroom while still catching the 4×-work unbounded regression.
     expect(best).toBeLessThan(1000);
+  });
+});
+
+// Regression: link ranges were stored as absolute buffer line numbers captured
+// at write time and never updated. Scrollback is capped (10k lines by default),
+// so once it is full every new line trims one off the top and shifts every
+// existing line's index down by one. Stored ranges did not move with it, so
+// after N trimmed lines every tracked link pointed N lines too far down — onto
+// unrelated text, while still carrying its original URL. Users saw ordinary
+// prose underlined as a link, and clicking it opened a URL emitted hours
+// earlier. The symptom got strictly worse the longer a session ran.
+describe("OSC 8 link positions survive scrollback trimming", () => {
+  it("moves a link with its line when the buffer trims", () => {
+    const { term, emitHyperlink, callProvideLinks, trimLines } = makeMockTerm();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    attachOsc8Links(term as any, () => {});
+
+    // One link on buffer line 0 (provideLinks uses 1-based absolute lines).
+    emitHyperlink("https://example.com/first");
+    expect(callProvideLinks(1)).toBe(1);
+
+    // Trim 1 line: the link's content is now on line 0 - 1 → gone from view at
+    // line 1, which is now occupied by different text.
+    trimLines(1);
+    expect(callProvideLinks(1)).toBe(0);
+  });
+
+  it("does not leave a link pointing at unrelated text after heavy trimming", () => {
+    const { term, emitHyperlink, callProvideLinks, cursor, trimLines } = makeMockTerm();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    attachOsc8Links(term as any, () => {});
+
+    emitHyperlink("https://claude.ai/oauth/authorize?code=true");
+
+    // A long session pushes far more than the scrollback cap through the
+    // buffer; the link's original line is long gone.
+    cursor.baseY += 12_000;
+    trimLines(12_000);
+
+    // Every line a user might hover must now be link-free. Pre-fix, the stale
+    // absolute coordinates still matched line 1 and served the OAuth URL.
+    for (const line of [1, 2, 50, 500]) {
+      expect(callProvideLinks(line)).toBe(0);
+    }
+  });
+
+  it("keeps resolving a link at its new line after a partial trim", () => {
+    const { term, emitHyperlink, callProvideLinks, trimLines } = makeMockTerm();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    attachOsc8Links(term as any, () => {});
+
+    // Three links, one per line, at buffer lines 0, 1, 2.
+    emitHyperlink("https://example.com/a");
+    emitHyperlink("https://example.com/b");
+    emitHyperlink("https://example.com/c");
+
+    // Trim two lines: 'c' was on line 2, so it now lives on line 0 → 1-based 1.
+    trimLines(2);
+    expect(callProvideLinks(1)).toBe(1);
+    // And nothing is served for lines the links no longer occupy.
+    expect(callProvideLinks(3)).toBe(0);
   });
 });

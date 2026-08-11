@@ -1,10 +1,18 @@
-import type { Terminal } from "@xterm/xterm";
+import type { IMarker, Terminal } from "@xterm/xterm";
 
 interface LinkRange {
   url: string;
-  startY: number;  // 0-based absolute buffer line at open time
+  /** Markers, not raw line numbers. Absolute buffer indices captured at write
+      time go stale: scrollback is capped, so once it is full every new line
+      trims one off the top and shifts every existing line's index down by one.
+      Stored numbers did not move with it, so links drifted onto unrelated text
+      and kept serving their original URL. xterm keeps markers anchored to
+      their line as the buffer trims, and disposes them once that line falls
+      out of scrollback — which is also our signal to drop the range. Same
+      idiom as the prompt markers in terminal.ts and osc1337-renderer.ts. */
+  start: IMarker;
   startX: number;  // 0-based column at open
-  endY: number;    // 0-based absolute buffer line at close
+  end: IMarker;
   endX: number;    // 0-based column AFTER the last link cell (cursor position
                    // after writing the link text); used directly as the
                    // 1-based-inclusive IBufferRange.end.x.
@@ -63,49 +71,57 @@ export function attachOsc8Links(
   onActivate: (event: MouseEvent, uri: string) => void,
 ): Osc8LinkHandle {
   const ranges: LinkRange[] = [];
-  let openLink: { url: string; startY: number; startX: number } | null = null;
+  let openLink: { url: string; start: IMarker; startX: number } | null = null;
 
   function pushRange(r: LinkRange): void {
     ranges.push(r);
-    if (ranges.length > MAX_TRACKED_RANGES) ranges.shift();
+    // Dispose the evicted range's markers so xterm stops tracking them too —
+    // dropping the array entry alone would leak them for the Terminal's life.
+    while (ranges.length > MAX_TRACKED_RANGES) {
+      const evicted = ranges.shift();
+      evicted?.start.dispose();
+      evicted?.end.dispose();
+    }
+  }
+
+  /** Close the currently open link at the cursor. Returns silently when the
+      end marker cannot be registered — an untracked link is a missing
+      underline, which is strictly better than one pointing at the wrong
+      text. */
+  function closeOpenLink(): void {
+    if (!openLink) return;
+    const end = term.registerMarker(0);
+    if (end) {
+      pushRange({
+        url: openLink.url,
+        start: openLink.start,
+        startX: openLink.startX,
+        end,
+        endX: term.buffer.active.cursorX,
+      });
+    } else {
+      openLink.start.dispose();
+    }
+    openLink = null;
   }
 
   term.parser.registerOscHandler(8, (data) => {
     // OSC 8 payload format: "params;url" for open, ";" or "" for close.
     const semi = data.indexOf(";");
     const url = semi >= 0 ? data.slice(semi + 1) : "";
-    const cursor = term.buffer.active;
 
-    if (url && !openLink) {
-      openLink = {
-        url,
-        startY: cursor.baseY + cursor.cursorY,
-        startX: cursor.cursorX,
-      };
-    } else if (!url && openLink) {
-      pushRange({
-        url: openLink.url,
-        startY: openLink.startY,
-        startX: openLink.startX,
-        endY: cursor.baseY + cursor.cursorY,
-        endX: cursor.cursorX,
-      });
-      openLink = null;
-    } else if (url && openLink) {
-      // Tool emitted a new open without closing the previous one — close it
-      // implicitly at the current position and start fresh. Defensive.
-      pushRange({
-        url: openLink.url,
-        startY: openLink.startY,
-        startX: openLink.startX,
-        endY: cursor.baseY + cursor.cursorY,
-        endX: cursor.cursorX,
-      });
-      openLink = {
-        url,
-        startY: cursor.baseY + cursor.cursorY,
-        startX: cursor.cursorX,
-      };
+    // A new open while one is already in flight means the tool skipped its
+    // close — close implicitly at the current position, then start fresh.
+    // Defensive.
+    if (openLink) closeOpenLink();
+
+    if (url) {
+      const start = term.registerMarker(0);
+      // No marker means no reliable anchor, so don't track the link at all
+      // rather than fall back to a coordinate that will drift.
+      if (start) {
+        openLink = { url, start, startX: term.buffer.active.cursorX };
+      }
     }
     return true;
   });
@@ -123,8 +139,20 @@ export function attachOsc8Links(
         text: string;
         activate: (event: MouseEvent, text: string) => void;
       }> = [];
-      for (const r of ranges) {
-        const clipped = clipLinkRangeForLine(r, bufferLineNumber, term.cols);
+      for (let i = ranges.length - 1; i >= 0; i--) {
+        const r = ranges[i];
+        // A disposed marker means its line was trimmed out of scrollback, so
+        // the link no longer refers to anything. Prune here rather than on a
+        // timer: this loop already visits every range.
+        if (r.start.isDisposed || r.end.isDisposed) {
+          ranges.splice(i, 1);
+          continue;
+        }
+        const clipped = clipLinkRangeForLine(
+          { startY: r.start.line, startX: r.startX, endY: r.end.line, endX: r.endX },
+          bufferLineNumber,
+          term.cols,
+        );
         if (clipped) {
           links.push({
             range: clipped,

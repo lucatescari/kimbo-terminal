@@ -165,10 +165,16 @@ describe("memory: osc8.ts provideLinks optimization", () => {
     expect(providerBody).not.toMatch(/\.flatMap\s*\(/);
   });
 
-  it("uses a for-of loop with push instead", () => {
+  it("uses a plain loop with push instead", () => {
     const providerStart = osc8Src.indexOf("provideLinks(bufferLineNumber");
     const providerBody = osc8Src.slice(providerStart, osc8Src.indexOf("callback(links)", providerStart) + 20);
-    expect(providerBody).toMatch(/for\s*\(\s*const r of ranges\s*\)/);
+    // Either loop form satisfies the intent (no intermediate arrays per hover).
+    // The reverse indexed form is what the marker-based tracking needs: it
+    // splices ranges whose marker has been disposed as it goes, which a for-of
+    // cannot do safely.
+    expect(providerBody).toMatch(
+      /for\s*\(\s*(const r of ranges\s*\)|let i = ranges\.length)/,
+    );
     expect(providerBody).toMatch(/links\.push\s*\(/);
   });
 });
@@ -512,6 +518,16 @@ describe("performance: osc8 provideLinks for-loop vs flatMap", () => {
           if (code === 8) osc8Handler = handler;
           return { dispose() {} };
         },
+      },
+      // Link ranges are anchored to markers so they follow their line as the
+      // buffer trims; the tracker registers one per link open and close.
+      registerMarker(offset = 0) {
+        return {
+          line: cursor.baseY + cursor.cursorY + offset,
+          isDisposed: false,
+          dispose() { this.isDisposed = true; },
+          onDispose() { return { dispose() {} }; },
+        };
       },
       registerLinkProvider(p: any) {
         linkProvider = p;
