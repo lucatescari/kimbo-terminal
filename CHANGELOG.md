@@ -18,6 +18,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The tab bar no longer flickers or swallows clicks while a TUI animates the terminal title.** Programs like codex update the title with a spinner ~10 times per second; each update used to rebuild the whole tab bar, destroying the tab under the cursor mid-hover and mid-click. Title changes now patch the existing tab label in place.
 - Claude notifications now clear after 15 seconds instead of 30, so they no longer read as stuck.
 
+## 1.1.0 - 2026-07-17
+
+### Features
+
+- **You can now follow preview builds from the About window.** Settings → About has an update channel switcher: pick unstable to receive preview releases as they are cut, and use "Reinstall latest stable" to go back. Unstable builds are previews and may be rough. The channel can also be set in config as `updates.channel`, which is `"stable"` unless you change it.
+- **Updates install with live progress.** Downloading and installing an update reports streamed progress instead of appearing to hang.
+- **The installer window is branded.** The .dmg used to open to a bare white Finder window with no title and visible dot-files. It now has a designed background in the Kimbo palette with a wordmark, a drag arrow, and frosted tiles behind the icons, rendered for retina displays.
+
+### Notes
+
+- `release.sh` gained the unstable channel that publishes those preview builds, and the volume name in the DMG is now "Kimbo".
+
+## 1.0.3 - 2026-07-13
+
+### Fixes
+
+- **The tab bar no longer slides continuously and flashes while you sit on a far-right tab.** With the strip overflowing, three coupled defects fed each other: the scroll arrows were siblings of the scroll region, so toggling them changed the very width used to decide whether they should be visible; every render restarted a smooth scroll animation, including on badge updates and the 2s CWD poll; and every render rebuilt all tab DOM. Arrows are now absolute overlays, scrolling happens only when the active tab is genuinely clipped, and tab buttons are reused rather than wiped.
+
+## 1.0.2 - 2026-07-13
+
+### Notes
+
+- No functional changes. Version bump and rebuild only, with code identical to 1.0.1.
+
+## 1.0.1 - 2026-07-09
+
+### Notes
+
+- No user-facing changes. `cargo audit` in CI now ignores RUSTSEC-2026-0194 and RUSTSEC-2026-0195, two quick-xml advisories reaching Kimbo only transitively through `plist` and the Windows-only `tauri-winrt-notification`, neither of which had an upstream fix available at the time.
+
 ## 1.0.0 - 2026-06-29
 
 First stable release. Kimbo is out of beta: the config format, keybindings, and
