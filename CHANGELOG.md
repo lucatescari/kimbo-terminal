@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 
+- **Terminal hyperlinks no longer drift onto unrelated text during long sessions.** Once the scrollback filled up, each new line shifted every stored link position by one without moving the link with it. Ordinary prose would underline as a hyperlink, and Cmd+clicking it could open a URL printed hours earlier. Link positions now follow their line as the buffer scrolls, and are discarded once that line falls out of scrollback.
+- **Switching tabs no longer makes the terminal jump and reflow.** Panes in background tabs had their Claude HUD strip removed, so the terminal grew by the strip's height while hidden and shrank again on return. Each change refit the terminal, changed the row count and resized the shell, which showed up as content shifting and flickering for a second or two after every switch. Background panes now keep the strip and skip only the status check.
 - **The tab bar no longer flickers or swallows clicks while a TUI animates the terminal title.** Programs like codex update the title with a spinner ~10 times per second; each update used to rebuild the whole tab bar, destroying the tab under the cursor mid-hover and mid-click. Title changes now patch the existing tab label in place.
 - Claude notifications now clear after 15 seconds instead of 30, so they no longer read as stuck.
 
