@@ -115,8 +115,10 @@ describe("OSC 8 link tracker bounded growth (regression: input lag grew over a l
     // `ls --hyperlink` invocations across an afternoon).
     for (let i = 0; i < 20_000; i++) emitHyperlink(`https://example.com/${i}`);
 
-    // Pre-fix this returned 20000 (unbounded). The cap stops it.
-    expect(handle.size()).toBeLessThanOrEqual(5_000);
+    // Pre-fix this returned 20000 (unbounded). The cap stops it. The cap is
+    // also what bounds live marker count (2 per range), which is now a
+    // per-output-line cost — see MAX_TRACKED_RANGES.
+    expect(handle.size()).toBeLessThanOrEqual(500);
     // Sanity: we did actually accept SOME of them (so the test isn't trivially
     // passing because OSC handling was broken).
     expect(handle.size()).toBeGreaterThan(0);
@@ -146,10 +148,10 @@ describe("OSC 8 link tracker bounded growth (regression: input lag grew over a l
     }
 
     // Pre-fix: 1000 calls * 20000 ranges = 2×10^7 flatMap ops (~1–2s locally,
-    // ~2s+ on slow CI). Post-fix: 1000 * ≤5000 = 5×10^6 ops — well under 100ms
+    // ~2s+ on slow CI). Post-fix: 1000 * ≤500 = 5×10^5 ops — well under 100ms
     // locally. The deterministic size-cap test above is the primary regression
     // guard; this only needs to fail on a gross blow-up, so 1000ms keeps wide
-    // CI headroom while still catching the 4×-work unbounded regression.
+    // CI headroom while still catching the unbounded regression.
     expect(best).toBeLessThan(1000);
   });
 });
