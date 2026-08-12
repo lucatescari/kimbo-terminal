@@ -1,6 +1,7 @@
 import { createTerminalSession, TerminalSession } from "./terminal";
 import { getCwd } from "./pty";
 import { attachSplitHandleDrag } from "./split-handle-drag";
+import { chooseHudAction } from "./claude-hud-visibility";
 
 // ---------------------------------------------------------------------------
 // Split tree types
@@ -651,7 +652,17 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: n
   // side, so skip it entirely when the HUD is disabled or the pane lives in a
   // hidden (background) tab — otherwise every pane in every tab would scan the
   // process table every poll tick regardless of settings or visibility.
-  if (!prefs.claudeHudEnabled || isInHiddenTab(paneEl)) {
+  //
+  // A hidden pane skips the probe but KEEPS its strip. Removing it would shrink
+  // the pane's terminal by the strip's 22px, and re-inserting it on reselect
+  // would shrink it back — each change refits xterm, changes the row count and
+  // resizes the PTY, so the terminal jumps every time you switch tabs.
+  const action = chooseHudAction({
+    hudEnabled: prefs.claudeHudEnabled,
+    hidden: isInHiddenTab(paneEl),
+  });
+  if (action === "skip") return;
+  if (action === "remove") {
     const stale = paneEl.querySelector(":scope > .claude-hud");
     if (stale) stale.remove();
     return;
