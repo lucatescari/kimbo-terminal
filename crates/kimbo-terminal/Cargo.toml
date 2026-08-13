@@ -1,7 +1,7 @@
 [package]
 name = "kimbo-terminal"
 description = "Raw PTY management for Kimbo (spawn, read/write, resize, CWD tracking)"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
