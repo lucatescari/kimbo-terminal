@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "xtermMajor": 6,
+  "groups": [
+    { "id": "terminal", "label": "Terminal" },
+    { "id": "ansi", "label": "ANSI colours" },
+    { "id": "chrome", "label": "Window chrome" }
+  ],
+  "keys": [
+    { "key": "terminal.background", "default": "#000000", "required": true, "resolvedField": "background", "cssVars": ["--bg"], "group": "terminal", "label": "Background" },
+    { "key": "terminal.foreground", "default": "#ffffff", "required": true, "resolvedField": "foreground", "cssVars": ["--fg"], "group": "terminal", "label": "Foreground" },
+    { "key": "terminal.cursor", "default": "#ffffff", "required": true, "resolvedField": "cursor", "cssVars": ["--cursor"], "group": "terminal", "label": "Cursor" },
+    { "key": "terminal.selectionBackground", "default": "#444444", "required": false, "resolvedField": "selection_background", "cssVars": [], "group": "terminal", "label": "Selection background" },
+    { "key": "terminal.ansiBlack", "default": "#000000", "required": false, "resolvedField": "ansi_black", "cssVars": [], "group": "ansi", "label": "Black" },
+    { "key": "terminal.ansiRed", "default": "#cc0000", "required": false, "resolvedField": "ansi_red", "cssVars": ["--accent-red"], "group": "ansi", "label": "Red" },
+    { "key": "terminal.ansiGreen", "default": "#00cc00", "required": false, "resolvedField": "ansi_green", "cssVars": ["--accent-green"], "group": "ansi", "label": "Green" },
+    { "key": "terminal.ansiYellow", "default": "#cccc00", "required": false, "resolvedField": "ansi_yellow", "cssVars": ["--accent-yellow"], "group": "ansi", "label": "Yellow" },
+    { "key": "terminal.ansiBlue", "default": "#0000cc", "required": true, "resolvedField": "ansi_blue", "cssVars": ["--accent-blue"], "group": "ansi", "label": "Blue" },
+    { "key": "terminal.ansiMagenta", "default": "#cc00cc", "required": false, "resolvedField": "ansi_magenta", "cssVars": [], "group": "ansi", "label": "Magenta" },
+    { "key": "terminal.ansiCyan", "default": "#00cccc", "required": false, "resolvedField": "ansi_cyan", "cssVars": [], "group": "ansi", "label": "Cyan" },
+    { "key": "terminal.ansiWhite", "default": "#cccccc", "required": false, "resolvedField": "ansi_white", "cssVars": [], "group": "ansi", "label": "White" },
+    { "key": "terminal.ansiBrightBlack", "default": "#555555", "required": false, "resolvedField": "ansi_bright_black", "cssVars": [], "group": "ansi", "label": "Bright black" },
+    { "key": "terminal.ansiBrightRed", "default": "#ff0000", "required": false, "resolvedField": "ansi_bright_red", "cssVars": [], "group": "ansi", "label": "Bright red" },
+    { "key": "terminal.ansiBrightGreen", "default": "#00ff00", "required": false, "resolvedField": "ansi_bright_green", "cssVars": [], "group": "ansi", "label": "Bright green" },
+    { "key": "terminal.ansiBrightYellow", "default": "#ffff00", "required": false, "resolvedField": "ansi_bright_yellow", "cssVars": [], "group": "ansi", "label": "Bright yellow" },
+    { "key": "terminal.ansiBrightBlue", "default": "#0000ff", "required": false, "resolvedField": "ansi_bright_blue", "cssVars": [], "group": "ansi", "label": "Bright blue" },
+    { "key": "terminal.ansiBrightMagenta", "default": "#ff00ff", "required": false, "resolvedField": "ansi_bright_magenta", "cssVars": [], "group": "ansi", "label": "Bright magenta" },
+    { "key": "terminal.ansiBrightCyan", "default": "#00ffff", "required": false, "resolvedField": "ansi_bright_cyan", "cssVars": [], "group": "ansi", "label": "Bright cyan" },
+    { "key": "terminal.ansiBrightWhite", "default": "#ffffff", "required": false, "resolvedField": "ansi_bright_white", "cssVars": [], "group": "ansi", "label": "Bright white" },
+    { "key": "tab.activeBackground", "default": "#333333", "required": false, "resolvedField": "tab_active_bg", "cssVars": ["--tab-active-bg", "--surface"], "group": "chrome", "label": "Active tab background" },
+    { "key": "tab.inactiveBackground", "default": "#1a1a1a", "required": false, "resolvedField": "tab_inactive_bg", "cssVars": ["--tab-inactive-bg"], "group": "chrome", "label": "Inactive tab background" },
+    { "key": "tab.activeForeground", "default": "#ffffff", "required": false, "resolvedField": "tab_active_fg", "cssVars": ["--tab-active-fg"], "group": "chrome", "label": "Active tab text" },
+    { "key": "tab.inactiveForeground", "default": "#888888", "required": false, "resolvedField": "tab_inactive_fg", "cssVars": ["--tab-inactive-fg"], "group": "chrome", "label": "Inactive tab text" },
+    { "key": "titleBar.background", "default": "#1a1a1a", "required": false, "resolvedField": "titlebar_bg", "cssVars": ["--titlebar-bg", "--tab-bar-bg"], "group": "chrome", "label": "Title bar background" },
+    { "key": "panel.border", "default": "#333333", "required": false, "resolvedField": "border", "cssVars": ["--border"], "group": "chrome", "label": "Border" },
+    { "key": "panel.activeBorder", "default": "#0066ff", "required": false, "resolvedField": "active_border", "cssVars": ["--active-border"], "group": "chrome", "label": "Active border" }
+  ]
+}

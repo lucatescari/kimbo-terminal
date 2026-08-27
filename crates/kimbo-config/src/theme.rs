@@ -504,6 +504,20 @@ impl JsonTheme {
             .unwrap_or_else(|| fallback.to_string())
     }
 
+    /// A theme with no colours set, so `resolve()` returns pure defaults.
+    /// Used by the contract tests to read the defaults back out of the
+    /// resolver rather than duplicating them.
+    #[cfg(test)]
+    pub fn empty_for_tests() -> Self {
+        Self {
+            name: String::new(),
+            theme_type: String::new(),
+            author: String::new(),
+            version: String::new(),
+            colors: std::collections::HashMap::new(),
+        }
+    }
+
     /// Load and parse a JSON theme from a file path.
     pub fn load_from_file(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -881,13 +895,7 @@ mod json_tests {
         // Only the non-required keys can actually reach a fallback in
         // practice, but pinning all of them costs nothing and stops the next
         // one drifting.
-        let empty = JsonTheme {
-            name: String::new(),
-            theme_type: String::new(),
-            author: String::new(),
-            version: String::new(),
-            colors: std::collections::HashMap::new(),
-        };
+        let empty = JsonTheme::empty_for_tests();
         let r = empty.resolve();
         let s = empty.swatches();
 

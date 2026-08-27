@@ -1,5 +1,6 @@
 pub mod community;
 pub mod config;
+pub mod contract;
 pub mod keybindings;
 pub mod theme;
 pub mod watcher;
