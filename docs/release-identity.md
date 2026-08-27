@@ -82,6 +82,28 @@ you just have to pick the version yourself.
 - **In the GitHub release.** Both the notes and, for unstable, the release
   title.
 
+## Verifying a build's id
+
+Do not grep the binary for it. In an optimized build LLVM materialises short
+string literals as immediate constants rather than putting them in read-only
+data, so a 7-character build id is simply not present as bytes:
+
+```
+436d360           len=7    greppable in release build: no
+436d360XX         len=9    greppable in release build: yes
+```
+
+It is there and correct — it just isn't a string any more. Debug builds keep
+it in rodata, which makes the discrepancy look like a bug when it isn't.
+
+To actually check a build, read it back through the code path that uses it:
+
+```
+KIMBO_BUILD_ID=<value> cargo test --release -p kimbo-app --bin kimbo-app build_id
+```
+
+or launch the app and look at Settings → About.
+
 ## Worked example
 
 ```
