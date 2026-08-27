@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
+- **Branching or forking a Claude conversation opens the other side in its own pane.** Run `/branch` and Kimbo splits the pane, resuming the original conversation beside the branch. Run `/fork` and it opens the background session that was created. Settings → Claude Code chooses where it opens: a split beside the pane, a split above and below, or a new tab, and the whole thing can be switched off.
+
 - **Releases are now identified by their source, not just their version.** Every build carries the git commit it was compiled from, shown in Settings → About as `1.2.1 (a2fnd4f)`. A stable release cut from the same commit as the current unstable preview is now automatically released under the version that preview declared, so testing `1.2.1-unstable.3` genuinely means testing `1.2.1`. See [docs/release-identity.md](docs/release-identity.md).
 
 - **Theme previews now show a mock Kimbo window instead of coloured bars.** Each card renders a title bar, a prompt line, output and a block cursor in the theme's own colours, so you can see how text actually reads against the background before switching. Themes you have installed show a genuinely multi-coloured prompt; ones you have not installed yet fall back to fewer colours in the same layout, because the community index only carries four.
