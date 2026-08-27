@@ -64,14 +64,55 @@ pub struct PtySession {
     killed: AtomicBool,
 }
 
+/// Single-quote a string for safe inclusion in a `sh -c` command line.
+///
+/// Needed because a pane can be opened running a command Kimbo assembled from
+/// data it read off disk — a Claude session id, a path — and that string ends
+/// up inside a shell command. Wrapping in single quotes disables every form of
+/// shell interpretation; the only character that needs care is the single
+/// quote itself, which is closed, escaped and reopened.
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', r"'\''"))
+}
+
 impl PtySession {
     /// Spawn a new PTY session using `forkpty` + `execvp`.
     ///
     /// Shell defaults to `$SHELL` or `/bin/zsh`. Runs as a login shell (`-l`).
     /// Sets `TERM=xterm-256color`.
-    pub fn new(shell: Option<String>, working_directory: Option<PathBuf>) -> Result<Self> {
+    /// `command`, when given, is an argv the pane runs instead of dropping
+    /// straight to an interactive prompt. The shell still starts afterwards,
+    /// so a pane opened on `claude --resume …` becomes an ordinary shell once
+    /// that exits rather than dying and leaving a dead pane behind.
+    pub fn new(
+        shell: Option<String>,
+        working_directory: Option<PathBuf>,
+        command: Option<Vec<String>>,
+    ) -> Result<Self> {
         let shell_program = shell
             .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+
+        // Built here, in the parent. Everything the forked child needs must be
+        // allocated before the fork: between fork and exec only async-signal-safe
+        // work is legal, and allocating there can deadlock on the allocator lock.
+        let command_arg = command.filter(|c| !c.is_empty()).map(|argv| {
+            let quoted: Vec<String> = argv.iter().map(|a| shell_quote(a)).collect();
+            // Hand back to an interactive login shell afterwards, so the pane
+            // outlives the command.
+            format!(
+                "{}; exec {} -l",
+                quoted.join(" "),
+                shell_quote(&shell_program)
+            )
+        });
+        let c_command = match command_arg
+            .as_deref()
+            .map(std::ffi::CString::new)
+            .transpose()
+        {
+            Ok(v) => v,
+            Err(_) => return Err(anyhow::anyhow!("command contains an interior NUL byte")),
+        };
 
         let mut master_fd: libc::c_int = -1;
 
@@ -127,12 +168,27 @@ impl PtySession {
                 }
             };
             let flag_l = std::ffi::CString::new("-l").unwrap();
-
-            let argv: [*const libc::c_char; 3] =
-                [login_argv0.as_ptr(), flag_l.as_ptr(), std::ptr::null()];
+            let flag_c = std::ffi::CString::new("-c").unwrap();
 
             unsafe {
-                libc::execvp(c_shell.as_ptr(), argv.as_ptr());
+                match c_command {
+                    // [shell, -l, -c, "<cmd>; exec <shell> -l", NULL]
+                    Some(ref cmd) => {
+                        let argv: [*const libc::c_char; 5] = [
+                            login_argv0.as_ptr(),
+                            flag_l.as_ptr(),
+                            flag_c.as_ptr(),
+                            cmd.as_ptr(),
+                            std::ptr::null(),
+                        ];
+                        libc::execvp(c_shell.as_ptr(), argv.as_ptr());
+                    }
+                    None => {
+                        let argv: [*const libc::c_char; 3] =
+                            [login_argv0.as_ptr(), flag_l.as_ptr(), std::ptr::null()];
+                        libc::execvp(c_shell.as_ptr(), argv.as_ptr());
+                    }
+                }
             }
 
             // execvp only returns on error
@@ -612,4 +668,60 @@ fn list_session_pids(sid: libc::pid_t) -> Vec<libc::pid_t> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod shell_quote_tests {
+    use super::shell_quote;
+
+    // A pane can be opened running a command Kimbo built from data it read off
+    // disk. That string reaches a shell, so quoting is the boundary that keeps
+    // a filename or a session id from becoming a command.
+    #[test]
+    fn wraps_plain_values_in_single_quotes() {
+        assert_eq!(shell_quote("claude"), "'claude'");
+        assert_eq!(
+            shell_quote("6523937f-34ba-4eec-b5f8-615d4958802f"),
+            "'6523937f-34ba-4eec-b5f8-615d4958802f'"
+        );
+    }
+
+    #[test]
+    fn neutralises_shell_metacharacters() {
+        for raw in [
+            "a; rm -rf /",
+            "$(whoami)",
+            "`id`",
+            "a && b",
+            "a | b",
+            "a > /tmp/x",
+            "~/secrets",
+            "*",
+        ] {
+            let q = shell_quote(raw);
+            assert!(q.starts_with('\'') && q.ends_with('\''), "{q} not quoted");
+            // Everything between the outer quotes is literal: the only way out
+            // of a single-quoted string is a quote character, and the inner
+            // content must contain none that are unescaped.
+            let inner = &q[1..q.len() - 1];
+            assert!(
+                !inner.contains('\'') || inner.contains(r"'\''"),
+                "{q} escapes badly"
+            );
+        }
+    }
+
+    #[test]
+    fn escapes_embedded_single_quotes() {
+        // The one character that can terminate the quoting. Closed, escaped,
+        // reopened — the classic '\'' dance.
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+        // A crafted value trying to break out and append a command stays inert.
+        let hostile = "x'; rm -rf ~; echo '";
+        let q = shell_quote(hostile);
+        assert!(
+            !q.contains("; rm -rf ~; echo ") || q.contains(r"'\''"),
+            "{q}"
+        );
+    }
 }

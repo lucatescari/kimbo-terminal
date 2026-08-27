@@ -122,7 +122,7 @@ fn run_and_drain(session: &mut PtySession, cmd: &[u8], phase: u8) -> String {
 #[serial(pty)]
 fn test_pty_spawn_and_write() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     session.write(b"echo KIMBO_TEST_MARKER\n");
 
     let mut output = Vec::new();
@@ -149,7 +149,7 @@ fn test_pty_spawn_and_write() {
 #[serial(pty)]
 fn test_pty_resize() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     session.resize(120, 40); // Should not panic
 }
 
@@ -157,7 +157,7 @@ fn test_pty_resize() {
 #[serial(pty)]
 fn test_pty_cwd() {
     let home = dirs::home_dir();
-    let session = PtySession::new(None, home.clone()).expect("failed to spawn PTY");
+    let session = PtySession::new(None, home.clone(), None).expect("failed to spawn PTY");
     std::thread::sleep(Duration::from_millis(500));
     let cwd = session.cwd();
     if cfg!(any(target_os = "macos", target_os = "linux")) {
@@ -176,7 +176,7 @@ fn test_pty_cwd() {
 fn cwd_tracks_cd_without_shell_integration() {
     // Start at $HOME, then cd into the temp dir. Default shell ($SHELL),
     // login — but we never rely on it emitting OSC 7; cwd() queries the OS.
-    let mut session = PtySession::new(None, dirs::home_dir()).expect("failed to spawn PTY");
+    let mut session = PtySession::new(None, dirs::home_dir(), None).expect("failed to spawn PTY");
     // Canonicalize the target because macOS maps /tmp -> /private/tmp, which
     // is what proc_pidinfo reports back.
     let target = std::fs::canonicalize(std::env::temp_dir()).expect("canonicalize temp dir");
@@ -212,7 +212,7 @@ fn cwd_tracks_cd_across_shells() {
         if !std::path::Path::new(shell).exists() {
             continue;
         }
-        let mut session = PtySession::new(Some(shell.to_string()), dirs::home_dir())
+        let mut session = PtySession::new(Some(shell.to_string()), dirs::home_dir(), None)
             .expect("failed to spawn PTY");
         let cmd = format!("cd {}\n", target.display());
         // Re-send `cd` each poll iteration rather than once up front. Shells
@@ -259,7 +259,8 @@ fn cwd_tracks_cd_across_shells() {
 #[test]
 #[serial(pty)]
 fn drop_kills_idle_shell() {
-    let session = PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+    let session =
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
     std::thread::sleep(Duration::from_millis(300));
     assert!(is_alive(shell_pid), "shell should be alive before drop");
@@ -285,7 +286,7 @@ fn drop_kills_idle_shell() {
 #[serial(pty)]
 fn drop_kills_foreground_job_in_its_own_process_group() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
 
     // Warm the shell: wait for its first prompt before we send anything.
@@ -327,7 +328,7 @@ fn drop_kills_foreground_job_in_its_own_process_group() {
 #[serial(pty)]
 fn drop_kills_both_fg_group_and_shell_group() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let shell_pid = session.pid();
     let master = session.master_raw_fd();
 
@@ -382,7 +383,7 @@ fn drop_kills_both_fg_group_and_shell_group() {
 #[serial(pty)]
 fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // Subshell that spawns a sleep AND echoes its pid. `CHILD_PID=$!`
@@ -420,7 +421,7 @@ fn drop_kills_grandchildren_spawned_by_backgrounded_subshell() {
 #[serial(pty)]
 fn drop_kills_concurrently_style_multi_child_tree() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // Two siblings + subshell wrapper, mirroring how concurrently starts
@@ -465,7 +466,7 @@ fn drop_kills_concurrently_style_multi_child_tree() {
 #[serial(pty)]
 fn drop_kills_descendants_that_detached_via_setsid() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     let _warm = run_and_drain(&mut session, b"true", 0);
 
     // `setsid sh -c '…'` makes the subshell its OWN session leader. Its
@@ -519,7 +520,7 @@ fn drop_kills_descendants_that_detached_via_setsid() {
 #[serial(pty)]
 fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
     let mut session =
-        PtySession::new(Some("/bin/sh".to_string()), None).expect("failed to spawn PTY");
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
     // Warm: give zsh time to finish init + prompt, otherwise tcgetpgrp
     // racing with job-control setup returns weird values.
     let _warm = run_and_drain(&mut session, b"true", 0);
@@ -557,7 +558,7 @@ fn is_busy_distinguishes_idle_shell_from_running_foreground_job() {
 #[test]
 #[serial(pty)]
 fn kill_tree_terminates_shell_and_backgrounded_descendant() {
-    let mut session = PtySession::new(None, None).unwrap();
+    let mut session = PtySession::new(None, None, None).unwrap();
     let shell_pid = session.pid();
 
     // Warm the shell first — without this the run_and_drain below has to
@@ -591,7 +592,7 @@ fn kill_tree_terminates_shell_and_backgrounded_descendant() {
 #[test]
 #[serial(pty)]
 fn kill_tree_is_idempotent() {
-    let session = PtySession::new(None, None).unwrap();
+    let session = PtySession::new(None, None, None).unwrap();
     // Two back-to-back calls must not panic, must not double-broadcast,
     // must not error. The AtomicBool guard short-circuits the second one.
     session.kill_tree();
@@ -606,7 +607,63 @@ fn drop_after_explicit_kill_tree_does_not_re_signal() {
     // kill_tree has already run. We can't observe the absence of a kill
     // directly, so we verify the killed flag holds across drop by spawning,
     // killing explicitly, dropping, and confirming no panic / no hang.
-    let session = PtySession::new(None, None).unwrap();
+    let session = PtySession::new(None, None, None).unwrap();
     session.kill_tree();
     drop(session); // no panic, no double-spawn of the 150 ms thread observable to the test
+}
+
+/// A pane opened on a command runs it, then hands back an interactive shell.
+///
+/// The second half matters as much as the first: Kimbo opens these panes to
+/// hold a Claude session, and when that session ends the pane must become an
+/// ordinary shell rather than a dead rectangle the user has to close.
+#[test]
+#[serial(pty)]
+fn command_runs_then_drops_to_an_interactive_shell() {
+    let mut session = PtySession::new(
+        Some("/bin/sh".to_string()),
+        None,
+        Some(vec!["echo".to_string(), "kimbo-marker-42".to_string()]),
+    )
+    .expect("failed to spawn PTY");
+
+    let marker = read_for(&mut session, Duration::from_secs(3));
+    assert!(
+        marker.contains("kimbo-marker-42"),
+        "command output missing; got: {marker}"
+    );
+
+    // The shell that replaced the command is live and accepting input.
+    session.write(b"echo still-alive-99\n");
+    let after = read_for(&mut session, Duration::from_secs(3));
+    assert!(
+        after.contains("still-alive-99"),
+        "shell did not survive the command; got: {after}"
+    );
+}
+
+/// An argument containing shell metacharacters is data, not code.
+#[test]
+#[serial(pty)]
+fn command_arguments_are_not_interpreted_by_the_shell() {
+    let mut session = PtySession::new(
+        Some("/bin/sh".to_string()),
+        None,
+        // If quoting leaked, the subshell would run and print its output.
+        Some(vec![
+            "echo".to_string(),
+            "safe$(echo INJECTED)end".to_string(),
+        ]),
+    )
+    .expect("failed to spawn PTY");
+
+    let out = read_for(&mut session, Duration::from_secs(3));
+    assert!(
+        out.contains("safe$(echo INJECTED)end"),
+        "argument was not passed literally; got: {out}"
+    );
+    assert!(
+        !out.contains("safeINJECTEDend"),
+        "command substitution executed — quoting leaked; got: {out}"
+    );
 }

@@ -21,9 +21,10 @@ impl PtyManager {
         &self,
         cwd: Option<String>,
         shell: Option<String>,
+        command: Option<Vec<String>>,
         app: AppHandle,
     ) -> Result<u32, String> {
-        let session = PtySession::new(shell, cwd.map(std::path::PathBuf::from))
+        let session = PtySession::new(shell, cwd.map(std::path::PathBuf::from), command)
             .map_err(|e| format!("failed to create PTY: {}", e))?;
 
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
