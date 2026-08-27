@@ -1317,8 +1317,8 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
     "Open it in",
     "A split beside the current pane, or a tab of its own.",
     select(prefs.claudeSplitTarget, [
-      ["vertical", "Split \u2014 side by side"],
-      ["horizontal", "Split \u2014 above and below"],
+      ["vertical", "Split side by side"],
+      ["horizontal", "Split above and below"],
       ["tab", "A new tab"],
     ], (v) => setPref("claudeSplitTarget", v as typeof prefs.claudeSplitTarget)),
   ));

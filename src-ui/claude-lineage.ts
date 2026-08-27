@@ -23,7 +23,7 @@ export type LineageEvent =
 
 export interface TransitionInput {
   /** The session id Kimbo last saw in this pane, or null if this is the first
-   *  time it has looked. Null is not "no session" — it is "no opinion yet". */
+   *  time it has looked. Null is not "no session", it is "no opinion yet". */
   previousSessionId: string | null;
   /** The session id the pane is running now. */
   currentSessionId: string;
@@ -46,7 +46,7 @@ export function classifyTransition(input: TransitionInput): LineageEvent {
 
   // First sighting of a pane is not a transition. Without this, launching
   // Kimbo with several panes already running claude would split every one of
-  // them at once — the worst possible first impression of the feature.
+  // them at once, the worst possible first impression of the feature.
   if (previousSessionId === null) return { kind: "none" };
 
   if (currentSessionId !== previousSessionId) {

@@ -35,7 +35,7 @@ async function openSplit(
   // /branch moves the pane's own conversation onto the branch and leaves the
   // original as a transcript, so the original is RESUMED. /fork leaves a real
   // background session running, so that one is ATTACHED to via claude's own
-  // picker — there is no non-interactive attach flag.
+  // picker, since there is no non-interactive attach flag.
   const command =
     event.kind === "branch"
       ? ["claude", "--resume", event.originSessionId]
@@ -67,8 +67,8 @@ async function openSplit(
     kind: "info",
     message:
       event.kind === "branch"
-        ? `Branched — opened the original conversation in ${where}`
-        : `Forked — opened the background session in ${where}`,
+        ? `Branched. Opened the original conversation in ${where}.`
+        : `Forked. Opened the background session in ${where}.`,
   });
 }
 
