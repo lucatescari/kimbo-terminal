@@ -35,6 +35,19 @@ Every PR runs CI on GitHub Actions (`.github/workflows/ci.yml`) which executes t
 
 Want to contribute a theme? See the [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo.
 
+### Changing `theme-contract.json`
+
+`theme-contract.json` at the repo root is the single description of every colour key a theme may set. Tests in both languages keep it honest: `crates/kimbo-config/src/contract.rs` pins it to the Rust resolver, `src-ui/theme-contract.test.ts` pins it to the CSS variables.
+
+kimbo-themes keeps a **synced copy** so its submission validator can check a theme without fetching across repos, and nothing automatic keeps the two in agreement. If you change the contract here, follow up in a kimbo-themes checkout:
+
+```sh
+node scripts/sync-contract.mjs      # copies the contract across
+node scripts/gen-readme-table.mjs   # regenerates README's key table
+```
+
+Commit both results there. Skipping it leaves kimbo-themes validating submissions against an outdated key list.
+
 ## Reporting Issues
 
 Open an issue on GitHub with:

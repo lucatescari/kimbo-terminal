@@ -7,6 +7,23 @@
 //! and the CSS variable mapping in `src-ui/theme.ts`. A test in each language
 //! asserts the contract still matches its half. Enforcement is the point; if a
 //! key is added to the code and not the contract, a build goes red.
+//!
+//! # Changing the contract means a second commit, in another repo
+//!
+//! `theme-contract.json` is authored here, but the
+//! [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo keeps a
+//! synced copy so its submission validator can check a theme without a
+//! cross-repo fetch. Nothing automatic keeps the two in agreement. After
+//! changing `theme-contract.json`, run this in a kimbo-themes checkout and
+//! commit what it produces:
+//!
+//! ```text
+//! node scripts/sync-contract.mjs      # copies the contract across
+//! node scripts/gen-readme-table.mjs   # regenerates README's key table
+//! ```
+//!
+//! Skipping it leaves kimbo-themes validating submissions against an outdated
+//! key list, which is the exact drift this whole mechanism exists to prevent.
 
 use serde::{Deserialize, Serialize};
 
