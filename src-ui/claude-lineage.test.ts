@@ -21,6 +21,7 @@ import {
   classifyTransition,
   createLineageWatcher,
   AGENTS_MIN_INTERVAL_MS,
+  ORIGIN_RETRY_POLLS,
   type LineageEvent,
   type AgentInfo,
   type LineageDeps,
@@ -332,6 +333,66 @@ describe("lineage watcher", () => {
     h.advance(10_000);
     await h.watcher.observe(1, "bbbb", "/w");
     expect(attempts).toBe(1);
+  });
+
+  it("does not consult the agents listing to detect a branch", async () => {
+    // The listing spawns a login shell. Putting it on the branch path made
+    // every branch wait on that shell for no reason — a branch is fully
+    // described by the pane's id change plus the new transcript's forkedFrom.
+    let listCalls = 0;
+    const h = harness({
+      listAgents: async () => {
+        listCalls++;
+        return [];
+      },
+    });
+    await h.watcher.observe(1, "aaaa", "/w");
+    const baseline = listCalls;
+
+    h.origins.set("bbbb", "aaaa");
+    h.advance(60_000); // throttle wide open, so only the code path decides
+    await h.watcher.observe(1, "bbbb", "/w");
+
+    expect(h.splits).toHaveLength(1);
+    expect(listCalls, "branch detection must not shell out").toBe(baseline);
+  });
+
+  it("retries when the branch transcript has not landed yet", async () => {
+    // The transcript is written by another process, so the poll that first
+    // sees the new id can beat forkedFrom to disk. Losing the branch there
+    // would be permanent: by the next poll the id is no longer "changed".
+    const h = harness();
+    await h.watcher.observe(1, "aaaa", "/w");
+
+    // forkedFrom not readable yet.
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toEqual([]);
+
+    // It lands.
+    h.origins.set("bbbb", "aaaa");
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toHaveLength(1);
+    expect(h.splits[0].event).toEqual({
+      kind: "branch",
+      originSessionId: "aaaa",
+      newSessionId: "bbbb",
+    });
+  });
+
+  it("gives up retrying, so a plain restart is not re-checked forever", async () => {
+    let originCalls = 0;
+    const h = harness({
+      sessionOrigin: async () => {
+        originCalls++;
+        return null;
+      },
+    });
+    await h.watcher.observe(1, "aaaa", "/w");
+    for (let i = 0; i < ORIGIN_RETRY_POLLS + 4; i++) {
+      await h.watcher.observe(1, "bbbb", "/w");
+    }
+    expect(h.splits).toEqual([]);
+    expect(originCalls).toBeLessThanOrEqual(ORIGIN_RETRY_POLLS + 1);
   });
 
   it("forgets a closed pane so a reused id is not a phantom branch", async () => {

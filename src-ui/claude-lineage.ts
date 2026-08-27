@@ -107,6 +107,10 @@ export interface LineageDeps {
  *  by a few seconds; spawning a login shell on every pane's poll is not. */
 export const AGENTS_MIN_INTERVAL_MS = 6000;
 
+/** How many polls to keep re-checking for a changed session's forkedFrom
+ *  before accepting that it simply is not a branch. */
+export const ORIGIN_RETRY_POLLS = 3;
+
 export function createLineageWatcher(deps: LineageDeps) {
   const lastSeen = new Map<number, string>();
   /** Background sessions already known, so only genuinely new ones count as a
@@ -116,6 +120,12 @@ export function createLineageWatcher(deps: LineageDeps) {
    *  Without this a branch would re-split on every subsequent poll, since the
    *  pane's session id stays changed. */
   const handled = new Set<string>();
+  /** Polls spent waiting for a changed session's transcript to appear. A
+   *  branch's transcript is written by another process, so the poll that
+   *  first sees the new id can beat forkedFrom to disk. Without a retry that
+   *  race loses the branch permanently, because by the next poll the id is no
+   *  longer "changed". */
+  const pendingOrigin = new Map<number, { from: string; attempts: number }>();
   let lastAgentsAt = 0;
   let agents: AgentInfo[] = [];
 
@@ -138,6 +148,26 @@ export function createLineageWatcher(deps: LineageDeps) {
     }
   }
 
+  async function act(
+    event: LineageEvent,
+    paneId: number,
+    cwd: string | null,
+  ): Promise<void> {
+    if (event.kind === "none") return;
+    const key =
+      event.kind === "branch"
+        ? `branch:${event.newSessionId}`
+        : `fork:${event.forkSessionId}`;
+    if (handled.has(key)) return;
+    handled.add(key);
+    try {
+      await deps.openSplit(event, paneId, cwd);
+    } catch {
+      // The key stays marked handled on purpose: retrying would produce a
+      // split attempt every couple of seconds for the life of the pane.
+    }
+  }
+
   /** Called on every Claude poll for a pane that has a session running. */
   async function observe(
     paneId: number,
@@ -151,9 +181,54 @@ export function createLineageWatcher(deps: LineageDeps) {
       return;
     }
 
-    const previousSessionId = lastSeen.get(paneId) ?? null;
+    // A pane mid-retry keeps comparing against the session it changed FROM,
+    // not the one it changed to, so the branch check can run again.
+    const pending = pendingOrigin.get(paneId);
+    const previousSessionId =
+      pending && pending.from !== sessionId
+        ? pending.from
+        : lastSeen.get(paneId) ?? null;
     lastSeen.set(paneId, sessionId);
 
+    // --- Branch ---------------------------------------------------------
+    // Deliberately does NOT consult the agents listing. A branch is fully
+    // described by the pane's own id change plus the new transcript's
+    // forkedFrom, and both are cheap. Routing it through the listing put a
+    // login shell on the critical path and made every branch feel slow.
+    if (previousSessionId !== null && sessionId !== previousSessionId) {
+      let forkedFromSessionId: string | null = null;
+      try {
+        forkedFromSessionId = await deps.sessionOrigin(sessionId);
+      } catch {
+        forkedFromSessionId = null;
+      }
+      const event = classifyTransition({
+        previousSessionId,
+        currentSessionId: sessionId,
+        forkedFromSessionId,
+        newBackgroundSessionIds: [],
+      });
+
+      if (event.kind === "none" && forkedFromSessionId === null) {
+        // Might be a transcript that has not landed yet rather than "not a
+        // branch". Keep the old id in play for a few more polls.
+        const attempts = (pending?.attempts ?? 0) + 1;
+        if (attempts <= ORIGIN_RETRY_POLLS) {
+          pendingOrigin.set(paneId, { from: previousSessionId, attempts });
+          return;
+        }
+      }
+      pendingOrigin.delete(paneId);
+
+      await act(event, paneId, cwd);
+      // An id change cannot also be a fork: /fork leaves the pane's session
+      // exactly where it was.
+      return;
+    }
+
+    // --- Fork -----------------------------------------------------------
+    // Only this path needs the listing, and it is throttled, so most polls
+    // return from refreshAgents immediately without spawning anything.
     await refreshAgents();
 
     const newBackgroundSessionIds = agents
@@ -162,46 +237,22 @@ export function createLineageWatcher(deps: LineageDeps) {
       .filter((a) => cwd === null || a.cwd === null || a.cwd === cwd)
       .map((a) => a.session_id);
 
-    let forkedFromSessionId: string | null = null;
-    if (previousSessionId !== null && sessionId !== previousSessionId) {
-      // Only worth asking when the id actually moved.
-      try {
-        forkedFromSessionId = await deps.sessionOrigin(sessionId);
-      } catch {
-        forkedFromSessionId = null;
-      }
-    }
-
     const event = classifyTransition({
       previousSessionId,
       currentSessionId: sessionId,
-      forkedFromSessionId,
+      forkedFromSessionId: null,
       newBackgroundSessionIds,
     });
 
-    // Whatever we decide, these background sessions are no longer new.
+    // Whatever we decide, these are no longer new.
     for (const id of newBackgroundSessionIds) knownBackground?.add(id);
 
-    if (event.kind === "none") return;
-
-    const key =
-      event.kind === "branch"
-        ? `branch:${event.newSessionId}`
-        : `fork:${event.forkSessionId}`;
-    if (handled.has(key)) return;
-    handled.add(key);
-
-    try {
-      await deps.openSplit(event, paneId, cwd);
-    } catch {
-      // A failed split leaves the key marked handled on purpose: retrying on
-      // the next poll would produce a split attempt every few seconds for as
-      // long as the pane lives.
-    }
+    await act(event, paneId, cwd);
   }
 
   function forgetPane(paneId: number): void {
     lastSeen.delete(paneId);
+    pendingOrigin.delete(paneId);
   }
 
   return { observe, forgetPane };
