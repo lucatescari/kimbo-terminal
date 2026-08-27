@@ -1672,6 +1672,11 @@ body {
   text-decoration: none;
   border-bottom: 1px dotted color-mix(in oklab, var(--fg-muted) 60%, transparent);
 }
+/* The INSTALL pill and the uninstall x sit on top of the preview, which is
+   painted in the previewed theme's colours — so they take theirs from the
+   same place. --tc-overlay-* are set per card in theme-card.ts from the
+   theme's foreground. The old app-chrome tokens remain as fallbacks for any
+   context that renders a card without them. */
 .theme-card .badge {
   position: absolute;
   top: 8px;
@@ -1680,8 +1685,9 @@ body {
   font-size: 9px;
   padding: 2px 5px;
   border-radius: 3px;
-  background: color-mix(in oklab, var(--bg) 50%, transparent);
-  color: var(--fg-muted);
+  background: var(--tc-overlay-bg, color-mix(in oklab, var(--bg) 50%, transparent));
+  color: var(--tc-overlay-fg, var(--fg-muted));
+  border: 1px solid var(--tc-overlay-border, transparent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   backdrop-filter: blur(4px);
@@ -1703,8 +1709,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: color-mix(in oklab, var(--bg) 60%, transparent);
-  color: var(--fg-muted);
+  background: var(--tc-overlay-bg, color-mix(in oklab, var(--bg) 60%, transparent));
+  color: var(--tc-overlay-fg, var(--fg-muted));
+  border: 1px solid var(--tc-overlay-border, transparent);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s, background 0.12s, color 0.12s, padding 0.12s;
@@ -1720,10 +1727,12 @@ body {
 .theme-card .theme-del:hover {
   background: var(--danger);
   color: var(--accent-on);
+  border-color: var(--danger);
 }
 .theme-card .theme-del.arm {
   background: var(--danger);
   color: var(--accent-on);
+  border-color: var(--danger);
   padding: 0 8px;
 }
 

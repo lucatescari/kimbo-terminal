@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { hexToRgba } from "./color";
 import type { Terminal } from "@xterm/xterm";
 import { getPrefs } from "./ui-prefs";
 
@@ -39,18 +40,9 @@ let currentXtermTheme: Record<string, string> | null = null;
 /** Last applied theme's background hex — re-tinted when opacity changes. */
 let currentThemeBgHex: string | null = null;
 
-/** #rgb / #rrggbb → an rgba() string at `alpha`. Falls back to the input
- *  (opaque) if it can't be parsed. */
-export function hexToRgba(hex: string, alpha: number): string {
-  let h = hex.trim().replace(/^#/, "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-  if (h.length !== 6 || /[^0-9a-fA-F]/.test(h)) return hex;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const a = Math.max(0, Math.min(1, alpha));
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
-}
+// Lives in color.ts now so theme-card.ts can use it without importing this
+// module (and with it the Tauri API). Re-exported to keep existing callers.
+export { hexToRgba };
 
 export interface TerminalOptions {
   fontFamily: string;

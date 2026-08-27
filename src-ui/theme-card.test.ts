@@ -11,6 +11,8 @@
 //   - Builtin / Available cards have NO uninstall × (only Installed do)
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { buildThemeCard, UNINSTALL_ARM_MS, type ThemeCardCallbacks } from "./theme-card";
 import type { UnifiedTheme } from "./settings-types";
 
@@ -289,5 +291,66 @@ describe("theme card preview", () => {
     const strip = (s: string[]) => s.map((c) => c.replace(" faded", ""));
     expect(strip(previewShape(plain))).toEqual(strip(previewShape(rich)));
     expect(previewShape(rich).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overlay legibility
+// ---------------------------------------------------------------------------
+//
+// The INSTALL badge and the uninstall × sit ON TOP of the preview, which is
+// painted in the theme's colours — but they used to style themselves from the
+// app's own chrome tokens (--bg, --fg-muted), which are dark. Over a light
+// theme's preview that produced washed-out grey on cream: on GitHub Light,
+// Gruvbox Light, Rosé Pine Dawn and Solarized Light the INSTALL pill was
+// almost invisible.
+//
+// Anything drawn over the preview has to derive its colours from the theme
+// underneath it, exactly like the preview content does.
+
+const LIGHT = {
+  background: "#fafafa",
+  foreground: "#383a42",
+  accent: "#4078f2",
+  cursor: "#526fff",
+};
+
+describe("overlays drawn on top of the preview", () => {
+  it("derives overlay colours from the previewed theme, not app chrome", () => {
+    const card = buildThemeCard(
+      makeTheme({ swatches: LIGHT, source: "Available" }),
+      { active: false },
+      makeCallbacks(),
+    );
+
+    // The theme's own foreground contrasts with its own background by
+    // definition, so using it for overlay text is legible on any theme.
+    expect(card.style.getPropertyValue("--tc-overlay-fg")).toBe("#383a42");
+    // A faint wash of the same colour separates the pill from the preview
+    // without hiding it.
+    expect(card.style.getPropertyValue("--tc-overlay-bg")).toBe("rgba(56, 58, 66, 0.14)");
+    expect(card.style.getPropertyValue("--tc-overlay-border")).toBe("rgba(56, 58, 66, 0.28)");
+  });
+
+  it("sets the same variables for a dark theme", () => {
+    const card = buildThemeCard(
+      makeTheme({ swatches: RICH, source: "Available" }),
+      { active: false },
+      makeCallbacks(),
+    );
+    expect(card.style.getPropertyValue("--tc-overlay-fg")).toBe("#cdd6f4");
+    expect(card.style.getPropertyValue("--tc-overlay-bg")).toBe("rgba(205, 214, 244, 0.14)");
+  });
+
+  it("styles the badge and the uninstall button off those variables", () => {
+    const css = readFileSync(resolve(__dirname, "style.css"), "utf-8");
+    const badge = /\.theme-card \.badge \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const del = /\.theme-card \.theme-del \{([^}]*)\}/.exec(css)?.[1] ?? "";
+
+    for (const [name, body] of [["badge", badge], ["theme-del", del]] as const) {
+      expect(body, `${name} rule should exist`).not.toBe("");
+      expect(body, `${name} should use the theme-derived overlay colour`).toContain("--tc-overlay-fg");
+      expect(body, `${name} should use the theme-derived overlay plate`).toContain("--tc-overlay-bg");
+    }
   });
 });

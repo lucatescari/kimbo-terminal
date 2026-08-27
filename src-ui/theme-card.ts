@@ -7,6 +7,7 @@
 
 import type { UnifiedTheme } from "./settings-types";
 import { icon } from "./icons";
+import { hexToRgba } from "./color";
 
 export interface ThemeCardCallbacks {
   /** Activate this theme (clicked while Builtin or Installed). */
@@ -32,6 +33,21 @@ export function buildThemeCard(
   card.className = "theme-card" + (opts.active ? " selected" : "");
   card.dataset.slug = t.slug;
   card.dataset.source = t.source;
+
+  // Anything drawn ON TOP of the preview — the INSTALL pill, the uninstall ×
+  // — has to take its colours from the theme underneath it, not from the
+  // app's chrome tokens. Those tokens are dark, so over a light theme's
+  // preview they rendered washed-out grey on cream and the INSTALL pill was
+  // very nearly invisible (GitHub Light, Gruvbox Light, Rosé Pine Dawn,
+  // Solarized Light all showed it).
+  //
+  // The theme's own foreground contrasts with its own background by
+  // definition, which makes it the one safe choice for overlay text on an
+  // arbitrary theme. A faint wash of the same colour lifts the pill off the
+  // preview without hiding what is behind it.
+  card.style.setProperty("--tc-overlay-fg", t.swatches.foreground);
+  card.style.setProperty("--tc-overlay-bg", hexToRgba(t.swatches.foreground, 0.14));
+  card.style.setProperty("--tc-overlay-border", hexToRgba(t.swatches.foreground, 0.28));
 
   card.appendChild(buildPreview(t));
   card.appendChild(buildMeta(t, opts.active, cb));
