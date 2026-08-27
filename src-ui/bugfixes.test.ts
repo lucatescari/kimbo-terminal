@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { buildThemeCard } from "./theme-card";
 
 const settingsSource = readFileSync(resolve(__dirname, "settings.ts"), "utf-8");
 const mainTsSource = readFileSync(resolve(__dirname, "main.ts"), "utf-8");
@@ -38,20 +40,34 @@ describe("fix 1: theme previews with color swatches", () => {
     expect(unifiedRsSource).toContain("pub cursor: String");
   });
 
-  it("theme-card.ts renders the preview using theme swatches", () => {
-    const cardSource = readFileSync(resolve(__dirname, "theme-card.ts"), "utf-8");
-    // The new card uses a CSS-styled `.preview .strip` (built in buildPreview)
-    // instead of inline 50%-radius dots — but it still pulls colors from the
-    // theme's own swatches.
-    expect(cardSource).toContain("buildThemeCard");
-    expect(cardSource).toContain("t.swatches.background");
-    expect(cardSource).toContain("t.swatches.foreground");
-    expect(cardSource).toContain("t.swatches.accent");
-  });
+  // These two used to grep theme-card.ts for the literal strings
+  // "t.swatches.background" and friends. That broke the moment the preview
+  // was rewritten as a window mock and started destructuring the swatches,
+  // even though every colour still reached the DOM. Asserting on the built
+  // card instead survives refactors and actually checks the thing the fix
+  // was about. The preview's full behaviour lives in theme-card.test.ts.
+  it("the card preview paints the theme's own swatch colours", () => {
+    const card = buildThemeCard(
+      {
+        slug: "t", name: "T", theme_type: "dark", author: "a", version: "1",
+        source: "Installed", active: false,
+        swatches: {
+          background: "#1e1e2e", foreground: "#cdd6f4",
+          accent: "#89b4fa", cursor: "#f5e0dc",
+        },
+      },
+      { active: false },
+      { onActivate: () => {}, onInstall: () => {}, onUninstall: () => {} },
+    );
+    const preview = card.querySelector<HTMLElement>(".preview")!;
+    expect(preview.style.background).toBe("rgb(30, 30, 46)");
 
-  it("theme card preview background uses the theme's own background color", () => {
-    const cardSource = readFileSync(resolve(__dirname, "theme-card.ts"), "utf-8");
-    expect(cardSource).toContain("preview.style.background = t.swatches.background");
+    const colours = Array.from(preview.querySelectorAll<HTMLElement>(".term span"))
+      .map((el) => el.style.color || el.style.background)
+      .filter(Boolean);
+    expect(colours).toContain("rgb(137, 180, 250)"); // accent
+    expect(colours).toContain("rgb(205, 214, 244)"); // foreground
+    expect(colours).toContain("rgb(245, 224, 220)"); // cursor
   });
 });
 

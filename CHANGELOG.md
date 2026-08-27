@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Releases are now identified by their source, not just their version.** Every build carries the git commit it was compiled from, shown in Settings → About as `1.2.1 (a2fnd4f)`. A stable release cut from the same commit as the current unstable preview is now automatically released under the version that preview declared, so testing `1.2.1-unstable.3` genuinely means testing `1.2.1`. See [docs/release-identity.md](docs/release-identity.md).
 
+- **Theme previews now show a mock Kimbo window instead of coloured bars.** Each card renders a title bar, a prompt line, output and a block cursor in the theme's own colours, so you can see how text actually reads against the background before switching. Themes you have installed show a genuinely multi-coloured prompt; ones you have not installed yet fall back to fewer colours in the same layout, because the community index only carries four.
+
 ### Fixes
 
 - **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.

@@ -616,13 +616,30 @@ pub enum ThemeSource {
     Available,
 }
 
-/// Four preview colors used by the settings card.
+/// Preview colors used by the settings card's mini-window mock.
+///
+/// The first four always exist. The rest are `Option` because the two
+/// sources disagree on what they can supply: a Builtin or Installed theme is
+/// a full JSON theme on disk, so every ANSI color is available, while an
+/// Available theme is known only from the community `index.json`, which
+/// carries the four base colors and nothing else. Rather than fabricate
+/// values for the remote case, the card renders the same layout with the
+/// richer segments folded back onto `accent` and `foreground`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeSwatches {
     pub background: String,
     pub foreground: String,
     pub accent: String,
     pub cursor: String,
+    /// ANSI green — the prompt glyph in the preview.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub green: Option<String>,
+    /// ANSI yellow — highlighted output in the preview.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yellow: Option<String>,
+    /// ANSI bright black — the dim output line in the preview.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dim: Option<String>,
 }
 
 /// Unified theme entry returned by `list_unified_themes` and
@@ -640,14 +657,21 @@ pub struct UnifiedTheme {
 }
 
 impl JsonTheme {
-    /// Extract the four swatch preview colors from this theme's `colors` map.
+    /// Extract the swatch preview colors from this theme's `colors` map.
     /// Missing keys fall back to the same defaults used by `resolve()`.
+    ///
+    /// A theme loaded from disk has the whole palette, so the optional
+    /// preview colors are always populated here. They are only `None` for
+    /// Available themes, which never reach this method — see `ThemeSwatches`.
     pub fn swatches(&self) -> ThemeSwatches {
         ThemeSwatches {
             background: self.color_or("terminal.background", "#000000"),
             foreground: self.color_or("terminal.foreground", "#ffffff"),
             accent: self.color_or("terminal.ansiBlue", "#0000ff"),
             cursor: self.color_or("terminal.cursor", "#ffffff"),
+            green: Some(self.color_or("terminal.ansiGreen", "#00ff00")),
+            yellow: Some(self.color_or("terminal.ansiYellow", "#ffff00")),
+            dim: Some(self.color_or("terminal.ansiBrightBlack", "#808080")),
         }
     }
 }
@@ -831,7 +855,7 @@ mod json_tests {
     }
 
     #[test]
-    fn test_extract_swatches_pulls_the_four_preview_colors() {
+    fn test_extract_swatches_pulls_the_preview_colors() {
         let theme = JsonTheme::builtin("kimbo-dark").unwrap();
         let s = theme.swatches();
         assert_eq!(s.background, "#1a1a1a");
@@ -839,6 +863,11 @@ mod json_tests {
         // Accent is ANSI blue for the unified card preview.
         assert_eq!(s.accent, "#569cd6");
         assert_eq!(s.cursor, "#e0e0e0");
+        // A disk theme always carries the richer preview colors; only the
+        // remote community index leaves them unset.
+        assert!(s.green.is_some(), "disk theme should expose ansiGreen");
+        assert!(s.yellow.is_some(), "disk theme should expose ansiYellow");
+        assert!(s.dim.is_some(), "disk theme should expose ansiBrightBlack");
     }
 
     #[test]

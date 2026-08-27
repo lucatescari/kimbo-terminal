@@ -436,6 +436,12 @@ fn emit_full_list(app: AppHandle, cache: Arc<CommunityCache>, active: String) {
                     foreground: entry.swatches.foreground.clone(),
                     accent: entry.swatches.accent.clone(),
                     cursor: entry.swatches.cursor.clone(),
+                    // The community index carries only the four base colors.
+                    // Left unset rather than guessed; the card folds the
+                    // richer segments back onto accent/foreground.
+                    green: None,
+                    yellow: None,
+                    dim: None,
                 },
                 source: ThemeSource::Available,
                 active: entry.slug == active,

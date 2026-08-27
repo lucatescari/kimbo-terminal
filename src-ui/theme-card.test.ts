@@ -187,3 +187,107 @@ describe("theme card: two-step uninstall flow", () => {
     vi.useRealTimers();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Preview — the mini-window mock
+// ---------------------------------------------------------------------------
+//
+// The preview used to be three traffic lights over four bars of varying
+// height, which showed the palette but nothing about how text actually reads
+// in a theme. It is now a small mock of a Kimbo window: title bar, a prompt
+// line, an output line and a block cursor.
+//
+// The interesting constraint is that the two theme sources carry different
+// amounts of colour. A Builtin/Installed theme is a full theme on disk, so
+// ansiGreen/Yellow/BrightBlack are available. An Available theme is known
+// only from the community index.json, which carries four colours. The card
+// must degrade colour WITHOUT degrading layout, or the grid looks broken.
+
+/** Every class name in the preview, in document order. Two themes must
+ *  produce the same list regardless of how much colour data they carry. */
+function previewShape(card: HTMLElement): string[] {
+  return Array.from(card.querySelectorAll(".preview *")).map(
+    (el) => `${el.tagName.toLowerCase()}.${el.className}`,
+  );
+}
+
+const RICH = {
+  background: "#1e1e2e",
+  foreground: "#cdd6f4",
+  accent: "#89b4fa",
+  cursor: "#f5e0dc",
+  green: "#a6e3a1",
+  yellow: "#f9e2af",
+  dim: "#585b70",
+};
+
+const PLAIN = {
+  background: "#1e1e2e",
+  foreground: "#cdd6f4",
+  accent: "#89b4fa",
+  cursor: "#f5e0dc",
+};
+
+describe("theme card preview", () => {
+  it("mocks a window rather than drawing abstract bars", () => {
+    const card = buildThemeCard(makeTheme({ swatches: RICH }), { active: false }, makeCallbacks());
+    const preview = card.querySelector<HTMLElement>(".preview")!;
+
+    // Title bar with the three lights.
+    expect(preview.querySelectorAll(".chrome .lights i")).toHaveLength(3);
+    // Three lines of terminal content.
+    expect(preview.querySelectorAll(".term .line")).toHaveLength(3);
+    // The old abstract bars are gone.
+    expect(preview.querySelector(".strip")).toBeNull();
+  });
+
+  it("paints the theme's own colours onto the mock", () => {
+    const card = buildThemeCard(makeTheme({ swatches: RICH }), { active: false }, makeCallbacks());
+    const preview = card.querySelector<HTMLElement>(".preview")!;
+    const pick = (sel: string) => preview.querySelector<HTMLElement>(sel)!;
+
+    expect(preview.style.background).toBe("rgb(30, 30, 46)"); // #1e1e2e
+    expect(pick(".path").style.color).toBe("rgb(137, 180, 250)"); // accent
+    expect(pick(".cmd").style.color).toBe("rgb(205, 214, 244)"); // foreground
+    expect(pick(".caret").style.background).toBe("rgb(245, 224, 220)"); // cursor
+  });
+
+  it("uses the real ANSI colours when the theme is installed", () => {
+    const card = buildThemeCard(makeTheme({ swatches: RICH }), { active: false }, makeCallbacks());
+    const preview = card.querySelector<HTMLElement>(".preview")!;
+
+    expect(preview.querySelector<HTMLElement>(".sigil")!.style.color).toBe("rgb(166, 227, 161)"); // green
+    expect(preview.querySelector<HTMLElement>(".ms")!.style.color).toBe("rgb(249, 226, 175)"); // yellow
+    expect(preview.querySelector<HTMLElement>(".out")!.style.color).toBe("rgb(88, 91, 112)"); // dim
+
+    // Nothing is faded when the theme supplies its own dim colour.
+    expect(preview.querySelectorAll(".faded")).toHaveLength(0);
+  });
+
+  it("folds the richer segments onto accent and foreground when they are absent", () => {
+    const card = buildThemeCard(makeTheme({ swatches: PLAIN }), { active: false }, makeCallbacks());
+    const preview = card.querySelector<HTMLElement>(".preview")!;
+
+    // green -> accent
+    expect(preview.querySelector<HTMLElement>(".sigil")!.style.color).toBe("rgb(137, 180, 250)");
+    // yellow -> accent
+    expect(preview.querySelector<HTMLElement>(".ms")!.style.color).toBe("rgb(137, 180, 250)");
+    // dim -> foreground, dimmed by class rather than by a computed colour so
+    // the inline value stays a plain hex jsdom can read back.
+    const out = preview.querySelector<HTMLElement>(".out")!;
+    expect(out.style.color).toBe("rgb(205, 214, 244)");
+    expect(out.classList.contains("faded")).toBe(true);
+  });
+
+  it("keeps the layout identical whether or not the richer colours exist", () => {
+    // This is the point of the fallback: a not-yet-installed theme must sit
+    // next to an installed one in the grid without looking like a different
+    // component. Only the .faded marker may differ.
+    const rich = buildThemeCard(makeTheme({ swatches: RICH }), { active: false }, makeCallbacks());
+    const plain = buildThemeCard(makeTheme({ swatches: PLAIN }), { active: false }, makeCallbacks());
+
+    const strip = (s: string[]) => s.map((c) => c.replace(" faded", ""));
+    expect(strip(previewShape(plain))).toEqual(strip(previewShape(rich)));
+    expect(previewShape(rich).length).toBeGreaterThan(0);
+  });
+});

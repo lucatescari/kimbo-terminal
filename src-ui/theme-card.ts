@@ -55,31 +55,89 @@ export function buildThemeCard(
   return card;
 }
 
+/** One coloured run of text inside the preview's fake terminal. */
+function seg(cls: string, text: string, color: string, faded = false): HTMLElement {
+  const el = document.createElement("span");
+  el.className = faded ? `${cls} faded` : cls;
+  el.textContent = text;
+  el.style.color = color;
+  return el;
+}
+
+/** A mock of a small Kimbo window, painted in the theme's own colours.
+ *
+ *  This replaced four bars of varying height. Bars showed the palette but
+ *  said nothing about the thing people actually judge a terminal theme on —
+ *  how a prompt and its output read against the background.
+ *
+ *  Colour availability differs by source. A Builtin or Installed theme is a
+ *  full theme on disk, so ansiGreen/Yellow/BrightBlack are present. An
+ *  Available theme is known only from the community index.json, which
+ *  carries four colours. Those segments then fold back onto accent and
+ *  foreground: the LAYOUT stays identical either way, because a card that
+ *  changes shape depending on whether you happen to have installed it
+ *  reads as a bug when the grid is full of both. */
 function buildPreview(t: UnifiedTheme): HTMLElement {
+  const { background, foreground, accent, cursor } = t.swatches;
+  const green = t.swatches.green ?? accent;
+  const yellow = t.swatches.yellow ?? accent;
+  // No theme-supplied dim colour: use the foreground and let CSS drop its
+  // opacity. Computing a blend inline would be more faithful, but the value
+  // has to survive being read back as a plain colour, and `.faded` also
+  // gives tests something unambiguous to assert on.
+  const hasDim = t.swatches.dim !== undefined;
+  const dim = t.swatches.dim ?? foreground;
+
   const preview = document.createElement("div");
   preview.className = "preview";
-  preview.style.background = t.swatches.background;
+  preview.style.background = background;
 
-  const tl = document.createElement("div");
-  tl.className = "tl";
+  // --- title bar ---
+  const chrome = document.createElement("div");
+  chrome.className = "chrome";
+  const lights = document.createElement("span");
+  lights.className = "lights";
+  // The traffic lights stay macOS red/amber/green rather than theme colours.
+  // They are window chrome, not terminal content, and recolouring them made
+  // the mock read as an abstract graphic again.
   for (const color of ["#ff5f57", "#febc2e", "#28c840"]) {
-    const d = document.createElement("span");
+    const d = document.createElement("i");
     d.style.background = color;
-    tl.appendChild(d);
+    lights.appendChild(d);
   }
-  preview.appendChild(tl);
+  chrome.appendChild(lights);
+  chrome.appendChild(seg("tab", "~/projects", dim, !hasDim));
+  preview.appendChild(chrome);
 
-  const strip = document.createElement("div");
-  strip.className = "strip";
-  const heights = ["70%", "100%", "55%", "85%"];
-  const colors = [t.swatches.foreground, t.swatches.accent, t.swatches.cursor, t.swatches.foreground];
-  for (let i = 0; i < 4; i++) {
-    const s = document.createElement("span");
-    s.style.background = colors[i];
-    s.style.height = heights[i];
-    strip.appendChild(s);
-  }
-  preview.appendChild(strip);
+  // --- terminal content ---
+  const term = document.createElement("div");
+  term.className = "term";
+
+  const line1 = document.createElement("div");
+  line1.className = "line";
+  line1.appendChild(seg("path", "~/kimbo", accent));
+  line1.appendChild(seg("sigil", "\u276f", green));
+  line1.appendChild(seg("cmd", "npm run dev", foreground));
+  term.appendChild(line1);
+
+  const line2 = document.createElement("div");
+  line2.className = "line";
+  line2.appendChild(seg("tick", "\u2713", green));
+  line2.appendChild(seg("out", "ready in", dim, !hasDim));
+  line2.appendChild(seg("ms", "184 ms", yellow));
+  term.appendChild(line2);
+
+  const line3 = document.createElement("div");
+  line3.className = "line";
+  line3.appendChild(seg("sigil", "\u276f", green));
+  const caret = document.createElement("span");
+  caret.className = "caret";
+  // Static, not blinking: a grid of twenty cards all pulsing is miserable.
+  caret.style.background = cursor;
+  line3.appendChild(caret);
+  term.appendChild(line3);
+
+  preview.appendChild(term);
   return preview;
 }
 
