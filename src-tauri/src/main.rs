@@ -338,6 +338,8 @@ fn main() {
             commands::claude::probe_claude_session,
             commands::claude::claude_status,
             commands::claude::claude_account_info,
+            commands::claude::claude_agents,
+            commands::claude::claude_session_origin,
             commands::theme::get_theme,
             commands::theme::list_unified_themes,
             commands::theme::install_theme,

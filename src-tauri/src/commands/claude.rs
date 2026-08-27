@@ -1,6 +1,7 @@
 use crate::pty_manager::PtyManager;
 use kimbo_terminal::{probe_claude_session_for_pid, probe_claude_status_for_pid, ClaudeStatus};
 use serde::Serialize;
+use std::io::Read;
 use std::process::Command;
 use std::sync::Mutex;
 use tauri::State;
@@ -201,5 +202,159 @@ mod cache_tests {
     fn refetches_when_signal_goes_from_some_to_none() {
         // Logout: oauthAccount disappears from ~/.claude.json.
         assert!(should_refetch(Some(&entry("a@x.com")), None, false));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session lineage: branch and fork detection
+// ---------------------------------------------------------------------------
+
+/// One entry from `claude agents --json`.
+///
+/// That command is a supported CLI surface, which is why it is used here in
+/// preference to reading `~/.claude/sessions/*.json` directly: the files are
+/// an internal detail, the command is not.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ClaudeAgent {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    /// "interactive" for a session someone is typing in, "background" for one
+    /// started by /fork. The distinction decides whether Kimbo attaches to a
+    /// session or resumes it.
+    pub kind: Option<String>,
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    pub state: Option<String>,
+}
+
+/// List every Claude session the CLI knows about, interactive and background.
+///
+/// Returns an empty list rather than an error when claude is absent or the
+/// output does not parse: a missing CLI is a normal state for a terminal that
+/// most users run without Claude Code, not a failure worth surfacing.
+#[tauri::command(async)]
+pub fn claude_agents() -> Result<Vec<ClaudeAgent>, String> {
+    // Login-interactive shell so a bundled .app resolves `claude` on PATH;
+    // launchd hands the bundle only a minimal PATH. Same reasoning as
+    // claude_account_info above.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let output = match Command::new(&shell)
+        .args(["-ilc", "claude agents --json"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return Ok(Vec::new()),
+    };
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(serde_json::from_slice(&output.stdout).unwrap_or_default())
+}
+
+/// Pull `forkedFrom.sessionId` out of a transcript's first JSONL record.
+///
+/// Claude Code writes this on the first line of a session created by /branch,
+/// naming the session it descends from. It is the only durable evidence that
+/// one conversation came from another, so it is what Kimbo keys branch
+/// detection on.
+fn parse_forked_from(first_line: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(first_line).ok()?;
+    v.get("forkedFrom")?
+        .get("sessionId")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// The session `session_id` was branched from, or None if it was not a branch.
+///
+/// Scans `~/.claude/projects/*/` for the transcript rather than deriving the
+/// project directory from a cwd: the directory name is a slugified path whose
+/// encoding is Claude Code's business, and a wrong guess would silently report
+/// "not a branch" for every session.
+#[tauri::command(async)]
+pub fn claude_session_origin(session_id: String) -> Result<Option<String>, String> {
+    // A session id reaches this function from disk and is about to become a
+    // path component. Anything but a plain UUID is refused rather than
+    // sanitised, so no traversal can be constructed from it.
+    if session_id.is_empty()
+        || session_id.len() > 64
+        || !session_id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-')
+    {
+        return Ok(None);
+    }
+
+    let Some(home) = dirs::home_dir() else {
+        return Ok(None);
+    };
+    let projects = home.join(".claude").join("projects");
+    let Ok(entries) = std::fs::read_dir(&projects) else {
+        return Ok(None);
+    };
+
+    for entry in entries.flatten() {
+        let candidate = entry.path().join(format!("{session_id}.jsonl"));
+        if !candidate.is_file() {
+            continue;
+        }
+        // forkedFrom lives on the first record, so read a bounded prefix
+        // instead of a transcript that can run to hundreds of megabytes.
+        let Ok(file) = std::fs::File::open(&candidate) else {
+            continue;
+        };
+        let mut first = String::new();
+        {
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(file).take(256 * 1024);
+            let _ = reader.read_line(&mut first);
+        }
+        return Ok(parse_forked_from(&first));
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod lineage_tests {
+    use super::parse_forked_from;
+
+    // Claude Code writes forkedFrom on the first line of a /branch session,
+    // naming the conversation it descends from. It is the only durable record
+    // that one session came from another, so misreading it means Kimbo either
+    // never offers the split or opens the wrong conversation.
+    #[test]
+    fn reads_the_origin_from_a_branch_transcript() {
+        // Shape taken from a real branched transcript.
+        let line = r#"{"parentUuid":null,"type":"attachment","sessionId":"6523937f-34ba-4eec-b5f8-615d4958802f","forkedFrom":{"sessionId":"cec656bf-4b84-4a9f-aba5-91aa97dad6e1","messageUuid":"d4e37dae-1897-4097-97f6-4d836cdffb1a"}}"#;
+        assert_eq!(
+            parse_forked_from(line).as_deref(),
+            Some("cec656bf-4b84-4a9f-aba5-91aa97dad6e1")
+        );
+    }
+
+    #[test]
+    fn returns_none_for_an_ordinary_session() {
+        let line = r#"{"leafUuid":"abc","sessionId":"3b9a9439-9eb5-4da3-83a0-3fd527542ce1","type":"summary"}"#;
+        assert_eq!(parse_forked_from(line), None);
+    }
+
+    #[test]
+    fn returns_none_rather_than_failing_on_junk() {
+        // Transcripts are appended to by another process; a torn or empty
+        // first line must read as "not a branch", never as an error that
+        // breaks the poll.
+        for line in ["", "   ", "not json", "{", r#"{"forkedFrom":null}"#] {
+            assert_eq!(parse_forked_from(line), None, "input: {line:?}");
+        }
+    }
+
+    #[test]
+    fn returns_none_when_forked_from_lacks_a_session_id() {
+        // Defensive against a shape change: a forkedFrom without the field we
+        // need must not be reported as a usable origin.
+        let line = r#"{"forkedFrom":{"messageUuid":"d4e37dae"}}"#;
+        assert_eq!(parse_forked_from(line), None);
+        let line = r#"{"forkedFrom":{"sessionId":123}}"#;
+        assert_eq!(parse_forked_from(line), None);
     }
 }
