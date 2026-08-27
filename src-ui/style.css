@@ -826,25 +826,53 @@ body {
   background: transparent;
 }
 
-/* xterm scrollbar */
-.xterm .xterm-viewport { scrollbar-width: none; }
-.terminal-container.scrolling .xterm .xterm-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+/* xterm scrollbar.
+
+   xterm 6 dropped the native overflow scrollbar for a VS Code-derived DOM
+   one: `.xterm-scrollable-element > .scrollbar.vertical > .slider`. The old
+   `::-webkit-scrollbar` rules here targeted `.xterm-viewport`, which no
+   longer scrolls, so they styled nothing at all after the upgrade — the
+   result was xterm's stock 14px always-on bar.
+
+   Two things are deliberately NOT touched here:
+
+   - The slider COLOR. xterm derives it from the theme foreground (20% /
+     40% hover / 50% active), so it stays legible on light themes. The old
+     rules hardcoded white, which would have been invisible on a light
+     background. Colour is now the theme's job, not ours.
+   - The slider GEOMETRY. Width, height and offset are inline styles that
+     the scrollable element recomputes on every scroll, so anything we set
+     is overwritten. We narrow it optically instead: box-border the 14px
+     track down to a 6px painted core with transparent side borders, which
+     keeps xterm's 14px hit target while looking like the old 6px bar.
+
+   What we DO own is the macOS-style auto-hide, which xterm has no option
+   for. `.visible` is xterm's own "this axis can scroll" marker, so scoping
+   to it means a non-scrollable axis stays hidden. */
+#app-frame .xterm .xterm-scrollable-element > .scrollbar.visible {
+  opacity: 0;
+  transition: opacity 0.35s ease-out;
 }
-.xterm .xterm-viewport::-webkit-scrollbar { width: 6px; background: transparent; }
-.xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-.xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0);
-  border-radius: 3px;
-  transition: background 0.35s ease-out;
+#app-frame
+  .terminal-container.scrolling
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar.visible,
+#app-frame .xterm .xterm-scrollable-element > .scrollbar.visible:hover {
+  opacity: 1;
+  transition: opacity 0.1s ease-in;
 }
-.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.25);
-  transition: background 0.1s ease-in;
+#app-frame .xterm .xterm-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  background-clip: content-box;
+  border-radius: 7px;
 }
-.terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+/* The inset shadows the scrollable element paints at the scroll edges are
+   opaque black by default, which would mask --app-alpha. */
+#app-frame .xterm .xterm-scrollable-element > .shadow {
+  box-shadow: none;
 }
 
 /* ============================================================

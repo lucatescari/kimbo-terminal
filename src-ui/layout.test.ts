@@ -42,20 +42,37 @@ describe("style.css", () => {
     expect(css).toContain("var(--active-border)");
   });
 
-  it("has xterm scrollbar overrides", () => {
+  // The terminal scrollbar moved off ::-webkit-scrollbar in xterm 6, which
+  // swapped the native overflow scrollbar for a DOM one. These checks only
+  // pin that our rules aim at the element that actually exists now — the
+  // behaviour they used to approximate (auto-hide, 6px painted width,
+  // theme-driven colour) is covered for real, with layout and computed
+  // styles, in xterm-scrollbar.browser.test.ts.
+  it("targets the xterm 6 scrollable element, not the dead viewport scrollbar", () => {
+    expect(css).toContain(".xterm-scrollable-element > .scrollbar");
+    expect(css).toContain(".xterm-scrollable-element > .scrollbar > .slider");
+    // `.xterm-viewport` still exists and still needs its opaque background
+    // neutralised for --app-alpha, but it no longer scrolls, so nothing may
+    // hang scrollbar styling off it.
     expect(css).toContain(".xterm .xterm-viewport");
-    expect(css).toContain("webkit-scrollbar");
+    expect(css).not.toMatch(/xterm-viewport::-webkit-scrollbar/);
   });
 
-  it("scrollbar thumb is translucent, not solid white", () => {
-    expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*#fff/);
-    expect(css).not.toMatch(/scrollbar-thumb\s*\{[^}]*background:\s*white/);
-    expect(css).toContain("rgba(255, 255, 255, 0.25)");
+  it("keeps the terminal scrollbar auto-hiding via the .scrolling class", () => {
+    expect(css).toMatch(
+      /\.terminal-container\.scrolling[\s\S]{0,200}?\.scrollbar\.visible/,
+    );
+    expect(css).toMatch(/\.scrollbar\.visible\s*\{[^}]*opacity:\s*0/);
   });
 
-  it("scrollbar is hidden by default and auto-shows while actively scrolling", () => {
-    expect(css).toContain("rgba(255, 255, 255, 0)");
-    expect(css).toContain(".terminal-container.scrolling .xterm .xterm-viewport::-webkit-scrollbar-thumb");
+  it("leaves the terminal slider colour to the xterm theme", () => {
+    // Hardcoding a colour here is how the old rules broke light themes: a
+    // white thumb on a white background is invisible. xterm derives the
+    // slider from the theme foreground, so our rule must set geometry only.
+    const sliderRule = /\.xterm-scrollable-element > \.slider[^{]*\{([^}]*)\}/.exec(css)
+      ?? /\.scrollbar > \.slider\s*\{([^}]*)\}/.exec(css);
+    expect(sliderRule, "slider rule should exist").toBeTruthy();
+    expect(sliderRule![1]).not.toMatch(/background(-color)?\s*:\s*(#|rgb|hsl|white|black)/);
   });
 
   it("defines the full design-token set", () => {

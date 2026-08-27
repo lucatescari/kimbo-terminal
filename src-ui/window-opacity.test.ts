@@ -57,6 +57,36 @@ function extractRules(css: string): Array<{ selector: string; body: string }> {
   return rules;
 }
 
+/** True when a CSS color value paints nothing, so it cannot mask --app-alpha.
+ *  Covers the `transparent` keyword, the inherit/none/unset non-colors, and
+ *  any rgb()/rgba()/hsl()/hsla() whose alpha component is zero — in legacy
+ *  comma syntax (`rgba(0,0,0,0)`) or modern slash syntax (`rgb(0 0 0 / 0%)`).
+ *
+ *  xterm 6 writes its IE9-era click-target fill as `background:rgba(0,0,0,0)`,
+ *  which is transparent in every way that matters here but is not the literal
+ *  keyword. Matching only the keyword flagged it as an opaque background and
+ *  demanded a no-op override in style.css. */
+function paintsNothing(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (v === "transparent" || v === "inherit" || v === "none" || v === "unset") {
+    return true;
+  }
+  const fn = /^(?:rgba?|hsla?)\(([^)]*)\)$/.exec(v);
+  if (!fn) return false;
+  const [channels, slashAlpha] = fn[1].split("/");
+  const commaParts = channels.split(",");
+  // Alpha is whatever follows the slash, or the 4th comma-separated component.
+  const alpha =
+    slashAlpha !== undefined
+      ? slashAlpha
+      : commaParts.length === 4
+        ? commaParts[3]
+        : undefined;
+  // No alpha component at all means fully opaque.
+  if (alpha === undefined) return false;
+  return parseFloat(alpha) === 0;
+}
+
 // Selectors where an opaque chrome-token fill is intentional because the
 // surface is an overlay rendered above the translucent chrome.
 const OPAQUE_OVERLAY_SELECTORS = new Set<string>([
@@ -112,6 +142,40 @@ describe("window opacity: no opaque chrome surfaces", () => {
     ).toEqual([]);
   });
 
+  it("the transparency helper recognises zero-alpha colors, not opaque ones", () => {
+    // Guards the audit above: if paintsNothing ever grows too permissive it
+    // would wave real opaque fills through and the audit becomes decorative.
+    for (const v of [
+      "transparent",
+      "inherit",
+      "none",
+      "unset",
+      "rgba(0,0,0,0)",
+      "rgba(0, 0, 0, 0)",
+      "RGBA(12, 34, 56, 0)",
+      "hsla(0, 0%, 0%, 0)",
+      "rgb(0 0 0 / 0)",
+      "rgb(0 0 0 / 0%)",
+    ]) {
+      expect(paintsNothing(v), `${v} should paint nothing`).toBe(true);
+    }
+
+    for (const v of [
+      "#000",
+      "#000000",
+      "#00000080",
+      "black",
+      "rgba(0,0,0,0.01)",
+      "rgba(0,0,0,1)",
+      "rgb(0,0,0)",
+      "hsla(0, 0%, 0%, 0.5)",
+      "rgb(0 0 0 / 50%)",
+      "var(--bg)",
+    ]) {
+      expect(paintsNothing(v), `${v} should paint something`).toBe(false);
+    }
+  });
+
   it("every opaque background in the vendored xterm.css is overridden", () => {
     // xterm.js ships css/xterm.css which targets descendants of .xterm —
     // which live inside our translucent #app-frame. Any opaque fill it
@@ -127,11 +191,10 @@ describe("window opacity: no opaque chrome surfaces", () => {
       if (!selector.startsWith(".xterm")) continue;
       // Match `background: <v>;` or `background-color: <v>;` where <v> is
       // any color-ish token (hex, rgb, rgba, named color).
-      const bgRe = /background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-zA-Z][a-zA-Z-]*)\s*[;!]/g;
+      const bgRe = /background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([^)]+\)|[a-zA-Z][a-zA-Z-]*)\s*[;!]/g;
       let m: RegExpExecArray | null;
       while ((m = bgRe.exec(body))) {
-        const value = m[1].toLowerCase();
-        if (value === "transparent" || value === "inherit" || value === "none" || value === "unset") continue;
+        if (paintsNothing(m[1])) continue;
         offenders.push({ selector, value: m[1] });
       }
     }

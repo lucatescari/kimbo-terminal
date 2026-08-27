@@ -416,19 +416,25 @@ export async function createTerminalSession(
   resizePty(ptyId, term.cols, term.rows);
 
   // macOS-style auto-hiding scrollbar: add .scrolling to the container
-  // while the viewport is actively being scrolled, remove after a short
-  // idle window. CSS fades the thumb in and out.
-  const viewport = container.querySelector(".xterm-viewport") as HTMLElement | null;
+  // while the terminal is actively being scrolled, remove after a short
+  // idle window. CSS fades the slider in and out.
+  //
+  // This used to listen for native "scroll" events on .xterm-viewport. As
+  // of xterm 6 the viewport no longer scrolls — a VS Code-derived
+  // scrollable element owns scrolling and moves content by transform — so
+  // that listener never fired again and the scrollbar simply stopped
+  // hiding. term.onScroll is the supported signal and fires on the same
+  // occasions the old DOM event did, including output arriving while
+  // pinned to the bottom.
   let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  const onViewportScroll = () => {
+  const scrollSub = term.onScroll(() => {
     container.classList.add("scrolling");
     if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
     scrollIdleTimer = setTimeout(() => {
       container.classList.remove("scrolling");
       scrollIdleTimer = null;
     }, 800);
-  };
-  viewport?.addEventListener("scroll", onViewportScroll, { passive: true });
+  });
 
   session = {
     id,
@@ -464,7 +470,7 @@ export async function createTerminalSession(
       try { unlistenExit(); } catch (e) { console.warn("unlistenExit:", e); }
       try { unregisterTerminal(term); } catch (e) { console.warn("unregisterTerminal:", e); }
       try { fitObserver.disconnect(); } catch (e) { console.warn("fitObserver.disconnect:", e); }
-      try { viewport?.removeEventListener("scroll", onViewportScroll); } catch (e) { console.warn("viewport remove scroll listener:", e); }
+      try { scrollSub.dispose(); } catch (e) { console.warn("scrollSub.dispose:", e); }
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
       try { term.dispose(); } catch (e) { console.warn("term.dispose:", e); }
       try { container.remove(); } catch (e) { console.warn("container.remove:", e); }
