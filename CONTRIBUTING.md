@@ -22,6 +22,24 @@ npm run test:rust  # Rust tests
 npm run test:all   # Everything
 ```
 
+## Branching
+
+Kimbo runs a single trunk. `main` is the only long-lived branch: work happens
+on short-lived branches off `main` and merges straight back.
+
+There is no `develop` branch. The job one would do is already done better by
+the rolling **unstable** release channel, which puts a change in front of
+people using Kimbo for real work rather than only in front of CI. The flow is:
+
+1. branch off `main`, build, get CI green, merge back
+2. cut an unstable release from `main` when it is worth previewing
+3. promote that same build to stable once it has held up
+
+Both channels are released from `main`, and that matters: a stable release is
+recognised as the promotion of an unstable preview by comparing the git commit
+each was built from. Releasing the two channels from different branches would
+break that link. See [docs/release-identity.md](docs/release-identity.md).
+
 ## Pull Requests
 
 - One feature or fix per PR

@@ -1,10 +1,14 @@
 name: CI
 
+# Kimbo runs a single trunk: work lands on main via short-lived branches, and
+# both release channels are cut from main. There is no long-lived integration
+# branch — the rolling unstable channel is what gets a change in front of real
+# users before it becomes stable.
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main]
   push:
-    branches: [main, dev]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
