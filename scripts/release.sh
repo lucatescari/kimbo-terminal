@@ -44,6 +44,50 @@ if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
   exit 1
 fi
 
+# ---- Build identity ----------------------------------------------------
+# Every build is stamped with the git commit it was compiled from, so a
+# release is identified by BOTH its version and its source: "1.2.1 (a2fnd4f)".
+# That is what lets a stable release be recognised as the promotion of the
+# unstable preview that shipped the same code — the two have different
+# version strings but an identical build id. See docs/release-identity.md.
+#
+# This runs BEFORE the version-file edits below. The unstable channel
+# rewrites package.json / Cargo.toml in place for the build and restores
+# them afterwards, so a dirty-tree check made any later would always trip on
+# the script's own edits.
+UNSTABLE_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json"
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo -e "${RED}Not a git checkout — cannot stamp a build id.${NC}"
+  exit 1
+fi
+BUILD_ID=$(git rev-parse --short=7 HEAD)
+
+# A dirty tree means the stamped commit does not describe what was actually
+# built, which makes the whole identity scheme a lie. Refuse by default.
+# KIMBO_ALLOW_DIRTY=1 is an escape hatch for emergencies; it marks the id so
+# the resulting build is never mistaken for a reproducible one.
+if [[ -n "$(git status --porcelain)" ]]; then
+  if [[ "${KIMBO_ALLOW_DIRTY:-}" == "1" ]]; then
+    BUILD_ID="${BUILD_ID}-dirty"
+    echo -e "${YELLOW}Working tree is dirty — building as ${BUILD_ID}.${NC}"
+  else
+    echo -e "${RED}Working tree has uncommitted changes.${NC}"
+    echo "A release's build id must describe committed source. Commit or stash first,"
+    echo "or set KIMBO_ALLOW_DIRTY=1 to build a ${BUILD_ID}-dirty preview anyway."
+    git status --short | sed 's/^/  /'
+    exit 1
+  fi
+fi
+
+# build.rs reads this instead of shelling out to git itself, so the id baked
+# into the binary and the one written to latest.json are the same string by
+# construction. Without the export they are only equal by coincidence — and
+# during an unstable build the tree is deliberately dirty, so build.rs would
+# disagree every time.
+export KIMBO_BUILD_ID="$BUILD_ID"
+echo -e "${CYAN}Build id:${NC} ${BUILD_ID}"
+
 # Release channel: stable bumps version + commits/tags/pushes + publishes a
 # normal tagged GitHub release; unstable builds a preview (X.Y.Z-unstable.N)
 # with no git mutations and overwrites the rolling "unstable" pre-release.
@@ -66,24 +110,75 @@ if [[ "$CHANNEL" == "stable" ]]; then
   echo ""
   echo -e "${CYAN}Kimbo Terminal Release${NC}"
   echo -e "Current version: ${YELLOW}v${CURRENT}${NC}"
-  echo ""
-  echo "Which version segment to bump?"
-  echo -e "  ${GREEN}1)${NC} Patch   → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
-  echo -e "  ${GREEN}2)${NC} Minor   → v${MAJOR}.$((MINOR + 1)).0  (new features)"
-  echo -e "  ${GREEN}3)${NC} Major   → v$((MAJOR + 1)).0.0  (breaking changes)"
-  echo -e "  ${GREEN}4)${NC} Keep    → v${CURRENT}  (use current version as-is)"
-  echo ""
-  read -p "Choose [1/2/3/4]: " CHOICE
 
-  case $CHOICE in
-    1) PATCH=$((PATCH + 1)) ;;
-    2) MINOR=$((MINOR + 1)); PATCH=0 ;;
-    3) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-    4) ;;  # keep current
-    *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
-  esac
+  # ---- Version-sync rule -------------------------------------------------
+  # An unstable build declares the stable version it is a preview OF: the
+  # base of X.Y.Z-unstable.N. If the unstable channel is sitting on the very
+  # commit we are about to release, then this stable release is that preview
+  # promoted unchanged, and it must carry the version the preview promised.
+  # Anything else silently breaks the promise that testers of
+  # 1.2.1-unstable.3 were testing 1.2.1.
+  UNSTABLE_JSON=$(curl -fsSL "$UNSTABLE_URL" 2>/dev/null || true)
+  UNSTABLE_VERSION=$(jq -r '.version // empty' <<<"${UNSTABLE_JSON:-{\}}" 2>/dev/null || true)
+  UNSTABLE_BUILD_ID=$(jq -r '.build_id // empty' <<<"${UNSTABLE_JSON:-{\}}" 2>/dev/null || true)
+  PROMOTED_FROM=""
 
-  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+  if [[ -n "$UNSTABLE_VERSION" ]]; then
+    echo -e "Unstable channel: ${YELLOW}v${UNSTABLE_VERSION}${NC} (${UNSTABLE_BUILD_ID:-no build id})"
+  else
+    echo -e "Unstable channel: ${YELLOW}nothing published${NC}"
+  fi
+  echo -e "This commit:      ${YELLOW}${BUILD_ID}${NC}"
+
+  # Builds published before build ids existed have no .build_id, so the
+  # comparison simply finds no match and we fall through to the normal
+  # prompt. Nothing to migrate.
+  #
+  # A "-dirty" id is deliberately excluded. It names a commit plus some
+  # uncommitted delta, so two dirty builds of the same commit can differ in
+  # content while sharing an id — exactly the thing this rule is supposed to
+  # rule out. Dirty previews can still be promoted, just not automatically.
+  if [[ -n "$UNSTABLE_BUILD_ID" && "$UNSTABLE_BUILD_ID" == "$BUILD_ID" \
+        && "$UNSTABLE_BUILD_ID" != *-dirty \
+        && "$UNSTABLE_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-unstable\.[0-9]+$ ]]; then
+    PROMOTED_FROM="$UNSTABLE_VERSION"
+    NEW_VERSION="${BASH_REMATCH[1]}"
+  fi
+
+  if [[ -n "$PROMOTED_FROM" ]]; then
+    echo ""
+    echo -e "${GREEN}Same source as the unstable channel.${NC}"
+    echo -e "v${PROMOTED_FROM} previewed this exact commit and declared v${NEW_VERSION} as"
+    echo -e "its target, so this release is that build promoted. Version is fixed"
+    echo -e "at ${GREEN}v${NEW_VERSION}${NC} — no bump prompt."
+  else
+    echo ""
+    echo "Which version segment to bump?"
+    echo -e "  ${GREEN}1)${NC} Patch   → v${MAJOR}.${MINOR}.$((PATCH + 1))  (bug fixes)"
+    echo -e "  ${GREEN}2)${NC} Minor   → v${MAJOR}.$((MINOR + 1)).0  (new features)"
+    echo -e "  ${GREEN}3)${NC} Major   → v$((MAJOR + 1)).0.0  (breaking changes)"
+    echo -e "  ${GREEN}4)${NC} Keep    → v${CURRENT}  (use current version as-is)"
+    echo ""
+    read -p "Choose [1/2/3/4]: " CHOICE
+
+    case $CHOICE in
+      1) PATCH=$((PATCH + 1)) ;;
+      2) MINOR=$((MINOR + 1)); PATCH=0 ;;
+      3) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+      4) ;;  # keep current
+      *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
+    esac
+
+    NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+    # Warn, don't block: a hotfix must be able to go straight to stable.
+    if [[ -n "$UNSTABLE_VERSION" ]]; then
+      echo ""
+      echo -e "${YELLOW}Note:${NC} the unstable channel shipped ${UNSTABLE_BUILD_ID:-an unknown build},"
+      echo -e "not ${BUILD_ID}. v${NEW_VERSION} therefore contains code no preview covered."
+    fi
+  fi
+
   TAG="v${NEW_VERSION}"
 
   # Abort if the tag already exists (avoids clobbering a prior release).
@@ -93,7 +188,7 @@ if [[ "$CHANNEL" == "stable" ]]; then
   fi
 
   echo ""
-  echo -e "New version: ${GREEN}v${NEW_VERSION}${NC}"
+  echo -e "New version: ${GREEN}v${NEW_VERSION} (${BUILD_ID})${NC}"
   read -p "Continue? [y/N]: " CONFIRM
   if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
     echo "Aborted."
@@ -103,7 +198,6 @@ fi
 
 if [[ "$CHANNEL" == "unstable" ]]; then
   # Fetch the version currently on the unstable channel (empty if none).
-  UNSTABLE_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/latest.json"
   PREV_UNSTABLE=$(curl -fsSL "$UNSTABLE_URL" 2>/dev/null | jq -r '.version // empty')
 
   if [[ "$PREV_UNSTABLE" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-unstable\.([0-9]+)$ ]]; then
@@ -127,7 +221,8 @@ if [[ "$CHANNEL" == "unstable" ]]; then
     BASE="${BASE:-$DEFAULT_BASE}"; N=1
   fi
   NEW_VERSION="${BASE}-unstable.${N}"
-  echo -e "Unstable version: ${GREEN}v${NEW_VERSION}${NC}"
+  echo -e "Unstable version: ${GREEN}v${NEW_VERSION} (${BUILD_ID})${NC}"
+  echo -e "Promoting this build to stable will release it as ${GREEN}v${BASE}${NC}."
   read -p "Continue? [y/N]: " CONFIRM
   [[ "$CONFIRM" == "y" || "$CONFIRM" == "Y" ]] || { echo "Aborted."; exit 0; }
 
@@ -393,8 +488,17 @@ if [[ "$CHANNEL" == "stable" ]]; then
   echo ""
   echo -e "${CYAN}Creating GitHub release...${NC}"
 
+  if [[ -n "$PROMOTED_FROM" ]]; then
+    PROMOTION_LINE="Promoted unchanged from the unstable build \`v${PROMOTED_FROM}\`."
+  else
+    PROMOTION_LINE="Built directly on the stable channel."
+  fi
+
   NOTES=$(cat <<EOF
 ## Kimbo v${NEW_VERSION}
+
+Build \`${BUILD_ID}\` — the commit this release was compiled from.
+${PROMOTION_LINE}
 
 ### Downloads
 
@@ -428,14 +532,19 @@ EOF
 
   LATEST_JSON="target/release/bundle/macos/latest.json"
   # jq keeps the JSON syntactically valid regardless of what's in NOTES / SIG_CONTENT.
+  # build_id is an extra top-level key. tauri-plugin-updater deserialises the
+  # manifest without deny_unknown_fields, so older clients ignore it rather
+  # than failing to parse — verified against tauri-plugin-updater 2.10.
   jq -n \
     --arg version "$NEW_VERSION" \
+    --arg build_id "$BUILD_ID" \
     --arg notes "See https://github.com/lucatescari/kimbo-terminal/releases/tag/${TAG}" \
     --arg pub_date "$PUB_DATE" \
     --arg sig "$SIG_CONTENT" \
     --arg url "$TARBALL_URL" \
     '{
       version: $version,
+      build_id: $build_id,
       notes: $notes,
       pub_date: $pub_date,
       platforms: {
@@ -472,11 +581,14 @@ if [[ "$CHANNEL" == "unstable" ]]; then
   [[ -f "$UPDATER_SIG" ]] || { echo -e "${RED}Updater signature missing at ${UPDATER_SIG}.${NC}"; exit 1; }
   # latest.json for the unstable manifest (same shape as stable).
   TARBALL_URL="https://github.com/lucatescari/kimbo-terminal/releases/download/unstable/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
+  # build_id here is what a later stable release reads back to decide whether
+  # it is promoting this exact build. Without it the sync rule cannot fire.
   jq -n --arg version "$NEW_VERSION" \
-    --arg notes "Unstable preview build v${NEW_VERSION}" \
+    --arg build_id "$BUILD_ID" \
+    --arg notes "Unstable preview build v${NEW_VERSION} (${BUILD_ID})" \
     --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg sig "$(cat "$UPDATER_SIG")" --arg url "$TARBALL_URL" \
-    '{version:$version, notes:$notes, pub_date:$pub_date,
+    '{version:$version, build_id:$build_id, notes:$notes, pub_date:$pub_date,
       platforms:{"darwin-aarch64":{signature:$sig, url:$url}}}' \
     > "target/release/bundle/macos/latest.json"
   RENAMED_TARBALL="target/release/bundle/macos/Kimbo_${NEW_VERSION}_aarch64.app.tar.gz"
@@ -487,8 +599,11 @@ if [[ "$CHANNEL" == "unstable" ]]; then
     gh release create unstable --prerelease --title "Kimbo (unstable)" \
       --notes "Rolling preview channel. Assets are replaced on each unstable build."
   fi
-  gh release edit unstable --title "Kimbo (unstable) — v${NEW_VERSION}" \
-    --notes "Unstable preview build v${NEW_VERSION} ($(date -u +%Y-%m-%d))."
+  gh release edit unstable --title "Kimbo (unstable) — v${NEW_VERSION} (${BUILD_ID})" \
+    --notes "$(printf '%s\n\n%s\n%s\n' \
+      "Unstable preview build v${NEW_VERSION} ($(date -u +%Y-%m-%d))." \
+      "Build \`${BUILD_ID}\` — the commit this preview was compiled from." \
+      "Promoting it to stable releases the same build as \`v${BASE}\`.")"
 
   # Prune superseded binaries BEFORE uploading. The `--clobber` below only
   # replaces assets with the SAME name, and the .dmg/.tar.gz names embed
@@ -511,7 +626,7 @@ if [[ "$CHANNEL" == "unstable" ]]; then
   gh release upload unstable \
     "$DMG_PATH" "$RENAMED_TARBALL" "target/release/bundle/macos/latest.json" --clobber
 
-  echo -e "${GREEN}Unstable v${NEW_VERSION} published.${NC}"
+  echo -e "${GREEN}Unstable v${NEW_VERSION} (${BUILD_ID}) published.${NC}"
   echo -e "View: ${CYAN}$(gh release view unstable --json url -q .url)${NC}"
   exit 0
 fi

@@ -33,6 +33,7 @@ import { isMacOS } from "./platform";
 import { filterThemes, type ThemeMode } from "./theme-filter";
 import {
   getCachedUpdate,
+  formatBuildLabel,
   forceCheckUpdate,
   hasPendingUpdate,
   installUpdate,
@@ -1550,7 +1551,12 @@ async function renderAbout(el: HTMLElement): Promise<void> {
   el.appendChild(header("About", ""));
 
   const info = getCachedUpdate();
-  const currentVersion = info?.current ?? "unknown";
+  // Version plus the commit it was built from, so a user reporting a bug on
+  // an unstable preview names something we can check out. See
+  // docs/release-identity.md.
+  const currentVersion = info
+    ? formatBuildLabel(info.current, info.build_id)
+    : "unknown";
 
   const identity = document.createElement("div");
   identity.className = "about-identity";

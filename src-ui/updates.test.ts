@@ -64,6 +64,7 @@ import {
   installUpdate,
   reinstallStable,
   __resetUpdateCacheForTests,
+  formatBuildLabel,
 } from "./updates";
 import { showToast } from "./toast";
 import { openSettingsToCategory } from "./settings";
@@ -275,5 +276,41 @@ describe("updates: install flow", () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("offline"));
     await expect(reinstallStable()).rejects.toThrow("offline");
     expect(relaunch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Build identity
+// ---------------------------------------------------------------------------
+
+describe("formatBuildLabel", () => {
+  it("appends the build id in parentheses", () => {
+    expect(formatBuildLabel("1.2.0", "a2fnd4f")).toBe("1.2.0 (a2fnd4f)");
+  });
+
+  it("labels an unstable build the same way", () => {
+    // The whole point of the scheme: 1.2.1-unstable.3 and the 1.2.1 stable
+    // promoted from it carry the same id, so they are recognisably one build.
+    expect(formatBuildLabel("1.2.1-unstable.3", "a2fnd4f")).toBe(
+      "1.2.1-unstable.3 (a2fnd4f)",
+    );
+  });
+
+  it("keeps the dirty marker, which is a warning not decoration", () => {
+    expect(formatBuildLabel("1.2.0", "a2fnd4f-dirty")).toBe(
+      "1.2.0 (a2fnd4f-dirty)",
+    );
+  });
+
+  it("omits the suffix when the id is unknown or missing", () => {
+    // Source-tarball builds have no git metadata. Showing "(unknown)" to a
+    // user is noise, so the version stands alone.
+    expect(formatBuildLabel("1.2.0", "unknown")).toBe("1.2.0");
+    expect(formatBuildLabel("1.2.0", "")).toBe("1.2.0");
+    expect(formatBuildLabel("1.2.0", undefined)).toBe("1.2.0");
+  });
+
+  it("trims incidental whitespace around the id", () => {
+    expect(formatBuildLabel("1.2.0", "  a2fnd4f  ")).toBe("1.2.0 (a2fnd4f)");
   });
 });

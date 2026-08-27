@@ -36,6 +36,11 @@ pub(crate) fn release_url(channel: &str) -> &'static str {
 pub struct UpdateStatus {
     /// Current build version, e.g. "1.2.0" or "1.3.0-unstable.4".
     pub current: String,
+    /// Short git SHA this binary was built from, e.g. "a2fnd4f". Two builds
+    /// sharing a build_id are the same source, which is what lets a stable
+    /// release be identified as the promotion of an unstable preview.
+    /// "unknown" when built outside a git checkout.
+    pub build_id: String,
     /// True iff the channel manifest offers a newer version.
     pub available: bool,
     /// The offered version when `available`, else None.
@@ -69,6 +74,7 @@ pub async fn check_update(
     }
 
     let current = env!("CARGO_PKG_VERSION").to_string();
+    let build_id = env!("KIMBO_BUILD_ID").to_string();
     let updater = app
         .updater_builder()
         .endpoints(vec![manifest_url(&channel)])
@@ -83,6 +89,7 @@ pub async fn check_update(
     let status = match maybe {
         Some(update) => UpdateStatus {
             current,
+            build_id,
             available: true,
             latest: Some(update.version.clone()),
             notes: update.body.clone(),
@@ -90,6 +97,7 @@ pub async fn check_update(
         },
         None => UpdateStatus {
             current,
+            build_id,
             available: false,
             latest: None,
             notes: None,
@@ -190,6 +198,20 @@ mod tests {
         assert_eq!(
             manifest_url("wat").as_str(),
             manifest_url("stable").as_str()
+        );
+    }
+
+    #[test]
+    fn build_id_is_stamped_at_compile_time() {
+        let id = env!("KIMBO_BUILD_ID");
+        assert!(!id.is_empty(), "build.rs must always emit a build id");
+        // Either a short SHA (optionally marked dirty) or the explicit
+        // "unknown" used outside a git checkout. Anything else means the
+        // stamping in build.rs has drifted.
+        let core = id.strip_suffix("-dirty").unwrap_or(id);
+        assert!(
+            core == "unknown" || core.chars().all(|c| c.is_ascii_hexdigit()),
+            "unexpected build id shape: {id}"
         );
     }
 

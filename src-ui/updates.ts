@@ -5,6 +5,10 @@ import { openSettingsToCategory } from "./settings";
 
 export interface UpdateStatus {
   current: string;
+  /** Short git SHA this build was compiled from, e.g. "a2fnd4f", with a
+   *  "-dirty" suffix if the tree had uncommitted changes. "unknown" outside
+   *  a git checkout. Stamped by src-tauri/build.rs. */
+  build_id: string;
   available: boolean;
   latest: string | null;
   notes: string | null;
@@ -51,6 +55,24 @@ export async function initUpdateCheck(config: ConfigShape): Promise<void> {
 }
 
 /** Synchronous read of the in-memory cache. */
+/** Render a build's full identity, e.g. "1.2.1-unstable.3 (a2fnd4f)".
+ *
+ *  The version alone does not say which source a build came from: an
+ *  unstable preview and the stable release promoted from it are the same
+ *  code but carry different version strings. The build id is the commit, so
+ *  matching ids mean matching source. See docs/release-identity.md.
+ *
+ *  Builds with no git metadata report "unknown"; there is nothing useful to
+ *  show a user in that case, so the version stands alone. */
+export function formatBuildLabel(
+  version: string,
+  buildId: string | null | undefined,
+): string {
+  const id = (buildId ?? "").trim();
+  if (!id || id === "unknown") return version;
+  return `${version} (${id})`;
+}
+
 export function getCachedUpdate(): UpdateStatus | null {
   return cached;
 }
