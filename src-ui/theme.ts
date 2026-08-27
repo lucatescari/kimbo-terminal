@@ -143,7 +143,9 @@ export async function loadTheme(name: string): Promise<void> {
   applyTheme(theme);
 }
 
-function applyTheme(theme: ResolvedTheme) {
+// Exported for the contract drift test in theme-contract.test.ts, which
+// asserts the CSS variables set here still match theme-contract.json.
+export function applyTheme(theme: ResolvedTheme) {
   const root = document.documentElement;
   root.style.setProperty("--bg", theme.background);
   root.style.setProperty("--fg", theme.foreground);
