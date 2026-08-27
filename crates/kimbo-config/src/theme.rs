@@ -667,11 +667,11 @@ impl JsonTheme {
         ThemeSwatches {
             background: self.color_or("terminal.background", "#000000"),
             foreground: self.color_or("terminal.foreground", "#ffffff"),
-            accent: self.color_or("terminal.ansiBlue", "#0000ff"),
+            accent: self.color_or("terminal.ansiBlue", "#0000cc"),
             cursor: self.color_or("terminal.cursor", "#ffffff"),
-            green: Some(self.color_or("terminal.ansiGreen", "#00ff00")),
-            yellow: Some(self.color_or("terminal.ansiYellow", "#ffff00")),
-            dim: Some(self.color_or("terminal.ansiBrightBlack", "#808080")),
+            green: Some(self.color_or("terminal.ansiGreen", "#00cc00")),
+            yellow: Some(self.color_or("terminal.ansiYellow", "#cccc00")),
+            dim: Some(self.color_or("terminal.ansiBrightBlack", "#555555")),
         }
     }
 }
@@ -868,6 +868,40 @@ mod json_tests {
         assert!(s.green.is_some(), "disk theme should expose ansiGreen");
         assert!(s.yellow.is_some(), "disk theme should expose ansiYellow");
         assert!(s.dim.is_some(), "disk theme should expose ansiBrightBlack");
+    }
+
+    #[test]
+    fn swatch_fallbacks_agree_with_the_resolver() {
+        // swatches() and resolve() both read the same colour keys, each with
+        // its own fallback for when a theme omits one. When those fallbacks
+        // disagree, a theme missing (say) ansiGreen renders one colour in the
+        // terminal and a different one on its settings card. ansiBlue, green,
+        // yellow and brightBlack had drifted exactly that way.
+        //
+        // Only the non-required keys can actually reach a fallback in
+        // practice, but pinning all of them costs nothing and stops the next
+        // one drifting.
+        let empty = JsonTheme {
+            name: String::new(),
+            theme_type: String::new(),
+            author: String::new(),
+            version: String::new(),
+            colors: std::collections::HashMap::new(),
+        };
+        let r = empty.resolve();
+        let s = empty.swatches();
+
+        assert_eq!(s.background, r.background, "background fallback");
+        assert_eq!(s.foreground, r.foreground, "foreground fallback");
+        assert_eq!(s.cursor, r.cursor, "cursor fallback");
+        assert_eq!(s.accent, r.ansi_blue, "accent/ansiBlue fallback");
+        assert_eq!(s.green.unwrap(), r.ansi_green, "green fallback");
+        assert_eq!(s.yellow.unwrap(), r.ansi_yellow, "yellow fallback");
+        assert_eq!(
+            s.dim.unwrap(),
+            r.ansi_bright_black,
+            "dim/brightBlack fallback"
+        );
     }
 
     #[test]
