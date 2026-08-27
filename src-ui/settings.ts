@@ -1261,7 +1261,7 @@ async function renderKimbo(el: HTMLElement): Promise<void> {
 async function renderClaudeCode(el: HTMLElement): Promise<void> {
   el.appendChild(header(
     "Claude Code",
-    "Surface session info from <code>claude</code> in the pane chrome while it's running. All data is local — read from <code>~/.claude/</code> or <code>claude auth status</code>.",
+    "Surface session info from <code>claude</code> in the pane chrome while it's running. All data is local, read from <code>~/.claude/</code> or <code>claude auth status</code>.",
   ));
 
   const prefs = getPrefs();
@@ -1552,7 +1552,7 @@ function renderAdvanced(el: HTMLElement): void {
   const priv = section("Privacy");
   priv.appendChild(row(
     "Send anonymous crash reports",
-    "Opt-in. Sends crashes and JS errors to Sentry — no command output, no terminal content, no machine name. Takes effect after a restart.",
+    "Opt-in. Sends crashes and JS errors to Sentry. No command output, no terminal content, no machine name. Takes effect after a restart.",
     toggle(config.telemetry.enabled, (v) => {
       config!.telemetry.enabled = v;
       void saveConfig();
@@ -1685,7 +1685,7 @@ async function renderAbout(el: HTMLElement): Promise<void> {
               progress.textContent = formatBytes(p.downloaded);
             }
           });
-          install.textContent = "Installed — relaunching";
+          install.textContent = "Installed, relaunching";
         } catch (e) {
           install.disabled = false;
           install.textContent = "Download & install";
