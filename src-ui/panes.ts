@@ -77,10 +77,17 @@ export async function createRootPane(
   cwd?: string,
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
+  command?: string[],
 ): Promise<LeafNode> {
   // createLeaf attaches the .pane element to rootEl before awaiting
   // xterm setup so scrollback replay has correct viewport dimensions.
-  const node = await createLeaf({ parentEl: rootEl, cwd, restoredScrollback, restoredClaudeResume });
+  const node = await createLeaf({
+    parentEl: rootEl,
+    cwd,
+    restoredScrollback,
+    restoredClaudeResume,
+    command,
+  });
   tree = node;
   setActivePane(node.paneId);
   return node;

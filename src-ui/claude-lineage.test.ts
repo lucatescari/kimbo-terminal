@@ -17,6 +17,8 @@
 // "id changed" check fires for all of them at once.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import {
   classifyTransition,
   createLineageWatcher,
@@ -403,5 +405,41 @@ describe("lineage watcher", () => {
     await h.watcher.observe(1, "bbbb", "/w");
     // First sighting again — no split.
     expect(h.splits).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Split target preference
+// ---------------------------------------------------------------------------
+
+describe("split target preference", () => {
+  it("defaults to a side-by-side split, with auto-open on", async () => {
+    // DEFAULTS is module-private, so assert through the accessor with nothing
+    // stored — which is what a fresh install actually sees.
+    localStorage.clear();
+    const { getPrefs } = await import("./ui-prefs");
+    expect(getPrefs().claudeSplitTarget).toBe("vertical");
+    expect(getPrefs().claudeAutoSplitBranches).toBe(true);
+  });
+
+  it("offers exactly the three targets the settings row advertises", async () => {
+    // The two split values are passed straight through as a SplitAxis, so a
+    // fourth value added here without handling it would open nothing.
+    const settings = readFileSync(resolve(__dirname, "settings.ts"), "utf-8");
+    // Anchored on "], (v)" — the real end of the options array. A plain
+    // non-greedy \] stops at the first entry's own bracket.
+    const block =
+      /select\(prefs\.claudeSplitTarget, \[([\s\S]*?)\], \(v\)/.exec(settings)?.[1] ?? "";
+    const values = Array.from(block.matchAll(/\["([a-z]+)",/g)).map((m) => m[1]);
+    expect(values).toEqual(["vertical", "horizontal", "tab"]);
+  });
+
+  it("handles every target value in the split logic", async () => {
+    // "tab" takes the createTab path; anything else is used verbatim as the
+    // split axis. This pins that no value can fall through unhandled.
+    const src = readFileSync(resolve(__dirname, "claude-lineage-split.ts"), "utf-8");
+    expect(src).toContain('target === "tab"');
+    expect(src).toContain("createTab(");
+    expect(src).toContain("splitLeaf(");
   });
 });

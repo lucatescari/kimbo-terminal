@@ -1309,9 +1309,18 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
 
   const splitSec = section("Branches & forks");
   splitSec.appendChild(row(
-    "Open branches and forks in a split",
+    "Open branches and forks automatically",
     "When you run <code>/branch</code>, opens the original conversation beside it. When you run <code>/fork</code>, opens the background session it created.",
     toggle(prefs.claudeAutoSplitBranches, (v) => setPref("claudeAutoSplitBranches", v)),
+  ));
+  splitSec.appendChild(row(
+    "Open it in",
+    "A split beside the current pane, or a tab of its own.",
+    select(prefs.claudeSplitTarget, [
+      ["vertical", "Split \u2014 side by side"],
+      ["horizontal", "Split \u2014 above and below"],
+      ["tab", "A new tab"],
+    ], (v) => setPref("claudeSplitTarget", v as typeof prefs.claudeSplitTarget)),
   ));
 
   el.appendChild(splitSec);

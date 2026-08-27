@@ -41,28 +41,34 @@ async function openSplit(
       ? ["claude", "--resume", event.originSessionId]
       : ["claude", "agents"];
 
-  const result = await splitLeaf(
-    paneId,
-    "vertical",
-    cwd ?? undefined,
-    undefined,
-    undefined,
-    command,
-  );
+  const target = getPrefs().claudeSplitTarget ?? "vertical";
 
-  if (!result) {
+  if (target === "tab") {
+    const { createTab } = await import("./tabs");
+    await createTab(cwd ?? undefined, undefined, undefined, undefined, command);
+  } else {
+    const result = await splitLeaf(
+      paneId,
+      target,
+      cwd ?? undefined,
+      undefined,
+      undefined,
+      command,
+    );
     // splitLeaf returns undefined when the pane has gone away underneath us.
-    return;
+    // Say nothing rather than claim a split that did not happen.
+    if (!result) return;
   }
 
   // Say what happened. An unexplained new pane is the failure mode this
   // feature is most likely to be disliked for.
+  const where = target === "tab" ? "a new tab" : "a split";
   showToast({
     kind: "info",
     message:
       event.kind === "branch"
-        ? "Branched — opened the original conversation in a split"
-        : "Forked — opened the background session in a split",
+        ? `Branched — opened the original conversation in ${where}`
+        : `Forked — opened the background session in ${where}`,
   });
 }
 

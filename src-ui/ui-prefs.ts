@@ -9,6 +9,8 @@ import type { ThemeMode } from "./theme-filter";
 
 const KEY = "kimbo-ui-prefs-v1";
 
+export type ClaudeSplitTarget = "vertical" | "horizontal" | "tab";
+
 export type Density = "compact" | "comfortable" | "roomy";
 export type TabStyle = "underline" | "pill" | "chevron";
 
@@ -43,6 +45,8 @@ export interface UiPrefs {
    *  feature, but it is an action the user did not directly ask for, so it
    *  must be switchable off. */
   claudeAutoSplitBranches: boolean;
+  /** Where the other side of a branch or fork opens. */
+  claudeSplitTarget: ClaudeSplitTarget;
   /** Claude Code → Show 5h / weekly rate-limit percentages in the HUD
    *  instead of token counts / cost. Installs a tiny shim into the Claude
    *  Code config. Tri-state:
@@ -84,6 +88,7 @@ const DEFAULTS: UiPrefs = {
   claudeHudExtended: false,
   claudeHudShowPlan: false,
   claudeAutoSplitBranches: true,
+  claudeSplitTarget: "vertical",
   notifySoundEnabled: false,
   bellVisual: true,
   bellSound: false,

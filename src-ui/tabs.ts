@@ -157,6 +157,8 @@ export async function createTab(
   userName?: string,
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
+  /** argv the tab's pane runs before dropping to a shell. */
+  command?: string[],
 ): Promise<Tab> {
   // If no explicit cwd, inherit from the currently active session
   // (OSC 7 first, PTY query as fallback) so Cmd+T opens "where I am".
@@ -194,7 +196,12 @@ export async function createTab(
 
   // Re-init panes module to use this container, create root pane.
   initPanes(container);
-  const rootPane = await createRootPane(cwd, restoredScrollback, restoredClaudeResume);
+  const rootPane = await createRootPane(
+    cwd,
+    restoredScrollback,
+    restoredClaudeResume,
+    command,
+  );
 
   const name = cwd ? (cwd.replace(/\/$/, "").split("/").pop() || "~") : "~";
   const tab: Tab = { id, name, container, treeSnapshot: null };
