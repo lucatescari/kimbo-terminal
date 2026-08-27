@@ -5,6 +5,22 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Features
+
+- **Releases are now identified by their source, not just their version.** Every build carries the git commit it was compiled from, shown in Settings → About as `1.2.1 (a2fnd4f)`. A stable release cut from the same commit as the current unstable preview is now automatically released under the version that preview declared, so testing `1.2.1-unstable.3` genuinely means testing `1.2.1`. See [docs/release-identity.md](docs/release-identity.md).
+
+### Fixes
+
+- **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.
+
+### Notes
+
+- Dependencies updated across both ecosystems. `cargo update` clears six RustSec advisories (unsound `anyhow`, `event-listener` and `memmap2`; `rand` 0.7, `scc` and `fxhash` dropped from the tree entirely), taking cargo audit from 24 informational warnings to 18. The rest are the Linux-only GTK3 stack this macOS app never ships. Neither ecosystem reports any vulnerability.
+- Major upgrades to xterm 6, Vite 8 (now bundling with Rolldown), TypeScript 7 and `@types/node` 26. CI moves to Node 22 for Vite 8's engine floor.
+- A release now refuses to run from a dirty working tree, since the stamped commit would not describe what was built. `KIMBO_ALLOW_DIRTY=1` overrides it.
+
 ## 1.2.0 - 2026-08-13
 
 ### Features
