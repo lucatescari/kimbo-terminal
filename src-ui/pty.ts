@@ -1,8 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
-export async function createPty(cwd?: string): Promise<number> {
-  return await invoke<number>("create_pty", { cwd: cwd ?? null });
+/** Create a PTY. `command`, when given, is an argv the pane runs before
+ *  dropping to an interactive shell — used to open a pane directly on a
+ *  Claude session. */
+export async function createPty(
+  cwd?: string,
+  command?: string[],
+): Promise<number> {
+  return await invoke<number>("create_pty", {
+    cwd: cwd ?? null,
+    command: command ?? null,
+  });
 }
 
 export async function writePty(id: number, data: string): Promise<void> {

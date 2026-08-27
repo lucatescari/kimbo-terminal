@@ -17,7 +17,14 @@
 // "id changed" check fires for all of them at once.
 
 import { describe, it, expect } from "vitest";
-import { classifyTransition, type LineageEvent } from "./claude-lineage";
+import {
+  classifyTransition,
+  createLineageWatcher,
+  AGENTS_MIN_INTERVAL_MS,
+  type LineageEvent,
+  type AgentInfo,
+  type LineageDeps,
+} from "./claude-lineage";
 
 const NONE: LineageEvent = { kind: "none" };
 
@@ -148,5 +155,192 @@ describe("classifyTransition", () => {
         newBackgroundSessionIds: [],
       }),
     ).toEqual(NONE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watcher
+// ---------------------------------------------------------------------------
+
+function bg(session_id: string, cwd: string | null = "/w"): AgentInfo {
+  return { session_id, kind: "background", cwd, name: null, state: null };
+}
+
+function harness(over: Partial<LineageDeps> = {}) {
+  const splits: Array<{ event: LineageEvent; paneId: number }> = [];
+  let clock = 100_000;
+  let agents: AgentInfo[] = [];
+  let listCalls = 0;
+  let enabled = true;
+  const origins = new Map<string, string>();
+
+  const deps: LineageDeps = {
+    sessionOrigin: async (id) => origins.get(id) ?? null,
+    listAgents: async () => {
+      listCalls++;
+      return agents;
+    },
+    openSplit: async (event, paneId) => {
+      splits.push({ event, paneId });
+    },
+    now: () => clock,
+    enabled: () => enabled,
+    ...over,
+  };
+
+  return {
+    watcher: createLineageWatcher(deps),
+    splits,
+    origins,
+    setAgents: (a: AgentInfo[]) => (agents = a),
+    advance: (ms: number) => (clock += ms),
+    calls: () => listCalls,
+    setEnabled: (v: boolean) => (enabled = v),
+  };
+}
+
+describe("lineage watcher", () => {
+  it("does not split on the first sighting of a pane", async () => {
+    const h = harness();
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.splits).toEqual([]);
+  });
+
+  it("splits once when a pane's session branches, and never again", async () => {
+    const h = harness();
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.origins.set("bbbb", "aaaa");
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toHaveLength(1);
+    expect(h.splits[0].event).toEqual({
+      kind: "branch",
+      originSessionId: "aaaa",
+      newSessionId: "bbbb",
+    });
+
+    // The pane's id stays changed, so a naive implementation re-splits forever.
+    h.advance(10_000);
+    await h.watcher.observe(1, "bbbb", "/w");
+    h.advance(10_000);
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toHaveLength(1);
+  });
+
+  it("treats background sessions present at startup as pre-existing, not forks", async () => {
+    const h = harness();
+    h.setAgents([bg("old-1"), bg("old-2")]);
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.advance(AGENTS_MIN_INTERVAL_MS + 1);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.splits).toEqual([]);
+  });
+
+  it("splits once when a new background session appears", async () => {
+    const h = harness();
+    h.setAgents([bg("old-1")]);
+    await h.watcher.observe(1, "aaaa", "/w");
+
+    h.setAgents([bg("old-1"), bg("new-1")]);
+    h.advance(AGENTS_MIN_INTERVAL_MS + 1);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.splits).toHaveLength(1);
+    expect(h.splits[0].event).toEqual({ kind: "fork", forkSessionId: "new-1" });
+
+    h.advance(AGENTS_MIN_INTERVAL_MS + 1);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.splits).toHaveLength(1);
+  });
+
+  it("ignores background sessions from another directory", async () => {
+    const h = harness();
+    h.setAgents([]);
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.setAgents([bg("elsewhere", "/other")]);
+    h.advance(AGENTS_MIN_INTERVAL_MS + 1);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.splits).toEqual([]);
+  });
+
+  it("throttles the agents listing", async () => {
+    // It spawns a login shell. Once per pane per poll would be brutal.
+    const h = harness();
+    await h.watcher.observe(1, "aaaa", "/w");
+    const after1 = h.calls();
+    await h.watcher.observe(2, "bbbb", "/w");
+    await h.watcher.observe(3, "cccc", "/w");
+    expect(h.calls()).toBe(after1);
+
+    h.advance(AGENTS_MIN_INTERVAL_MS + 1);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(h.calls()).toBe(after1 + 1);
+  });
+
+  it("does not ask for a session's origin when the id did not change", async () => {
+    // The lookup scans ~/.claude/projects; doing it every poll would be waste.
+    let originCalls = 0;
+    const h = harness({
+      sessionOrigin: async () => {
+        originCalls++;
+        return null;
+      },
+    });
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.advance(10_000);
+    await h.watcher.observe(1, "aaaa", "/w");
+    expect(originCalls).toBe(0);
+  });
+
+  it("splits nothing while the pref is off, and does not treat the session as new when it comes back on", async () => {
+    const h = harness();
+    h.setEnabled(false);
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.origins.set("bbbb", "aaaa");
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toEqual([]);
+
+    // Re-enabled: the pane is at bbbb and has been for a while. That is not a
+    // branch that just happened, and re-splitting on it would be a surprise.
+    h.setEnabled(true);
+    h.advance(10_000);
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(h.splits).toEqual([]);
+  });
+
+  it("survives a failing agents listing without splitting or throwing", async () => {
+    const h = harness({
+      listAgents: async () => {
+        throw new Error("claude not found");
+      },
+    });
+    await expect(h.watcher.observe(1, "aaaa", "/w")).resolves.toBeUndefined();
+    expect(h.splits).toEqual([]);
+  });
+
+  it("does not retry a split that failed", async () => {
+    // Retrying would produce a split attempt every few seconds for the life of
+    // the pane, which is far worse than silently not splitting once.
+    let attempts = 0;
+    const h = harness({
+      openSplit: async () => {
+        attempts++;
+        throw new Error("no room to split");
+      },
+    });
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.origins.set("bbbb", "aaaa");
+    await h.watcher.observe(1, "bbbb", "/w");
+    h.advance(10_000);
+    await h.watcher.observe(1, "bbbb", "/w");
+    expect(attempts).toBe(1);
+  });
+
+  it("forgets a closed pane so a reused id is not a phantom branch", async () => {
+    const h = harness();
+    await h.watcher.observe(1, "aaaa", "/w");
+    h.watcher.forgetPane(1);
+    h.origins.set("bbbb", "aaaa");
+    await h.watcher.observe(1, "bbbb", "/w");
+    // First sighting again — no split.
+    expect(h.splits).toEqual([]);
   });
 });

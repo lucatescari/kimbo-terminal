@@ -1307,6 +1307,16 @@ async function renderClaudeCode(el: HTMLElement): Promise<void> {
   ));
   el.appendChild(hudSec);
 
+  const splitSec = section("Branches & forks");
+  splitSec.appendChild(row(
+    "Open branches and forks in a split",
+    "When you run <code>/branch</code>, opens the original conversation beside it. When you run <code>/fork</code>, opens the background session it created.",
+    toggle(prefs.claudeAutoSplitBranches, (v) => setPref("claudeAutoSplitBranches", v)),
+  ));
+
+  el.appendChild(splitSec);
+
+
   // ---- Notifications subsection ----
   const notifySec = section("Notifications");
 

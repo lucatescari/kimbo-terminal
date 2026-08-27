@@ -74,3 +74,135 @@ export function classifyTransition(input: TransitionInput): LineageEvent {
 
   return { kind: "none" };
 }
+
+// ---------------------------------------------------------------------------
+// Watcher
+// ---------------------------------------------------------------------------
+
+/** A session as reported by `claude agents --json`. */
+export interface AgentInfo {
+  session_id: string;
+  kind: string | null;
+  cwd: string | null;
+  name: string | null;
+  state: string | null;
+}
+
+/** Everything the watcher touches that isn't pure, injected so the throttling
+ *  and dedupe can be tested without a PTY, a shell, or a running claude. */
+export interface LineageDeps {
+  /** forkedFrom.sessionId for a session, or null if it isn't a branch. */
+  sessionOrigin(sessionId: string): Promise<string | null>;
+  /** Every session the CLI knows about. Spawns a login shell, so the watcher
+   *  throttles calls to it rather than asking on every poll. */
+  listAgents(): Promise<AgentInfo[]>;
+  /** Open the other side of the split. */
+  openSplit(event: LineageEvent, paneId: number, cwd: string | null): Promise<void>;
+  now(): number;
+  /** Read fresh each time: the user can toggle the pref mid-session. */
+  enabled(): boolean;
+}
+
+/** Minimum gap between `claude agents` calls. Fork detection is allowed to lag
+ *  by a few seconds; spawning a login shell on every pane's poll is not. */
+export const AGENTS_MIN_INTERVAL_MS = 6000;
+
+export function createLineageWatcher(deps: LineageDeps) {
+  const lastSeen = new Map<number, string>();
+  /** Background sessions already known, so only genuinely new ones count as a
+   *  fork. Seeded on the first successful listing. */
+  let knownBackground: Set<string> | null = null;
+  /** Events already acted on, keyed by the session the split would open.
+   *  Without this a branch would re-split on every subsequent poll, since the
+   *  pane's session id stays changed. */
+  const handled = new Set<string>();
+  let lastAgentsAt = 0;
+  let agents: AgentInfo[] = [];
+
+  async function refreshAgents(): Promise<void> {
+    if (deps.now() - lastAgentsAt < AGENTS_MIN_INTERVAL_MS) return;
+    lastAgentsAt = deps.now();
+    try {
+      agents = await deps.listAgents();
+    } catch {
+      // A failed listing must not break the poll or wrongly look like "every
+      // background session disappeared".
+      return;
+    }
+    if (knownBackground === null) {
+      // First listing seeds the baseline. Sessions already running when Kimbo
+      // started are not forks the user just made.
+      knownBackground = new Set(
+        agents.filter((a) => a.kind === "background").map((a) => a.session_id),
+      );
+    }
+  }
+
+  /** Called on every Claude poll for a pane that has a session running. */
+  async function observe(
+    paneId: number,
+    sessionId: string,
+    cwd: string | null,
+  ): Promise<void> {
+    if (!deps.enabled()) {
+      // Still track the id, so turning the pref back on later doesn't treat a
+      // long-running session as a fresh branch.
+      lastSeen.set(paneId, sessionId);
+      return;
+    }
+
+    const previousSessionId = lastSeen.get(paneId) ?? null;
+    lastSeen.set(paneId, sessionId);
+
+    await refreshAgents();
+
+    const newBackgroundSessionIds = agents
+      .filter((a) => a.kind === "background")
+      .filter((a) => !knownBackground || !knownBackground.has(a.session_id))
+      .filter((a) => cwd === null || a.cwd === null || a.cwd === cwd)
+      .map((a) => a.session_id);
+
+    let forkedFromSessionId: string | null = null;
+    if (previousSessionId !== null && sessionId !== previousSessionId) {
+      // Only worth asking when the id actually moved.
+      try {
+        forkedFromSessionId = await deps.sessionOrigin(sessionId);
+      } catch {
+        forkedFromSessionId = null;
+      }
+    }
+
+    const event = classifyTransition({
+      previousSessionId,
+      currentSessionId: sessionId,
+      forkedFromSessionId,
+      newBackgroundSessionIds,
+    });
+
+    // Whatever we decide, these background sessions are no longer new.
+    for (const id of newBackgroundSessionIds) knownBackground?.add(id);
+
+    if (event.kind === "none") return;
+
+    const key =
+      event.kind === "branch"
+        ? `branch:${event.newSessionId}`
+        : `fork:${event.forkSessionId}`;
+    if (handled.has(key)) return;
+    handled.add(key);
+
+    try {
+      await deps.openSplit(event, paneId, cwd);
+    } catch {
+      // A failed split leaves the key marked handled on purpose: retrying on
+      // the next poll would produce a split attempt every few seconds for as
+      // long as the pane lives.
+    }
+  }
+
+  function forgetPane(paneId: number): void {
+    lastSeen.delete(paneId);
+  }
+
+  return { observe, forgetPane };
+}

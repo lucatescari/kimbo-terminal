@@ -172,6 +172,7 @@ export async function splitLeaf(
   cwd?: string,
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
+  command?: string[],
 ): Promise<{ firstId: number; secondId: number } | undefined> {
   if (!tree) return undefined;
   const leaf = findLeaf(tree, targetId);
@@ -201,6 +202,7 @@ export async function splitLeaf(
     cwd,
     restoredScrollback,
     restoredClaudeResume,
+    command,
   });
 
   const splitNode: SplitNode = {
@@ -272,6 +274,9 @@ export function closeActive(): void {
     console.warn("pane session dispose failed:", e);
   }
   import("./claude-session-map").then(({ removePane }) => removePane(leaf.paneId));
+  import("./claude-lineage-split").then(({ forgetClaudePane }) =>
+    forgetClaudePane(leaf.paneId),
+  );
 
   requestAnimationFrame(() => fitAll(tree!));
 }
@@ -337,6 +342,9 @@ export function disposeTree(node: PaneTree | null): void {
     // the closeActive() zombie-pane bug).
     try { node.session.dispose(); } catch (e) { console.warn("pane session dispose failed:", e); }
     import("./claude-session-map").then(({ removePane }) => removePane(node.paneId));
+    import("./claude-lineage-split").then(({ forgetClaudePane }) =>
+      forgetClaudePane(node.paneId),
+    );
     return;
   }
   disposeTree(node.first);
@@ -365,6 +373,8 @@ async function createLeaf(opts: {
   cwd?: string;
   restoredScrollback?: string;
   restoredClaudeResume?: { uuid: string };
+  /** argv the pane runs before dropping to a shell. */
+  command?: string[];
 }): Promise<LeafNode> {
   const paneId = nextPaneId++;
   const el = document.createElement("div");
@@ -401,6 +411,7 @@ async function createLeaf(opts: {
     opts.cwd,
     opts.restoredScrollback,
     opts.restoredClaudeResume,
+    opts.command,
   );
 
   updatePaneHead(head, paneId, session.ptyId, session.cwd ?? opts?.cwd ?? null);
@@ -681,6 +692,13 @@ async function refreshClaudeHudFor(paneEl: HTMLElement, ptyId: number, paneId: n
 
   if (status) {
     setSessionPane(status.session_id, paneId);
+    // Detect /branch and /fork and offer the other side in a split.
+    const { observeClaudeSession } = await import("./claude-lineage-split");
+    observeClaudeSession(
+      paneId,
+      status.session_id,
+      getSessionByPaneId(paneId)?.cwd ?? null,
+    );
     void maybeAutoInstall();
     void maybeAutoInstallNotifications();
   }

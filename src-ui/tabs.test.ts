@@ -762,9 +762,14 @@ describe("reopenLastClosedTab (⌘⇧T)", () => {
     // no serialize() method, so shapeFromTree's catch swallows the throw and stores
     // scrollback=undefined. The per-task tests in Task 7 cover the scrollback
     // contract specifically; here we only care about the cwd plumbing.
+    // Fifth arg is `command`, the argv a pane can be opened on (used when a
+    // Claude session branches or forks). Always undefined on the reopen path —
+    // a restored tab gets an ordinary shell — but toHaveBeenCalledWith matches
+    // arity exactly, so it has to be named.
     expect(createTerminalSessionSpy).toHaveBeenCalledWith(
       expect.anything(),
       "/saved/path",
+      undefined,
       undefined,
       undefined,
     );

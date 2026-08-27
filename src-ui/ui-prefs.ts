@@ -38,6 +38,11 @@ export interface UiPrefs {
   /** Claude Code → Append the subscription tier (e.g. "max") in
    *  parentheses after the email. Defaults to off. */
   claudeHudShowPlan: boolean;
+  /** Split the pane and open the other side when a Claude session branches
+   *  (/branch) or forks (/fork). On by default; the split is the point of the
+   *  feature, but it is an action the user did not directly ask for, so it
+   *  must be switchable off. */
+  claudeAutoSplitBranches: boolean;
   /** Claude Code → Show 5h / weekly rate-limit percentages in the HUD
    *  instead of token counts / cost. Installs a tiny shim into the Claude
    *  Code config. Tri-state:
@@ -78,6 +83,7 @@ const DEFAULTS: UiPrefs = {
   claudeHudEnabled: true,
   claudeHudExtended: false,
   claudeHudShowPlan: false,
+  claudeAutoSplitBranches: true,
   notifySoundEnabled: false,
   bellVisual: true,
   bellSound: false,

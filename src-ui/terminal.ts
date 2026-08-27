@@ -82,6 +82,9 @@ export async function createTerminalSession(
   cwd?: string,
   restoredScrollback?: string,
   restoredClaudeResume?: { uuid: string },
+  /** argv the pane runs before dropping to a shell. Used to open a pane
+   *  directly on a Claude session after a branch or fork. */
+  command?: string[],
 ): Promise<TerminalSession> {
   const id = nextTermId++;
 
@@ -349,7 +352,7 @@ export async function createTerminalSession(
   const disposeInlineImages = attachOsc1337Renderer(term, container);
 
   // Create backend PTY.
-  const ptyId = await createPty(cwd);
+  const ptyId = await createPty(cwd, command);
 
   // Shift+Enter sends ESC+CR so TUIs (Claude Code, readline meta-Enter, etc.)
   // treat it as "insert newline into input" instead of "submit".
