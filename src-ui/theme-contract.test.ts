@@ -13,7 +13,7 @@ import { resolve } from "path";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("./ui-prefs", () => ({ getPrefs: () => ({ backgroundOpacity: 100 }) }));
 
-import { applyTheme } from "./theme";
+import { applyTheme, registerTerminal, unregisterTerminal } from "./theme";
 
 const contract = JSON.parse(
   readFileSync(resolve(__dirname, "..", "theme-contract.json"), "utf-8"),
@@ -106,5 +106,57 @@ describe("the chrome accent comes from the theme", () => {
     expect(prefs).not.toContain('setProperty("--accent"');
     expect(prefs).not.toContain('setProperty("--accent-tint"');
     expect(prefs).not.toContain('setProperty("--accent-strong"');
+  });
+});
+
+describe("theme contract: xterm theme mapping", () => {
+  /** Captures what applyTheme hands a terminal, without needing a real one. */
+  function captureTheme(): { options: { theme?: Record<string, string> } } {
+    return { options: {} };
+  }
+
+  it("hands xterm exactly the keys the contract claims, no more and no fewer", () => {
+    // The theme creator builds its preview's ITheme from the contract. Before
+    // xtermKey existed it reconstructed these names by convention — strip
+    // "ansi_", camel-case the rest — and nothing tied that guess to this
+    // literal. An xterm rename would have updated the app, passed the sync
+    // (which only compares majors), been silently ignored by xterm, and left
+    // the preview showing a colour the app no longer used.
+    const term = captureTheme();
+    registerTerminal(term as never);
+    applyTheme(distinctTheme() as never);
+    unregisterTerminal(term as never);
+
+    const claimed = contract.keys
+      .filter((k: { xtermKey?: string }) => k.xtermKey)
+      .map((k: { xtermKey: string }) => k.xtermKey)
+      .sort();
+    expect(Object.keys(term.options.theme ?? {}).sort()).toEqual(claimed);
+  });
+
+  it("fills each xterm key from the theme field the contract names", () => {
+    const theme = distinctTheme();
+    const term = captureTheme();
+    registerTerminal(term as never);
+    applyTheme(theme as never);
+    unregisterTerminal(term as never);
+
+    for (const k of contract.keys) {
+      if (!k.xtermKey) continue;
+      // background is the one computed value: it is tinted by the
+      // background-opacity preference rather than copied through.
+      if (k.xtermKey === "background") continue;
+      expect(
+        term.options.theme?.[k.xtermKey],
+        `xterm's ${k.xtermKey} should carry ${k.resolvedField} (from ${k.key})`,
+      ).toBe(theme[k.resolvedField]);
+    }
+  });
+
+  it("only maps terminal colours — window chrome is CSS, never terminal state", () => {
+    for (const k of contract.keys) {
+      if (k.group === "chrome") expect(k.xtermKey).toBeUndefined();
+      else expect(k.xtermKey, `${k.key} should map to an xterm key`).toBeTruthy();
+    }
   });
 });
