@@ -181,17 +181,30 @@ fn cwd_tracks_cd_without_shell_integration() {
     // is what proc_pidinfo reports back.
     let target = std::fs::canonicalize(std::env::temp_dir()).expect("canonicalize temp dir");
 
-    let _ = run_and_drain(
-        &mut session,
-        format!("cd {}", target.display()).as_bytes(),
-        0,
-    );
-
-    let cwd = session
-        .cwd()
-        .expect("cwd() should report the shell's directory");
+    // Poll for the directory to change rather than assuming one drain is
+    // enough, the same way cwd_tracks_cd_across_shells does. run_and_drain
+    // gives up after 5s and its result was discarded here, so on a loaded
+    // machine — a release build running the whole suite, say — the cd could
+    // still be in flight when cwd() was queried, and the assertion saw $HOME.
+    // The guarantee is unchanged: the shell must reach the target directory.
+    let cmd = format!("cd {}\n", target.display());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut cwd = session.cwd();
+    let mut drain = [0u8; 4096];
+    while cwd.as_deref() != Some(target.as_path()) && Instant::now() < deadline {
+        session.write(cmd.as_bytes());
+        std::thread::sleep(Duration::from_millis(100));
+        // Drain so the PTY output buffer cannot fill and wedge the shell.
+        while let Ok(n) = session.try_read(&mut drain) {
+            if n == 0 {
+                break;
+            }
+        }
+        cwd = session.cwd();
+    }
     assert_eq!(
-        cwd, target,
+        cwd.as_deref(),
+        Some(target.as_path()),
         "cwd() must follow `cd` via the OS query, independent of OSC 7"
     );
 }
