@@ -572,61 +572,11 @@ function renderAppearance(el: HTMLElement): void {
   themeSec.appendChild(yoursContainer);
   buildYoursInto(yoursContainer);
 
-  // Accent / density / tab style
-  const accentSec = section("Accent");
+  // Density / tab style. The accent is not a setting: it comes from the
+  // theme's panel.activeBorder, so switching themes actually changes it.
+  const densitySec = section("Appearance");
   const prefs = getPrefs();
-  const accentPicker = document.createElement("div");
-  accentPicker.className = "swatches";
-  const PRESET_ACCENTS = ["#8aa9ff", "#f38ba8", "#a6e3a1", "#f9e2af", "#cba6f7", "#7dcfff"];
-  const isPreset = (c: string): boolean =>
-    c === "" || PRESET_ACCENTS.includes(c.toLowerCase());
-
-  // Theme-default swatch
-  const defaultSw = document.createElement("button");
-  defaultSw.type = "button";
-  defaultSw.className = "swatch" + (prefs.accent === "" ? " selected" : "");
-  defaultSw.style.background = "var(--accent)";
-  defaultSw.textContent = "A";
-  defaultSw.title = "Theme default";
-  defaultSw.addEventListener("click", () => {
-    setPref("accent", "");
-    render();
-  });
-  accentPicker.appendChild(defaultSw);
-
-  // Preset swatches
-  for (const c of PRESET_ACCENTS) {
-    const sw = document.createElement("button");
-    sw.type = "button";
-    sw.className =
-      "swatch" + (prefs.accent.toLowerCase() === c ? " selected" : "");
-    sw.style.background = c;
-    sw.title = c;
-    sw.addEventListener("click", () => {
-      setPref("accent", c);
-      render();
-    });
-    accentPicker.appendChild(sw);
-  }
-
-  // Custom-color swatch
-  const customActive = !isPreset(prefs.accent);
-  const customSw = document.createElement("button");
-  customSw.type = "button";
-  customSw.className =
-    "swatch swatch-custom" + (customActive ? " selected" : "");
-  if (customActive) customSw.style.background = prefs.accent;
-  customSw.title = customActive ? `Custom: ${prefs.accent}` : "Custom color…";
-  customSw.addEventListener("click", () => {
-    openCustomAccentPopover(customSw, prefs.accent);
-  });
-  accentPicker.appendChild(customSw);
-  accentSec.appendChild(row(
-    "Accent color",
-    "Overrides the theme's accent. Used for selection, active tab, and highlights.",
-    accentPicker,
-  ));
-  accentSec.appendChild(row(
+  densitySec.appendChild(row(
     "Density",
     "Affects padding and row heights across the UI.",
     segCtl(prefs.density, [
@@ -635,7 +585,7 @@ function renderAppearance(el: HTMLElement): void {
       ["roomy", "Roomy"],
     ], (v) => setPref("density", v as Density)),
   ));
-  accentSec.appendChild(row(
+  densitySec.appendChild(row(
     "Tab style",
     "",
     segCtl(prefs.tabStyle, [
@@ -644,7 +594,7 @@ function renderAppearance(el: HTMLElement): void {
       ["chevron", "Chevron"],
     ], (v) => setPref("tabStyle", v as TabStyle)),
   ));
-  el.appendChild(accentSec);
+  el.appendChild(densitySec);
 
   // Notifications section — toast placement. Sits above Theme so that Theme
   // and Community gallery stay adjacent; they read as one unit.
@@ -1963,81 +1913,6 @@ function normalizeHex(input: string): string | null {
   return null;
 }
 
-/** Popover anchored under the custom-accent swatch with a native color picker
- *  and a hex text input. Apply writes prefs.accent and closes. */
-function openCustomAccentPopover(anchor: HTMLElement, current: string): void {
-  const existing = document.querySelector(".accent-popover");
-  if (existing) { existing.remove(); return; }
-
-  const initialHex = normalizeHex(current) ?? "#8aa9ff";
-
-  const pop = document.createElement("div");
-  pop.className = "accent-popover";
-  pop.addEventListener("click", (e) => e.stopPropagation());
-  pop.addEventListener("mousedown", (e) => e.stopPropagation());
-
-  const colorInput = document.createElement("input");
-  colorInput.type = "color";
-  colorInput.className = "accent-color-picker";
-  colorInput.value = initialHex;
-
-  const hex = document.createElement("input");
-  hex.type = "text";
-  hex.className = "input";
-  hex.value = initialHex;
-  hex.placeholder = "#rrggbb";
-  hex.spellcheck = false;
-  hex.style.minWidth = "100px";
-  hex.style.width = "100px";
-
-  colorInput.addEventListener("input", () => { hex.value = colorInput.value; });
-  hex.addEventListener("input", () => {
-    const n = normalizeHex(hex.value);
-    if (n) colorInput.value = n;
-  });
-
-  const apply = (): void => {
-    const n = normalizeHex(hex.value);
-    if (!n) { hex.style.borderColor = "var(--danger)"; return; }
-    setPref("accent", n);
-    close();
-    render();
-  };
-
-  hex.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); apply(); }
-    else if (e.key === "Escape") { e.preventDefault(); close(); }
-  });
-
-  const applyBtn = button("Apply", apply);
-  applyBtn.classList.add("primary", "small");
-
-  pop.appendChild(colorInput);
-  pop.appendChild(hex);
-  pop.appendChild(applyBtn);
-
-  const r = anchor.getBoundingClientRect();
-  pop.style.top = `${r.bottom + 6}px`;
-  pop.style.left = `${r.left}px`;
-
-  (overlayEl ?? modalHost()).appendChild(pop);
-
-  // Dismiss on outside mousedown. Registered next tick so the click that
-  // opened the popover doesn't immediately close it.
-  let onDocDown: ((e: MouseEvent) => void) | null = null;
-  const close = (): void => {
-    pop.remove();
-    if (onDocDown) document.removeEventListener("mousedown", onDocDown, true);
-  };
-  setTimeout(() => {
-    onDocDown = (e: MouseEvent) => {
-      if (!pop.contains(e.target as Node)) close();
-    };
-    document.addEventListener("mousedown", onDocDown, true);
-  }, 0);
-
-  requestAnimationFrame(() => hex.focus());
-}
 
 // ---------------------------------------------------------------------------
 // Save

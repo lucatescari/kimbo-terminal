@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- **The accent colour now comes from the theme, and the Accent setting is gone.** The setting wrote the accent inline onto the window, where it outranked the theme permanently: you could switch themes all day and the selection, active tab and highlights stayed the colour you picked months ago, with nothing on screen explaining why. The accent now follows the theme's own `panel.activeBorder` — the key theme authors already use to say "this is my colour" — so Claude Red accents in its orange `#d97757`, Matrix in `#00ff41` and Gruvbox in `#fabd2f`, where all three previously borrowed whatever blue their palette happened to carry. Twelve of the twenty-one published themes look different, and more like themselves, as a result. Density and Tab style keep their place in Settings, now under Appearance. If you had a custom accent set, it is retired on next launch; pick a theme whose accent you like, or edit one at [themes.kimbo.tescari.dev](https://themes.kimbo.tescari.dev).
+
 ### Features
 
 - **Branching or forking a Claude conversation opens the other side in its own pane.** Run `/branch` and Kimbo splits the pane, resuming the original conversation beside the branch. Run `/fork` and it opens the background session that was created. Settings → Claude Code chooses where it opens: a split beside the pane, a split above and below, or a new tab, and the whole thing can be switched off.

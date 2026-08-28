@@ -82,7 +82,6 @@ vi.mock("./ui-prefs", () => ({
   getPrefs: () => ({
     density: "comfortable",
     tabStyle: "underline",
-    accent: "",
     confirmQuit: true,
     startup: "last",
     backgroundOpacity: 100,
