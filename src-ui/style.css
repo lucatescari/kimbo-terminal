@@ -84,7 +84,12 @@
   --fg-muted: var(--tab-inactive-fg);
   --fg-dim: color-mix(in oklab, var(--fg) 35%, transparent);
 
-  --accent: var(--accent-blue);
+  /* The theme's accent. panel.activeBorder is the key theme authors use to
+     say "this is my colour" — Claude Red's #d97757, Matrix's #00ff41,
+     Gruvbox's #fabd2f — whereas ANSI blue is just whatever blue the palette
+     happens to carry. Twelve of the twenty-one published themes set the two
+     differently, and until now the chrome followed the wrong one. */
+  --accent: var(--active-border);
   --accent-strong: color-mix(in oklab, var(--accent) 85%, white);
   --accent-tint: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-on: var(--bg);

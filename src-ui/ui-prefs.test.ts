@@ -39,3 +39,39 @@ describe("ui-prefs: --app-alpha", () => {
       .toBe("1");
   });
 });
+
+describe("ui-prefs: the accent belongs to the theme, not to a preference", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetCache();
+    document.documentElement.removeAttribute("style");
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    resetCache();
+    document.documentElement.removeAttribute("style");
+  });
+
+  it("never writes an inline --accent, so a theme switch always wins", () => {
+    // The old accent preference set --accent inline on :root, which beat the
+    // stylesheet permanently: switching themes updated the theme's own accent
+    // underneath while the chrome stayed pinned to the old colour.
+    applyRoot();
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--accent")).toBe("");
+    expect(root.style.getPropertyValue("--accent-tint")).toBe("");
+    expect(root.style.getPropertyValue("--accent-strong")).toBe("");
+  });
+
+  it("ignores an accent left behind in localStorage by an older build", () => {
+    localStorage.setItem(
+      "kimbo-ui-prefs-v1",
+      JSON.stringify({ density: "comfortable", tabStyle: "underline", accent: "#ff00ff" }),
+    );
+    resetCache();
+    applyRoot();
+    expect(document.documentElement.style.getPropertyValue("--accent")).toBe("");
+    expect((getPrefs() as unknown as Record<string, unknown>).accent).toBeUndefined();
+  });
+});

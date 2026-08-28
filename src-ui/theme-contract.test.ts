@@ -78,3 +78,33 @@ describe("theme contract: CSS variable mapping", () => {
     ).toEqual([]);
   });
 });
+
+describe("the chrome accent comes from the theme", () => {
+  it("derives --accent from the contract key themes use as their accent", () => {
+    // panel.activeBorder is where theme authors put "this is my colour":
+    // Claude Red's #d97757, Matrix's #00ff41, Gruvbox's #fabd2f. ANSI blue is
+    // just whatever blue the palette happens to carry, and twelve of the
+    // published themes set the two differently. If someone re-points --accent
+    // at --accent-blue again, the chrome silently stops matching the theme.
+    const css = readFileSync(resolve(__dirname, "style.css"), "utf8");
+    const declaration = css.match(/^\s*--accent:\s*([^;]+);/m);
+    expect(declaration, "style.css must define --accent").not.toBeNull();
+
+    const activeBorder = contract.keys.find(
+      (k: { key: string }) => k.key === "panel.activeBorder",
+    );
+    expect(activeBorder.cssVars.length).toBeGreaterThan(0);
+    for (const cssVar of activeBorder.cssVars) {
+      expect(declaration![1]).toContain(`var(${cssVar})`);
+    }
+  });
+
+  it("does not let a preference override the theme's accent", () => {
+    // The accent used to be a user preference written inline on :root, which
+    // outranked the stylesheet and survived every theme switch.
+    const prefs = readFileSync(resolve(__dirname, "ui-prefs.ts"), "utf8");
+    expect(prefs).not.toContain('setProperty("--accent"');
+    expect(prefs).not.toContain('setProperty("--accent-tint"');
+    expect(prefs).not.toContain('setProperty("--accent-strong"');
+  });
+});
