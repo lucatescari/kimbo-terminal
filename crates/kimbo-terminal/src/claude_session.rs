@@ -41,6 +41,17 @@ pub struct PidSession {
     pub session_id: String,
     pub cwd: Option<String>,
     pub started_at_ms: u64,
+    /// Claude Code's own live status for this session. Verbatim, not
+    /// interpreted here: `"busy"`, `"idle"`, `"waiting"`, and `"shell"` are
+    /// all observed, and the set is Claude Code's to grow. `busy` is
+    /// `isLoading || delegatedActive`, so it already covers a turn parked in
+    /// a Task call while subagents work.
+    pub status: Option<String>,
+    /// Why the session is waiting, when `status == "waiting"`. Human-readable
+    /// and shown in a tooltip: "input needed", "worker request",
+    /// "sandbox request", "dialog open", or a dialog's own label.
+    pub waiting_for: Option<String>,
+    pub status_updated_at_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -50,6 +61,11 @@ struct PidSessionRaw {
     cwd: Option<String>,
     #[serde(default, rename = "startedAt")]
     started_at_ms: u64,
+    status: Option<String>,
+    #[serde(rename = "waitingFor")]
+    waiting_for: Option<String>,
+    #[serde(rename = "statusUpdatedAt")]
+    status_updated_at_ms: Option<u64>,
 }
 
 /// Parse a `~/.claude/sessions/<pid>.json` body. Returns `None` on
@@ -62,6 +78,9 @@ pub(crate) fn parse_pid_json(body: &str) -> Option<PidSession> {
         session_id,
         cwd: raw.cwd,
         started_at_ms: raw.started_at_ms,
+        status: raw.status,
+        waiting_for: raw.waiting_for,
+        status_updated_at_ms: raw.status_updated_at_ms,
     })
 }
 
@@ -710,6 +729,56 @@ junk junk
         assert_eq!(got.session_id, "abc-123");
         assert!(got.cwd.is_none());
         assert_eq!(got.started_at_ms, 42);
+    }
+
+    #[test]
+    fn parse_pid_json_reads_status_fields() {
+        // Shape taken verbatim from a live ~/.claude/sessions/<pid>.json.
+        let body = r#"{
+            "pid": 7496,
+            "sessionId": "1af5d332-cf0e-49ea-b7ee-9e1027a6c88d",
+            "cwd": "/Users/u/proj",
+            "startedAt": 1788192356257,
+            "kind": "interactive",
+            "status": "busy",
+            "updatedAt": 1788192511101,
+            "statusUpdatedAt": 1788192511101
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.session_id, "1af5d332-cf0e-49ea-b7ee-9e1027a6c88d");
+        assert_eq!(got.status.as_deref(), Some("busy"));
+        assert_eq!(got.status_updated_at_ms, Some(1788192511101));
+        assert_eq!(got.waiting_for, None);
+    }
+
+    #[test]
+    fn parse_pid_json_reads_waiting_for() {
+        let body = r#"{
+            "sessionId": "abc",
+            "status": "waiting",
+            "waitingFor": "input needed"
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.status.as_deref(), Some("waiting"));
+        assert_eq!(got.waiting_for.as_deref(), Some("input needed"));
+    }
+
+    #[test]
+    fn parse_pid_json_tolerates_a_file_with_no_status_fields() {
+        // Older Claude Code versions, and any future rename, must keep the
+        // three original fields working rather than failing the whole parse.
+        let body = r#"{
+            "sessionId": "abc",
+            "cwd": "/tmp/x",
+            "startedAt": 42
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.session_id, "abc");
+        assert_eq!(got.cwd.as_deref(), Some("/tmp/x"));
+        assert_eq!(got.started_at_ms, 42);
+        assert_eq!(got.status, None);
+        assert_eq!(got.waiting_for, None);
+        assert_eq!(got.status_updated_at_ms, None);
     }
 
     // -----------------------------------------------------------------
