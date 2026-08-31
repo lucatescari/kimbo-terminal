@@ -102,6 +102,12 @@ function pruneSeenJobs(currentIds: readonly string[]): void {
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
+/** Bumped by every start and every stop. A loop captures its generation and
+ *  refuses to schedule once it no longer matches, so a tick still in flight
+ *  when the poll is stopped cannot resurrect itself if the poll is started
+ *  again before that tick resolves. A bare boolean cannot express this: the
+ *  restart would set it back to true and the stale loop would sail past it. */
+let generation = 0;
 
 async function realProbe(ids: number[]): Promise<PtyClaudeState[]> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -117,19 +123,22 @@ const realDeps: TickDeps = {
 };
 
 /** Start polling. Idempotent. Self-scheduling rather than setInterval so a
- *  slow tick cannot overlap the next one. */
-export function startTabActivityPoll(): void {
+ *  slow tick cannot overlap the next one. `deps` defaults to the real Tauri-
+ *  backed dependencies; it is only overridable so tests can control the
+ *  timing of a tick without touching `main.ts`. */
+export function startTabActivityPoll(deps: TickDeps = realDeps): void {
   if (running) return;
   running = true;
+  const myGeneration = ++generation;
   const loop = async () => {
-    if (!running) return;
+    if (!running || generation !== myGeneration) return;
     let delay = IDLE_POLL_MS;
     try {
-      delay = await runTick(realDeps);
+      delay = await runTick(deps);
     } catch (e) {
       console.warn("tab activity tick failed:", e);
     }
-    if (!running) return;
+    if (!running || generation !== myGeneration) return;
     timer = setTimeout(loop, delay);
   };
   void loop();
@@ -137,6 +146,7 @@ export function startTabActivityPoll(): void {
 
 export function stopTabActivityPoll(): void {
   running = false;
+  generation++;
   if (timer !== null) {
     clearTimeout(timer);
     timer = null;

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   runTick,
   resetSeenJobsForTesting,
+  startTabActivityPoll,
+  stopTabActivityPoll,
   ACTIVE_POLL_MS,
   IDLE_POLL_MS,
   type TickDeps,
@@ -112,5 +114,55 @@ describe("tab activity poll", () => {
     d.painted.length = 0;
     await runTick(d);
     expect(d.painted).toEqual([[1, "busy"]]);
+  });
+});
+
+describe("poll lifecycle", () => {
+  afterEach(() => {
+    stopTabActivityPoll();
+  });
+
+  it("does not leave a second loop running when stopped and restarted mid-tick", async () => {
+    // The stale loop must not resurrect itself just because a restart set
+    // `running` back to true while its tick was still in flight. The bug
+    // this guards is only visible on the *next* scheduled tick (the stale
+    // loop resuming from its in-flight probe does not itself misbehave; it
+    // is the setTimeout it then queues that duplicates work) so this test
+    // uses fake timers to advance past that scheduling point rather than
+    // just inspecting call counts immediately after the restart.
+    vi.useFakeTimers();
+    try {
+      let release!: (v: PtyClaudeState[]) => void;
+      const inFlight = new Promise<PtyClaudeState[]>((r) => { release = r; });
+
+      let probeCalls = 0;
+      const slow: TickDeps = {
+        ...deps(),
+        probe: () => { probeCalls++; return inFlight; },
+      };
+
+      startTabActivityPoll(slow);        // tick 1 begins, parks on `inFlight`
+      stopTabActivityPoll();             // stopped while it is parked
+      startTabActivityPoll(slow);        // restarted before it resolves
+      expect(probeCalls).toBe(2);        // each start's loop made its first probe
+
+      release([]);                       // let both in-flight ticks resolve
+      // Flush the microtask chain from the resolution (runTick's await, then
+      // the loop's await) before any timer has a chance to fire.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const callsBeforeNextTick = probeCalls;
+      // Let whatever got scheduled for the next tick actually run.
+      await vi.advanceTimersByTimeAsync(IDLE_POLL_MS);
+
+      // Only the loop we still own may have probed again. A resurrected
+      // stale loop would have queued its own timer too and doubled this.
+      expect(probeCalls).toBe(callsBeforeNextTick + 1);
+    } finally {
+      stopTabActivityPoll();
+      vi.useRealTimers();
+    }
   });
 });
