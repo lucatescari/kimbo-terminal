@@ -106,7 +106,8 @@ function collectPtys(node: any, tabId: number, out: TabPtyRef[]): void {
   collectPtys(node.second, tabId, out);
 }
 
-/** Read-only, for tests and for the poll's change detection. */
+/** Read-only, for tests. The poll never calls this — setTabActivity compares
+ *  against the private tabActivityState map itself. */
 export function getTabActivity(tabId: number): PaneActivity {
   return tabActivityState.get(tabId) ?? NO_ACTIVITY;
 }
@@ -129,6 +130,20 @@ export function setTabActivity(tabId: number, activity: PaneActivity): void {
   applyActivity(el, tab, activity);
 }
 
+/** `activity.reason` is `waiting_for` or a background job's `detail`, both
+ *  written by Claude Code on disk, not by this app. It lands in `el.title`
+ *  below as a plain property assignment (never `innerHTML`), so this is not
+ *  a security boundary — but nothing stops Claude Code from writing a
+ *  multi-line or very long value, which would otherwise produce a native
+ *  tooltip of arbitrary size. */
+const MAX_REASON_CHARS = 120;
+
+/** Exported for tests. */
+export function truncateReason(reason: string): string {
+  if (reason.length <= MAX_REASON_CHARS) return reason;
+  return `${reason.slice(0, MAX_REASON_CHARS - 1)}…`;
+}
+
 function applyActivity(el: HTMLElement, tab: Tab, activity: PaneActivity): void {
   if (activity.activity === "none") {
     delete el.dataset.activity;
@@ -136,8 +151,9 @@ function applyActivity(el: HTMLElement, tab: Tab, activity: PaneActivity): void 
     el.dataset.activity = activity.activity;
   }
   const displayName = tabDisplayName(tab);
+  const reason = activity.reason ? truncateReason(activity.reason) : null;
   // No em dash: this string is read by the user.
-  const title = activity.reason ? `${displayName} (${activity.reason})` : displayName;
+  const title = reason ? `${displayName} (${reason})` : displayName;
   if (el.title !== title) el.title = title;
 }
 

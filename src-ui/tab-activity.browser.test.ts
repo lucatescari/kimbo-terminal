@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { userEvent } from "vitest/browser";
 import "./style.css";
 
 // The dot's colours come from tokens, and the whole point is that they follow
@@ -10,9 +11,9 @@ const WARN = "rgb(249, 226, 175)"; // #f9e2af
 
 let bar: HTMLElement;
 
-function tab(activity?: string): HTMLElement {
+function tab(activity?: string, opts: { active?: boolean } = {}): HTMLElement {
   const el = document.createElement("div");
-  el.className = "tab";
+  el.className = opts.active ? "tab active" : "tab";
   if (activity) el.dataset.activity = activity;
   const dot = document.createElement("span");
   dot.className = "tab-activity";
@@ -95,5 +96,61 @@ describe("tab activity dot", () => {
     const alpha = alphaOf(waiting);
     expect(alpha).toBeGreaterThan(0);
     expect(alpha).toBeLessThan(1);
+  });
+
+  // Spec (2026-08-31-tab-activity-states-design.md, ~line 369) requires busy
+  // and waiting to stay visually distinct "in all three tab styles". The
+  // suite above only ever exercised the default/underline style (`bar` never
+  // got a `data-style`) — pill and chevron were untested, and pill is
+  // exactly where the hover/active specificity bug lived.
+  for (const style of [undefined, "pill", "chevron"] as const) {
+    const label = style ?? "default";
+
+    it(`keeps busy and waiting visually distinct in the ${label} tab style`, () => {
+      if (style) bar.dataset.style = style;
+      const waiting = getComputedStyle(tab("waiting")).backgroundColor;
+      const busy = getComputedStyle(tab("busy")).backgroundColor;
+      expect(waiting).not.toBe(busy);
+      const alpha = alphaOf(waiting);
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(1);
+    });
+  }
+
+  it("keeps the waiting tint on an active tab in pill style, where .tab.active would otherwise win the tie", () => {
+    // `#tab-bar[data-style="pill"] .tab.active` and the waiting-tint rule are
+    // both (1,3,0) specificity — an exact tie broken by source order, not by
+    // selector shape. This is the case I1 named explicitly: a pill-style
+    // active tab never showed the tint before the fix moved the waiting rule
+    // after the Pill/Chevron overrides in style.css.
+    bar.dataset.style = "pill";
+    const activeOpaque = getComputedStyle(tab(undefined, { active: true })).backgroundColor;
+    const activeWaiting = getComputedStyle(tab("waiting", { active: true })).backgroundColor;
+
+    expect(activeWaiting).not.toBe(activeOpaque);
+    const alpha = alphaOf(activeWaiting);
+    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(1);
+  });
+
+  it("keeps the waiting tint under a real pointer hover", async () => {
+    // `.tab:hover:not(.active)` is (0,3,0) — the plain waiting selector
+    // (`#tab-bar .tab[data-activity="waiting"]`) is (1,2,0), which already
+    // outranks it on the ID alone regardless of source order, so this drives
+    // an actual pointer hover (real Chromium, via Playwright, not jsdom)
+    // rather than only asserting on specificity numbers by hand.
+    const el = tab("waiting");
+    const before = getComputedStyle(el).backgroundColor;
+    const alphaBefore = alphaOf(before);
+    expect(alphaBefore).toBeGreaterThan(0);
+    expect(alphaBefore).toBeLessThan(1);
+
+    await userEvent.hover(el);
+    const after = getComputedStyle(el).backgroundColor;
+
+    expect(after).toBe(before);
+    const alphaAfter = alphaOf(after);
+    expect(alphaAfter).toBeGreaterThan(0);
+    expect(alphaAfter).toBeLessThan(1);
   });
 });

@@ -1144,6 +1144,24 @@ describe("tab activity dot", () => {
     expect(el.title).not.toContain("—");
   });
 
+  it("truncates a very long reason instead of putting it verbatim into the native tooltip", async () => {
+    // `reason` is Claude Code's own `detail`/`waiting_for` text, read off
+    // disk, not authored by this app — nothing bounds its length or line
+    // count on the way in.
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+    const longReason = "x".repeat(500);
+
+    h.tabs.setTabActivity(tabId, { activity: "waiting", reason: longReason });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    // displayName + " (" + up-to-120-char reason + ")".
+    const displayName = h.tabs.getActiveTab()!.name;
+    expect(el.title.length).toBeLessThanOrEqual(displayName.length + 4 + 120);
+    expect(el.title).not.toContain(longReason);
+  });
+
   it("skips all work when the activity is unchanged", async () => {
     const h = await mount();
     await h.tabs.createTab();
@@ -1192,6 +1210,21 @@ describe("tab activity dot", () => {
 
     expect(h.tabs.getTabActivity(a.id)).toEqual({ activity: "none", reason: null });
     expect(h.tabs.getTabBadge(a.id)).toBeNull();
+  });
+});
+
+describe("truncateReason", () => {
+  it("leaves a reason at or under the limit untouched", async () => {
+    const h = await mount();
+    expect(h.tabs.truncateReason("needs permission")).toBe("needs permission");
+    expect(h.tabs.truncateReason("x".repeat(120))).toBe("x".repeat(120));
+  });
+
+  it("truncates a reason over the limit to at most 120 characters", async () => {
+    const h = await mount();
+    const got = h.tabs.truncateReason("x".repeat(500));
+    expect(got.length).toBe(120);
+    expect(got.endsWith("…")).toBe(true);
   });
 });
 

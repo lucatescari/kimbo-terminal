@@ -109,10 +109,21 @@ let running = false;
  *  restart would set it back to true and the stale loop would sail past it. */
 let generation = 0;
 
-async function realProbe(ids: number[]): Promise<PtyClaudeState[]> {
+/** Exported for tests only: lets a test drive `runTick` through the real
+ *  probe (with `invoke` mocked) to prove the production null-handling wiring
+ *  actually holds state, not just the injected-deps version of the claim. */
+export async function realProbe(ids: number[]): Promise<PtyClaudeState[]> {
   const { invoke } = await import("@tauri-apps/api/core");
   const result = await invoke<PtyClaudeState[] | null>("claude_tab_states", { ids });
-  return result ?? [];
+  // `null` means the Rust probe learned nothing (no HOME, or `ps` missed its
+  // deadline) — distinct from `[]`, the genuine "no Claude anywhere" answer.
+  // Throwing routes it into runTick's existing catch branch, which holds the
+  // dots' last painted state instead of flickering every tab to `none` for
+  // the ~10s idle-cadence gap a transient `ps` timeout would otherwise cause.
+  if (result === null) {
+    throw new Error("claude_tab_states probe returned no data");
+  }
+  return result;
 }
 
 const realDeps: TickDeps = {

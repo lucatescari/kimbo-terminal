@@ -139,6 +139,21 @@ describe("paneActivity: background jobs", () => {
     expect(got).toEqual({ activity: "waiting", reason: "needs permission" });
   });
 
+  it("falls back to a blocked job's detail when the interactive session is waiting with no reason of its own", () => {
+    // A null waiting_for must not discard a better reason sitting right
+    // there on a live blocked fork.
+    const got = paneActivity(
+      state({
+        status: "waiting",
+        waiting_for: null,
+        background: [job({ tempo: "blocked", detail: "needs input" })],
+      }),
+      seen("job-1"),
+      NOW,
+    );
+    expect(got).toEqual({ activity: "waiting", reason: "needs input" });
+  });
+
   it("escalates to waiting when a blocked job sits under a busy session", () => {
     // The severity fold, not a source-ordered chain: a blocked fork needs the
     // user even while the main session is mid-turn.

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+import { invoke } from "@tauri-apps/api/core";
 import {
   runTick,
+  realProbe,
   resetSeenJobsForTesting,
   startTabActivityPoll,
   stopTabActivityPoll,
@@ -10,6 +15,8 @@ import {
   type TickDeps,
 } from "./tab-activity";
 import type { PtyClaudeState } from "./claude-activity";
+
+const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
 
 const NOW = Date.parse("2026-08-31T12:00:00.000Z");
 
@@ -81,6 +88,38 @@ describe("tab activity poll", () => {
     const d = deps({ probe: async () => { throw new Error("command failed"); } });
     await runTick(d);
     expect(d.painted).toEqual([]);
+  });
+
+  it("holds the previous state rather than flickering to none when the real probe returns null", async () => {
+    // `claude_tab_states` returns `null` (not `[]`) when the Rust probe
+    // learned nothing at all (no HOME, or `ps` missed PROBE_BUDGET) — a
+    // transient failure, not "no Claude anywhere". This drives runTick
+    // through the real `realProbe`, with only `invoke` mocked, so the test
+    // exercises the actual null -> throw -> hold-last-state wiring rather
+    // than re-asserting the generic reject-holds-state behaviour above with
+    // a stand-in probe. A version of this test that used a hand-rolled
+    // `probe: async () => { throw ... }` would pass even if `realProbe`
+    // itself still did `?? []` on null, because it would never exercise
+    // realProbe at all — that is exactly the bug this test has to catch.
+    invokeMock.mockReset();
+    const painted: [number, string][] = [];
+    const d: TickDeps = {
+      ptys: () => [{ tabId: 1, ptyId: 10 }],
+      probe: realProbe,
+      paint: (tabId, a) => painted.push([tabId, a.activity]),
+      now: () => NOW,
+    };
+
+    invokeMock.mockResolvedValueOnce([state({ status: "busy" })]);
+    await runTick(d);
+    expect(painted).toEqual([[1, "busy"]]);
+
+    painted.length = 0;
+    invokeMock.mockResolvedValueOnce(null);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runTick(d);
+    warn.mockRestore();
+    expect(painted).toEqual([]);
   });
 
   it("keeps polling on the idle cadence after a probe failure", async () => {

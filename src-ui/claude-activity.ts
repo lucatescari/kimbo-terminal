@@ -29,14 +29,24 @@ export type Activity = "none" | "idle" | "busy" | "waiting";
 
 export interface PaneActivity {
   activity: Activity;
-  /** `waitingFor`, or a background job's `detail`. Tooltip copy only. */
+  /** `waiting_for`, or a background job's `detail`. Tooltip copy only. */
   reason: string | null;
 }
 
 /** How long after its last write a background job stops counting as live.
  *  Jobs on disk keep a live-looking `tempo` indefinitely after the daemon
  *  behind them is gone, so freshness is the only thing separating "still
- *  working" from "was working in June". */
+ *  working" from "was working in June".
+ *
+ *  Assumption, unverified: while a `/fork`ed job is actually doing work,
+ *  Claude Code rewrites its `state.json` at least this often. If that
+ *  assumption is wrong, this is exactly the wrong failure mode for a feature
+ *  built to prevent tabs from lying about background work — what would
+ *  disprove it is a `/fork`ed job still genuinely running past this window
+ *  with its tab showing `idle` because its `state.json` sat unwritten for
+ *  ten minutes despite the job being alive. That has not been checked against
+ *  a real long-running fork; do so before trusting this value in a case that
+ *  matters. */
 export const BACKGROUND_STALE_MS = 10 * 60 * 1000;
 
 const NONE: PaneActivity = { activity: "none", reason: null };
@@ -49,8 +59,13 @@ const RANK: Record<Activity, number> = { none: 0, idle: 1, busy: 2, waiting: 3 }
  *
  *  Three independent gates, each closing a specific false positive:
  *  an explicit tempo (absent means "no opinion", not "working"), freshness
- *  (stale files keep a live tempo forever), and first-sighting during this
- *  pane's life (otherwise a fresh launch lights up tabs from old jobs). */
+ *  (stale files keep a live tempo forever), and membership in `firstSeen`
+ *  (otherwise a fresh launch lights up tabs from old jobs). `firstSeen` is
+ *  not per-pane: the caller (`tab-activity.ts`) keeps one module-global set
+ *  of job ids observed on a previous tick, pruned by presence in the current
+ *  one. Pane-scoping would buy nothing here — a job is attributed to its
+ *  owning pane by its immutable `forkParentSessionId`, not by which pane
+ *  first happened to see it. */
 export function isJobLive(
   job: BackgroundJob,
   firstSeen: ReadonlySet<string>,
@@ -76,10 +91,13 @@ export function paneActivity(
   // still working, and nothing else in the UI would tell them.
   const live = state.background.filter((j) => isJobLive(j, firstSeen, now));
 
-  if (state.status === "waiting") {
-    return { activity: "waiting", reason: state.waiting_for };
-  }
   const blocked = live.find((j) => j.tempo === "blocked");
+  if (state.status === "waiting") {
+    // `waiting_for` is usually present, but when it isn't, a blocked fork's
+    // `detail` is a better tooltip than an empty one — the tab is showing
+    // `waiting` either way, so it should say why when it can.
+    return { activity: "waiting", reason: state.waiting_for ?? blocked?.detail ?? null };
+  }
   if (blocked) return { activity: "waiting", reason: blocked.detail };
 
   // `busy` is `isLoading || delegatedActive` in Claude Code, so it already

@@ -499,16 +499,10 @@ body {
   50%      { opacity: 0.4; transform: scale(0.78); }
 }
 
-/* `waiting` is the only state that escalates past the dot, because it is the
-   only one that needs the user. A background rather than a border or shadow so
-   it composes with the pill style's inset ring and does not fight the chevron
-   style's clip-path. */
-/* `in srgb`, not `in oklab`: matches the other tab-background overrides in
-   this file (.tab.active above) and, unlike oklab, resolves to an rgba()
-   computed value instead of an unconverted oklab() string. */
-.tab[data-activity="waiting"] {
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-}
+/* The waiting tint itself is defined further below (after the Pill/Chevron
+   overrides), not here: it has to out-specificity `.tab.active` in pill
+   style, and ties are broken by source order, so it has to physically come
+   after that rule too. See the comment down there for the full reasoning. */
 
 /* Motion is the signal here, so removing it needs a replacement rather than
    just a stop: filled for busy, ringed for waiting. */
@@ -587,6 +581,30 @@ body {
 #tab-bar[data-style="chevron"] .tab.active::after {
   left: 14px;
   right: 14px;
+}
+
+/* `waiting` is the only state that escalates past the dot, because it is the
+   only one that needs the user. A background rather than a border or shadow so
+   it composes with the pill style's inset ring and does not fight the chevron
+   style's clip-path.
+
+   Placed here, after the Pill/Chevron overrides above, and raised to (1,3,0)
+   so the tint survives two neighbours that would otherwise bury it:
+   `.tab:hover:not(.active)` is (0,3,0) because :not() contributes its
+   argument's specificity (the leading #tab-bar ID here outranks that
+   unconditionally, so the hover variant below is redundant for specificity
+   but kept for documentation), and the pill style's `.tab.active` above is
+   also (1,3,0) — an exact tie, which is why this rule has to come after it:
+   equal-specificity ties are broken by source order, not just by the
+   selector's shape. A blocked session outranks both hover feedback and
+   active-tab styling. */
+/* `in srgb`, not `in oklab`: matches the other tab-background overrides in
+   this file (.tab.active above) and, unlike oklab, resolves to an rgba()
+   computed value instead of an unconverted oklab() string. */
+#tab-bar .tab[data-activity="waiting"],
+#tab-bar .tab[data-activity="waiting"].active,
+#tab-bar .tab[data-activity="waiting"]:hover {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .tab-new {
