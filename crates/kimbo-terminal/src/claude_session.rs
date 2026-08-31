@@ -84,6 +84,65 @@ pub(crate) fn parse_pid_json(body: &str) -> Option<PidSession> {
     })
 }
 
+/// One background Claude Code session, from `~/.claude/jobs/<short>/state.json`.
+///
+/// These are the sessions `/fork` creates. They outlive the turn that spawned
+/// them, which is why a pane can look idle while work is still running: the
+/// `Stop` hook fires for the interactive session and says nothing about these.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobState {
+    pub session_id: String,
+    /// The interactive session that forked this job. Required: without it
+    /// there is nothing to attribute the job to, and matching by cwd instead
+    /// is wrong whenever two panes share a directory.
+    pub fork_parent_session_id: String,
+    /// `"active"`, `"blocked"`, or `"idle"`. The reliable tri-state; the
+    /// sibling `state` field is an open vocabulary (`blocked`, `failed`,
+    /// `running`, ...) and is deliberately not read.
+    pub tempo: Option<String>,
+    pub in_flight_tasks: u32,
+    /// ISO 8601, verbatim. Kept as a string because this crate has no date
+    /// dependency and `Date.parse` handles it for free on the JS side.
+    pub updated_at: Option<String>,
+    pub detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct JobStateRaw {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(rename = "forkParentSessionId")]
+    fork_parent_session_id: Option<String>,
+    tempo: Option<String>,
+    #[serde(rename = "inFlight")]
+    in_flight: Option<InFlightRaw>,
+    #[serde(rename = "updatedAt")]
+    updated_at: Option<String>,
+    detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InFlightRaw {
+    #[serde(default)]
+    tasks: u32,
+}
+
+/// Parse a `~/.claude/jobs/<short>/state.json` body. Returns `None` on
+/// malformed JSON, a missing `sessionId`, or a missing
+/// `forkParentSessionId` — the last of which is a deliberate drop, not an
+/// error.
+pub(crate) fn parse_job_state(body: &str) -> Option<JobState> {
+    let raw: JobStateRaw = serde_json::from_str(body).ok()?;
+    Some(JobState {
+        session_id: raw.session_id?,
+        fork_parent_session_id: raw.fork_parent_session_id?,
+        tempo: raw.tempo,
+        in_flight_tasks: raw.in_flight.map(|f| f.tasks).unwrap_or(0),
+        updated_at: raw.updated_at,
+        detail: raw.detail,
+    })
+}
+
 /// Live-running totals of a Claude Code session, derived from its
 /// `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` log.
 #[derive(Debug, Default, Clone)]
@@ -918,5 +977,70 @@ not-json-at-all\n\
             None => unsafe { std::env::remove_var("HOME") },
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // parse_job_state
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_job_state_reads_a_live_forked_job() {
+        // Shape taken verbatim from a live ~/.claude/jobs/<short>/state.json.
+        let body = r#"{
+            "state": "blocked",
+            "detail": "awaiting work description or task",
+            "tempo": "blocked",
+            "inFlight": { "tasks": 2, "queued": 0, "kinds": [], "drainableMonitors": 0 },
+            "sessionId": "21259340-a8c8-4b0d-8b7b-95a5679175c9",
+            "cwd": "/Users/u/proj",
+            "forkParentSessionId": "08d0883d-c1ff-44ae-b972-ea8e9b4d3b1b",
+            "interactiveLineage": true,
+            "updatedAt": "2026-08-20T12:32:06.282Z"
+        }"#;
+        let got = parse_job_state(body).expect("happy path");
+        assert_eq!(got.session_id, "21259340-a8c8-4b0d-8b7b-95a5679175c9");
+        assert_eq!(
+            got.fork_parent_session_id,
+            "08d0883d-c1ff-44ae-b972-ea8e9b4d3b1b"
+        );
+        assert_eq!(got.tempo.as_deref(), Some("blocked"));
+        assert_eq!(got.in_flight_tasks, 2);
+        assert_eq!(got.updated_at.as_deref(), Some("2026-08-20T12:32:06.282Z"));
+        assert_eq!(got.detail.as_deref(), Some("awaiting work description or task"));
+    }
+
+    #[test]
+    fn parse_job_state_drops_a_job_with_no_fork_parent() {
+        // Without a parent there is no pane to attribute the job to, and
+        // guessing by cwd is exactly the wrong answer when two panes share a
+        // directory. Dropping is the honest outcome.
+        let body = r#"{
+            "sessionId": "abc",
+            "tempo": "active",
+            "updatedAt": "2026-08-20T12:32:06.282Z"
+        }"#;
+        assert!(parse_job_state(body).is_none());
+    }
+
+    #[test]
+    fn parse_job_state_defaults_in_flight_tasks_when_absent() {
+        // The `state: failed` / `tempo: idle` shape, also taken from disk. It
+        // has no inFlight block at all.
+        let body = r#"{
+            "state": "failed",
+            "tempo": "idle",
+            "sessionId": "c6b15c14-7337-4b00-a733-e883c536e479",
+            "forkParentSessionId": "parent-1",
+            "updatedAt": "2026-08-20T12:30:39.083Z"
+        }"#;
+        let got = parse_job_state(body).expect("happy path");
+        assert_eq!(got.in_flight_tasks, 0);
+        assert_eq!(got.tempo.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn parse_job_state_returns_none_for_junk() {
+        assert!(parse_job_state("not json").is_none());
+        assert!(parse_job_state("{}").is_none());
     }
 }
