@@ -876,6 +876,27 @@ function scrollActiveTabIntoView() {
   }
 }
 
+/** Claude Code's terminal-title prefix. Two frames alternating at 960ms while
+ *  it is working, plus a static mark when it is not:
+ *
+ *      var sB = ["◐", "◑"], lB = "✳", uTe = 960;
+ *
+ *  Kimbo now shows that state as a styled dot, so the glyph is redundant. It
+ *  is also actively harmful: it changes the label's width once a second, which
+ *  jitters the whole tab bar and forces a repaint plus a scroll-arrow
+ *  re-measure on every frame.
+ *
+ *  Deliberately narrow: exactly those three characters, only at position
+ *  zero, only when followed by a space. Another TUI's spinner is left alone. */
+const CLAUDE_TITLE_GLYPHS = ["◐ ", "◑ ", "✳ "];
+
+export function stripActivityGlyph(title: string): string {
+  for (const g of CLAUDE_TITLE_GLYPHS) {
+    if (title.startsWith(g)) return title.slice(g.length);
+  }
+  return title;
+}
+
 /** Override or clear the title for a given session's tab. Pass null to revert
     to the default tab name. The argument is the *terminal session* id (not
     the tab id) since OSC 0/2 fires from a terminal.
@@ -889,7 +910,10 @@ function scrollActiveTabIntoView() {
 export function setTabTitle(sessionId: number, title: string | null): void {
   const tab = findTabBySessionId(sessionId);
   if (!tab) return;
-  const next = title ?? undefined;
+  // Strip before the equality check below, so a title that alternates only in
+  // its glyph compares equal and costs no repaint at all.
+  const stripped = title === null ? null : stripActivityGlyph(title);
+  const next = stripped ? stripped : undefined;
   if (tab.titleOverride === next) return;
   tab.titleOverride = next;
   updateTabButtonInPlace(tab);

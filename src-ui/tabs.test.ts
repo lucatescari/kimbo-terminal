@@ -1194,3 +1194,75 @@ describe("tab activity dot", () => {
     expect(h.tabs.getTabBadge(a.id)).toBeNull();
   });
 });
+
+describe("stripActivityGlyph", () => {
+  it("strips each of Claude Code's three title glyphs", async () => {
+    const h = await mount();
+    // The animating pair and the static prefix, from Claude Code's source.
+    expect(h.tabs.stripActivityGlyph("◐ my-project")).toBe("my-project");
+    expect(h.tabs.stripActivityGlyph("◑ my-project")).toBe("my-project");
+    expect(h.tabs.stripActivityGlyph("✳ my-project")).toBe("my-project");
+  });
+
+  it("leaves every other title untouched", async () => {
+    const h = await mount();
+    expect(h.tabs.stripActivityGlyph("my-project")).toBe("my-project");
+    // No trailing space: not the prefix pattern.
+    expect(h.tabs.stripActivityGlyph("◐my-project")).toBe("◐my-project");
+    // Mid-string: not at position zero.
+    expect(h.tabs.stripActivityGlyph("build ◐ running")).toBe("build ◐ running");
+    // A different glyph entirely, e.g. another TUI's spinner.
+    expect(h.tabs.stripActivityGlyph("⠋ my-project")).toBe("⠋ my-project");
+    expect(h.tabs.stripActivityGlyph("")).toBe("");
+    expect(h.tabs.stripActivityGlyph("◐ ")).toBe("");
+  });
+
+  it("shows the stripped title in the tab label", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+
+    h.tabs.setTabTitle(sessionId, "◐ my-project");
+
+    const tabId = h.tabs.getActiveTab()!.id;
+    const label = h.tabBar.querySelector<HTMLElement>(
+      `[data-tab-id="${tabId}"] .tab-label`,
+    )!;
+    expect(label.textContent).toBe("my-project");
+    expect(h.tabs.getActiveTab()!.titleOverride).toBe("my-project");
+  });
+
+  it("treats a glyph-only title change as no change at all", async () => {
+    // The point of the strip: at roughly one title write per second per busy
+    // tab, the old behaviour repainted the label and re-measured the bar's
+    // overflow every time. After stripping, the two titles are equal and
+    // setTabTitle's existing early-return fires — so updateTabButtonInPlace,
+    // and therefore renderTitle, never runs. Element identity cannot show
+    // this: renderTabBar reuses cached elements, so identity survives a
+    // rebuild too.
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const titleBar = await import("./title-bar");
+
+    h.tabs.setTabTitle(sessionId, "◐ my-project");
+    (titleBar.renderTitle as any).mockClear();
+
+    h.tabs.setTabTitle(sessionId, "◑ my-project");
+
+    expect(titleBar.renderTitle as any).not.toHaveBeenCalled();
+    expect(h.tabs.getActiveTab()!.titleOverride).toBe("my-project");
+  });
+
+  it("reverts to the default name when the title is nothing but a glyph", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+
+    h.tabs.setTabTitle(sessionId, "◐ my-project");
+    expect(h.tabs.getActiveTab()!.titleOverride).toBe("my-project");
+
+    h.tabs.setTabTitle(sessionId, "✳ ");
+    expect(h.tabs.getActiveTab()!.titleOverride).toBeUndefined();
+  });
+});
