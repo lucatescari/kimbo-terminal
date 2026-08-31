@@ -370,17 +370,22 @@ fn read_all_jobs(home: &str) -> Vec<JobState> {
 ///
 /// A PTY with no Claude session is omitted from the result rather than
 /// returned as an empty entry.
-pub fn probe_claude_tab_states(pty_pids: &[(u32, u32)]) -> Vec<PtyClaudeState> {
+///
+/// Returns `None` when the probe learned nothing at all (no `HOME`, or the
+/// `ps` snapshot missed `PROBE_BUDGET`) so the caller can tell "we don't
+/// know" apart from `Some(vec![])`, the genuine "no Claude anywhere" answer.
+/// Collapsing those into the same empty `Vec` made a slow `ps` on a loaded
+/// machine look identical to every tab's Claude session having vanished —
+/// see `claude_tab_states` in `src-tauri/src/commands/claude.rs` and
+/// `runTick` in `src-ui/tab-activity.ts` for how each side holds last state
+/// on `None` instead of painting `none`.
+pub fn probe_claude_tab_states(pty_pids: &[(u32, u32)]) -> Option<Vec<PtyClaudeState>> {
     if pty_pids.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
-    let Ok(home) = std::env::var("HOME") else {
-        return Vec::new();
-    };
+    let home = std::env::var("HOME").ok()?;
     let deadline = Instant::now() + PROBE_BUDGET;
-    let Some(ps_out) = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline) else {
-        return Vec::new();
-    };
+    let ps_out = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline)?;
 
     let jobs = read_all_jobs(&home);
     let sessions_dir = PathBuf::from(&home).join(".claude").join("sessions");
@@ -399,7 +404,7 @@ pub fn probe_claude_tab_states(pty_pids: &[(u32, u32)]) -> Vec<PtyClaudeState> {
         }
     }
 
-    attach_background(sessions, &jobs)
+    Some(attach_background(sessions, &jobs))
 }
 
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
@@ -1168,6 +1173,62 @@ not-json-at-all\n\
     fn parse_job_state_returns_none_for_junk() {
         assert!(parse_job_state("not json").is_none());
         assert!(parse_job_state("{}").is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // read_all_jobs
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn read_all_jobs_returns_empty_for_missing_jobs_dir() {
+        // unique_temp_subdir creates `home` itself but never `home/.claude/jobs`.
+        let home = unique_temp_subdir("read-all-jobs-missing");
+        let got = read_all_jobs(home.to_str().expect("utf8 path"));
+        assert!(got.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn read_all_jobs_skips_malformed_files_and_dirs_with_no_state_json() {
+        let home = unique_temp_subdir("read-all-jobs-mixed");
+        let jobs_dir = home.join(".claude").join("jobs");
+
+        // One valid job.
+        let valid_dir = jobs_dir.join("job-valid");
+        std::fs::create_dir_all(&valid_dir).expect("create valid job dir");
+        std::fs::write(
+            valid_dir.join("state.json"),
+            r#"{
+                "sessionId": "job-1",
+                "forkParentSessionId": "parent-a",
+                "tempo": "active",
+                "inFlight": { "tasks": 1 },
+                "updatedAt": "2026-08-31T12:00:00.000Z",
+                "detail": "working"
+            }"#,
+        )
+        .expect("write valid state.json");
+
+        // One malformed job: unparseable JSON.
+        let malformed_dir = jobs_dir.join("job-malformed");
+        std::fs::create_dir_all(&malformed_dir).expect("create malformed job dir");
+        std::fs::write(malformed_dir.join("state.json"), "not json")
+            .expect("write malformed state.json");
+
+        // One job directory with no state.json at all.
+        let no_state_dir = jobs_dir.join("job-no-state");
+        std::fs::create_dir_all(&no_state_dir).expect("create job dir with no state.json");
+
+        let got = read_all_jobs(home.to_str().expect("utf8 path"));
+        assert_eq!(
+            got.len(),
+            1,
+            "expected only the one valid job, got {:?}",
+            got
+        );
+        assert_eq!(got[0].session_id, "job-1");
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     // ---- attach_background ----
