@@ -1129,7 +1129,10 @@ not-json-at-all\n\
         assert_eq!(got.tempo.as_deref(), Some("blocked"));
         assert_eq!(got.in_flight_tasks, 2);
         assert_eq!(got.updated_at.as_deref(), Some("2026-08-20T12:32:06.282Z"));
-        assert_eq!(got.detail.as_deref(), Some("awaiting work description or task"));
+        assert_eq!(
+            got.detail.as_deref(),
+            Some("awaiting work description or task")
+        );
     }
 
     #[test]
