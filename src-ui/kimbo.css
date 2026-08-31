@@ -71,7 +71,7 @@
 
 .kimbo-overlay.heart   { top: -6px; left: 50%; animation: kimbo-float-heart 1.8s ease-out infinite; }
 .kimbo-overlay.drop    { top: 8px;  right: 14px; font-size: 20px; animation: kimbo-drop-fall 1.6s ease-in infinite; }
-.kimbo-overlay.zzz     { top: 4px;  right: 4px; font-size: 14px; color: var(--accent-blue); animation: kimbo-zzz 2.2s ease-out infinite; }
+.kimbo-overlay.zzz     { top: 4px;  right: 4px; font-size: 14px; color: var(--accent); animation: kimbo-zzz 2.2s ease-out infinite; }
 .kimbo-overlay.sparkleA { top: 10px; left: 50%; animation: kimbo-sparkle-a 1.6s ease-out infinite; }
 .kimbo-overlay.sparkleB { top: 10px; left: 50%; animation: kimbo-sparkle-b 1.6s ease-out infinite 0.4s; }
 .kimbo-overlay.question { top: -2px; right: 8px; font-weight: 700; color: var(--accent-yellow); animation: kimbo-float-heart 1.8s ease-out infinite; }

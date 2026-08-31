@@ -101,9 +101,20 @@
   --selection: color-mix(in oklab, var(--accent) 24%, transparent);
   --focus-ring: 0 0 0 3px var(--accent-tint);
 
-  /* Claude pane notification accent stripe colors. */
-  --kimbo-notify-stop: #5b9bd5;
-  --kimbo-notify-perm: #e8a33d;
+  /* Claude pane notification accent stripe colors. "stop" means "Claude
+     finished", which is ordinary good news and so belongs to the theme's own
+     colour; "perm" means "Claude is blocked on you", which is the warn
+     semantic. Both were hardcoded (a blue and an orange) and stayed put
+     through every theme switch. */
+  --kimbo-notify-stop: var(--accent);
+  --kimbo-notify-perm: var(--warn);
+
+  /* Catch-all for native form controls. WebKit paints an unstyled range,
+     checkbox or radio with the *macOS system* accent, which follows the user's
+     System Settings rather than the theme and does not move when the theme
+     does. Every control we style explicitly overrides this; this line is what
+     stops a control we forget from silently reintroducing the system blue. */
+  accent-color: var(--accent);
 }
 
 /* Density — toggled from settings via data-density on <html>. */
@@ -772,7 +783,7 @@ body {
    Visual contract: reads as a "second row" of the pane chrome. Same
    typography (mono 10.5px), same translucency-aware bg, slightly
    shorter than .pane-head to suggest hierarchy. Colors carry meaning:
-   accent-blue for actionable, accent-yellow for value/attention,
+   the theme accent for actionable, accent-yellow for value/attention,
    --fg-muted for secondary, --fg-dim for tertiary.
    --------------------------------------------------------------------- */
 .claude-hud {
@@ -809,7 +820,7 @@ body {
 }
 
 .claude-hud__badge {
-  color: var(--accent-blue);
+  color: var(--accent);
   font-size: 9px;
   line-height: 1;
   margin-right: 1px;
@@ -822,7 +833,7 @@ body {
 /* Per-field colors — the design language carries information through
    color rather than icons or borders. */
 .claude-hud__email     { color: var(--fg); }
-.claude-hud__session   { color: var(--accent-blue); }
+.claude-hud__session   { color: var(--accent); }
 .claude-hud__model     { color: var(--fg-muted); }
 .claude-hud__tokens    { color: var(--fg); }
 .claude-hud__arrow     { color: var(--fg-dim); margin-right: 1px; }
@@ -1292,6 +1303,91 @@ body {
 .select[disabled] {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Range slider (window opacity, and anything else settings.ts's `range()`
+   builds). `appearance: none` is load-bearing: a native range is painted by
+   WebKit with the system accent, and no amount of `accent-color` gives us the
+   track geometry or the light-theme groove contrast the rest of the settings
+   panel uses.
+
+   The filled portion is a hard-stop gradient driven by `--range-pct`, which
+   `range()` writes on every input event. Without the custom property there is
+   no way to two-tone the track in css alone, and the fallback (0%) degrades to
+   an unfilled groove rather than to a broken one. */
+.range {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 140px;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background-image: linear-gradient(
+    to right,
+    var(--accent) 0,
+    var(--accent) var(--range-pct, 0%),
+    var(--border-strong) var(--range-pct, 0%),
+    var(--border-strong) 100%
+  );
+}
+.range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  /* Centre the thumb on a 4px track: (4 - 12) / 2. */
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 0;
+  box-shadow: var(--shadow-sm);
+}
+.range:focus-visible {
+  outline: none;
+}
+.range:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+.range[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Checkbox. Shared by the find bar's Aa / .* toggles and the quit-confirm nag,
+   both of which were previously native (and so system-blue). Scoped to the two
+   opted-in classes rather than every `input[type=checkbox]` so a future
+   checkbox has to choose this look deliberately. */
+.find-toggle input[type="checkbox"],
+.quit-confirm-nag input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-input);
+  margin: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  color: var(--accent);
+}
+.find-toggle input[type="checkbox"]:checked,
+.quit-confirm-nag input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.find-toggle input[type="checkbox"]:checked::after,
+.quit-confirm-nag input[type="checkbox"]:checked::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--bg-elevated);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%);
 }
 
 /* Toggle */
@@ -2317,31 +2413,6 @@ body {
   cursor: pointer;
   padding: 4px 0;
 }
-.quit-confirm-nag input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  background: var(--bg-input);
-  margin: 0;
-  cursor: pointer;
-  display: inline-grid;
-  place-content: center;
-  color: var(--accent);
-}
-.quit-confirm-nag input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.quit-confirm-nag input[type="checkbox"]:checked::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  background: var(--bg-elevated);
-  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%);
-}
 .quit-confirm-actions {
   display: flex;
   justify-content: flex-end;
@@ -2391,7 +2462,7 @@ body {
   font-weight: 600;
 }
 .toast--success .toast__icon { color: var(--accent-green); }
-.toast--info    .toast__icon { color: var(--accent-blue); }
+.toast--info    .toast__icon { color: var(--accent); }
 .toast--error   .toast__icon { color: var(--accent-red); }
 
 .toast__body {
