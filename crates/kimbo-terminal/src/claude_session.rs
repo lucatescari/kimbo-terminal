@@ -279,6 +279,129 @@ pub fn probe_claude_status_for_pid(root: u32) -> Option<ClaudeStatus> {
     None
 }
 
+// ---------------------------------------------------------------------------
+// Tab activity states
+// ---------------------------------------------------------------------------
+
+/// A background job as the frontend sees it. `JobState` minus the parent id,
+/// which has already been consumed to decide which PTY the job belongs to.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BackgroundJobState {
+    pub session_id: String,
+    pub tempo: Option<String>,
+    pub in_flight_tasks: u32,
+    pub updated_at: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// Raw Claude Code state for one PTY. Deliberately uninterpreted: every
+/// decision about what counts as busy lives in `src-ui/claude-activity.ts`,
+/// where it is a pure function with tests.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PtyClaudeState {
+    pub pty_id: u32,
+    pub session_id: String,
+    pub status: Option<String>,
+    pub waiting_for: Option<String>,
+    pub status_updated_at_ms: Option<u64>,
+    pub background: Vec<BackgroundJobState>,
+}
+
+/// Attach each background job to the PTY whose session forked it. Pure, so
+/// the attribution rules are testable without a process table.
+///
+/// A job with no matching parent among `sessions` is dropped rather than
+/// attributed by cwd: two panes in the same directory would both claim it.
+pub(crate) fn attach_background(
+    sessions: Vec<(u32, PidSession)>,
+    jobs: &[JobState],
+) -> Vec<PtyClaudeState> {
+    sessions
+        .into_iter()
+        .map(|(pty_id, session)| {
+            let background = jobs
+                .iter()
+                .filter(|j| j.fork_parent_session_id == session.session_id)
+                .map(|j| BackgroundJobState {
+                    session_id: j.session_id.clone(),
+                    tempo: j.tempo.clone(),
+                    in_flight_tasks: j.in_flight_tasks,
+                    updated_at: j.updated_at.clone(),
+                    detail: j.detail.clone(),
+                })
+                .collect();
+            PtyClaudeState {
+                pty_id,
+                session_id: session.session_id,
+                status: session.status,
+                waiting_for: session.waiting_for,
+                status_updated_at_ms: session.status_updated_at_ms,
+                background,
+            }
+        })
+        .collect()
+}
+
+/// Read every background job on disk. Missing directory yields an empty vec;
+/// an unreadable or malformed file is skipped rather than failing the batch.
+fn read_all_jobs(home: &str) -> Vec<JobState> {
+    let dir = PathBuf::from(home).join(".claude").join("jobs");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path().join("state.json");
+        if let Ok(body) = std::fs::read_to_string(&path) {
+            if let Some(job) = parse_job_state(&body) {
+                out.push(job);
+            }
+        }
+    }
+    out
+}
+
+/// Live Claude Code state for a batch of PTYs.
+///
+/// `pty_pids` is `(pty_id, root_pid)` pairs. One `ps` snapshot serves the
+/// whole batch, which is the point: the per-pane probes this replaces each
+/// shelled out to `ps` separately, so covering every pane in every tab now
+/// costs less process-table work than covering only the visible ones did.
+///
+/// A PTY with no Claude session is omitted from the result rather than
+/// returned as an empty entry.
+pub fn probe_claude_tab_states(pty_pids: &[(u32, u32)]) -> Vec<PtyClaudeState> {
+    if pty_pids.is_empty() {
+        return Vec::new();
+    }
+    let Ok(home) = std::env::var("HOME") else {
+        return Vec::new();
+    };
+    let deadline = Instant::now() + PROBE_BUDGET;
+    let Some(ps_out) = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline) else {
+        return Vec::new();
+    };
+
+    let jobs = read_all_jobs(&home);
+    let sessions_dir = PathBuf::from(&home).join(".claude").join("sessions");
+
+    let mut sessions: Vec<(u32, PidSession)> = Vec::new();
+    for &(pty_id, root_pid) in pty_pids {
+        for (pid, _args) in parse_descendants_with_args(&ps_out, root_pid) {
+            let path = sessions_dir.join(format!("{}.json", pid));
+            let Ok(body) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Some(session) = parse_pid_json(&body) {
+                sessions.push((pty_id, session));
+                break; // first claude descendant wins, as elsewhere in this file
+            }
+        }
+    }
+
+    attach_background(sessions, &jobs)
+}
+
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
 /// `args` may contain spaces (it's the rest of the line).
 fn parse_ps_line(line: &str) -> Option<(u32, u32, &str)> {
@@ -1042,5 +1165,76 @@ not-json-at-all\n\
     fn parse_job_state_returns_none_for_junk() {
         assert!(parse_job_state("not json").is_none());
         assert!(parse_job_state("{}").is_none());
+    }
+
+    // ---- attach_background ----
+
+    fn pid_session(session_id: &str, status: &str) -> PidSession {
+        PidSession {
+            session_id: session_id.to_string(),
+            cwd: None,
+            started_at_ms: 0,
+            status: Some(status.to_string()),
+            waiting_for: None,
+            status_updated_at_ms: None,
+        }
+    }
+
+    fn job(session_id: &str, parent: &str, tempo: &str) -> JobState {
+        JobState {
+            session_id: session_id.to_string(),
+            fork_parent_session_id: parent.to_string(),
+            tempo: Some(tempo.to_string()),
+            in_flight_tasks: 0,
+            updated_at: Some("2026-08-31T12:00:00.000Z".to_string()),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn attach_background_pairs_a_job_with_its_forking_session() {
+        let sessions = vec![(7, pid_session("parent-a", "idle"))];
+        let jobs = vec![job("job-1", "parent-a", "active")];
+        let out = attach_background(sessions, &jobs);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].pty_id, 7);
+        assert_eq!(out[0].status.as_deref(), Some("idle"));
+        assert_eq!(out[0].background.len(), 1);
+        assert_eq!(out[0].background[0].session_id, "job-1");
+        assert_eq!(out[0].background[0].tempo.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn attach_background_ignores_a_job_belonging_to_another_session() {
+        let sessions = vec![(7, pid_session("parent-a", "idle"))];
+        let jobs = vec![job("job-1", "someone-else", "active")];
+        let out = attach_background(sessions, &jobs);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].background.is_empty());
+    }
+
+    #[test]
+    fn attach_background_gives_each_pty_only_its_own_jobs() {
+        let sessions = vec![
+            (7, pid_session("parent-a", "idle")),
+            (9, pid_session("parent-b", "busy")),
+        ];
+        let jobs = vec![
+            job("job-1", "parent-a", "active"),
+            job("job-2", "parent-b", "blocked"),
+            job("job-3", "parent-a", "idle"),
+        ];
+        let out = attach_background(sessions, &jobs);
+        let a = out.iter().find(|s| s.pty_id == 7).unwrap();
+        let b = out.iter().find(|s| s.pty_id == 9).unwrap();
+        assert_eq!(a.background.len(), 2);
+        assert_eq!(b.background.len(), 1);
+        assert_eq!(b.background[0].session_id, "job-2");
+    }
+
+    #[test]
+    fn attach_background_returns_empty_for_no_sessions() {
+        let out = attach_background(Vec::new(), &[job("job-1", "parent-a", "active")]);
+        assert!(out.is_empty());
     }
 }
