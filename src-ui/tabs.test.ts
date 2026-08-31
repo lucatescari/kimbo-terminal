@@ -109,6 +109,15 @@ vi.mock("./pty", () => ({
   onPtyExit: vi.fn().mockResolvedValue(() => {}),
 }));
 
+// Mocked so a test can prove renderTabBar() did NOT run: renderTabBar calls
+// renderTitle at its end, whereas setTabActivity patches the button in place
+// and never does. Identity of the tab element cannot distinguish the two,
+// because renderTabBar reuses cached elements.
+vi.mock("./title-bar", () => ({
+  initTitleBar: vi.fn(),
+  renderTitle: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Test harness: rebuild DOM + re-import modules before every test so the
 // internal tabs[]/tree state is never stale.
@@ -1071,5 +1080,117 @@ describe("high-frequency title updates (codex title spinner)", () => {
     const inputAfter = h.tabBar.querySelector<HTMLInputElement>(".tab-rename-input");
     expect(inputAfter).toBe(input);
     expect(inputAfter!.value).toBe("my name");
+  });
+});
+
+describe("tab activity dot", () => {
+  it("enumerates every pty across every tab, not just the active one", async () => {
+    // Background tabs are the whole point: they are the ones the HUD poll
+    // skips, so an indicator has to see them.
+    const h = await mount();
+    await h.tabs.createTab();
+    await h.tabs.createTab();
+
+    const refs = h.tabs.allTabPtys();
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+    const activeId = h.tabs.getActiveTab()!.id;
+    expect(refs.some((r) => r.tabId !== activeId)).toBe(true);
+    for (const r of refs) expect(typeof r.ptyId).toBe("number");
+  });
+
+  it("collects every pty in a split tab, not just the active pane", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    await h.panes.splitActive("vertical");
+
+    const tabId = h.tabs.getActiveTab()!.id;
+    const refs = h.tabs.allTabPtys().filter((r) => r.tabId === tabId);
+    expect(refs.length).toBe(2);
+  });
+
+  it("publishes the activity as a data attribute on the tab", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabActivity(tabId, { activity: "busy", reason: null });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBe("busy");
+    expect(el.querySelector(".tab-activity")).not.toBeNull();
+  });
+
+  it("drops the attribute entirely for none, so no dot renders", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabActivity(tabId, { activity: "busy", reason: null });
+    h.tabs.setTabActivity(tabId, { activity: "none", reason: null });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBeUndefined();
+  });
+
+  it("appends the reason to the tooltip without an em dash", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabActivity(tabId, { activity: "waiting", reason: "needs permission" });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.title).toContain("needs permission");
+    expect(el.title).not.toContain("—");
+  });
+
+  it("skips all work when the activity is unchanged", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+    const titleBar = await import("./title-bar");
+
+    h.tabs.setTabActivity(tabId, { activity: "busy", reason: null });
+    (titleBar.renderTitle as any).mockClear();
+    h.tabs.setTabActivity(tabId, { activity: "busy", reason: null });
+
+    expect(titleBar.renderTitle as any).not.toHaveBeenCalled();
+  });
+
+  it("patches the button in place instead of rebuilding the bar", async () => {
+    // This runs every 2s per tab. A full renderTabBar() would cancel drags,
+    // re-scroll the bar and re-render the title bar on every tick, and would
+    // destroy the button under the cursor — the same hazard setTabTitle
+    // avoids. renderTitle is the discriminator: renderTabBar calls it,
+    // setTabActivity does not.
+    const h = await mount();
+    await h.tabs.createTab();
+    const tabId = h.tabs.getActiveTab()!.id;
+    const titleBar = await import("./title-bar");
+
+    h.tabs.setTabActivity(tabId, { activity: "busy", reason: null });
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    (titleBar.renderTitle as any).mockClear();
+
+    // A genuinely different activity, so the early-return does not fire and
+    // the patch branch is actually exercised.
+    h.tabs.setTabActivity(tabId, { activity: "waiting", reason: "needs permission" });
+
+    expect(titleBar.renderTitle as any).not.toHaveBeenCalled();
+    expect(h.tabBar.querySelector(`[data-tab-id="${tabId}"]`)).toBe(el);
+    expect(el.dataset.activity).toBe("waiting");
+  });
+
+  it("forgets a closed tab's activity", async () => {
+    const h = await mount();
+    const a = await h.tabs.createTab();
+    await h.tabs.createTab();
+
+    h.tabs.setTabActivity(a.id, { activity: "busy", reason: null });
+    h.tabs.setTabBadge(a.id, "stop");
+    await h.tabs.closeTab(a.id);
+
+    expect(h.tabs.getTabActivity(a.id)).toEqual({ activity: "none", reason: null });
+    expect(h.tabs.getTabBadge(a.id)).toBeNull();
   });
 });
