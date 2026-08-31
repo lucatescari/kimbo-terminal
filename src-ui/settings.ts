@@ -1867,11 +1867,25 @@ function numInput(
 function range(value: number, min: number, max: number, step: number, onChange: (v: number) => void): HTMLElement {
   const i = document.createElement("input");
   i.type = "range";
+  i.className = "range";
   i.min = String(min);
   i.max = String(max);
   i.step = String(step);
   i.value = String(value);
-  i.addEventListener("input", () => onChange(parseFloat(i.value)));
+  // The track's accent-filled portion is a css gradient stop, so the browser
+  // needs the value as a percentage. A native range paints its own fill with
+  // the macOS system accent, which is why .range takes the control over with
+  // `appearance: none` and needs this to two-tone the track at all.
+  const syncFill = () => {
+    const span = max - min;
+    const pct = span > 0 ? ((parseFloat(i.value) - min) / span) * 100 : 0;
+    i.style.setProperty("--range-pct", `${Math.max(0, Math.min(100, pct))}%`);
+  };
+  syncFill();
+  i.addEventListener("input", () => {
+    syncFill();
+    onChange(parseFloat(i.value));
+  });
   return i;
 }
 

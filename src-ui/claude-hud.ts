@@ -39,7 +39,7 @@ export function renderClaudeHud(
     return s;
   };
 
-  // Leading "this is claude" mark — small accent-blue glyph anchoring the
+  // Leading "this is claude" mark — small theme-accent glyph anchoring the
   // strip so it reads as a feature surface rather than another pane-head row.
   const badge = document.createElement("span");
   badge.className = "claude-hud__badge";

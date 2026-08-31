@@ -315,4 +315,23 @@ describe("settings modal: Background opacity row", () => {
     const wrap = slider!.parentElement!;
     expect(wrap.querySelector(".cs-tag")).not.toBeNull();
   });
+
+  // The accent-filled portion of the track is a css gradient stop, so the
+  // percentage has to come from js. Without it the slider renders as an
+  // unfilled groove — which is exactly what the browser test cannot catch,
+  // since it can only assert that the *rule* references --range-pct.
+  it("publishes the value as --range-pct for the accent track fill", async () => {
+    await openSettingsToCategory("general");
+    const slider = document.querySelector<HTMLInputElement>(
+      'input[type="range"][min="0"][max="100"]'
+    )!;
+    expect(slider.classList.contains("range")).toBe(true);
+
+    // min=0 max=100, so the percentage is the value.
+    expect(slider.style.getPropertyValue("--range-pct")).toBe(`${slider.value}%`);
+
+    slider.value = "35";
+    slider.dispatchEvent(new Event("input"));
+    expect(slider.style.getPropertyValue("--range-pct")).toBe("35%");
+  });
 });
