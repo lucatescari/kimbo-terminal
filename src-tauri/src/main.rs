@@ -337,6 +337,7 @@ fn main() {
             commands::pty::pty_is_busy,
             commands::claude::probe_claude_session,
             commands::claude::claude_status,
+            commands::claude::claude_tab_states,
             commands::claude::claude_account_info,
             commands::claude::claude_agents,
             commands::claude::claude_session_origin,

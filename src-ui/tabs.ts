@@ -1,4 +1,5 @@
 import { getCwd } from "./pty";
+import type { PaneActivity } from "./claude-activity";
 import { isActivatingClick } from "./window-activation";
 import {
   initPanes,
@@ -69,6 +70,92 @@ let renamingTabId: number | null = null;
 
 type BadgeKind = "stop" | "perm" | "bell" | null;
 const tabBadge: Map<number, BadgeKind> = new Map();
+
+/** Live Claude activity per tab, painted by setTabActivity. Separate from
+ *  tabBadge on purpose: a badge means "something happened while you were
+ *  elsewhere" and is cleared by visiting the tab, whereas this is "what is
+ *  true right now" and is owned entirely by the poll. */
+const tabActivityState = new Map<number, PaneActivity>();
+const NO_ACTIVITY: PaneActivity = { activity: "none", reason: null };
+
+/** A tab id paired with one of its PTY ids. */
+export interface TabPtyRef {
+  tabId: number;
+  ptyId: number;
+}
+
+/** Every PTY in every tab, including background tabs. The activity poll needs
+ *  all of them; the HUD poll deliberately sees only the visible ones. */
+export function allTabPtys(): TabPtyRef[] {
+  const out: TabPtyRef[] = [];
+  for (const t of tabs) {
+    const tree = t.id === activeTabId ? getTree() : t.treeSnapshot;
+    collectPtys(tree, t.id, out);
+  }
+  return out;
+}
+
+function collectPtys(node: any, tabId: number, out: TabPtyRef[]): void {
+  if (!node) return;
+  if (node.type === "leaf") {
+    const ptyId = node.session?.ptyId;
+    if (typeof ptyId === "number") out.push({ tabId, ptyId });
+    return;
+  }
+  collectPtys(node.first, tabId, out);
+  collectPtys(node.second, tabId, out);
+}
+
+/** Read-only, for tests. The poll never calls this — setTabActivity compares
+ *  against the private tabActivityState map itself. */
+export function getTabActivity(tabId: number): PaneActivity {
+  return tabActivityState.get(tabId) ?? NO_ACTIVITY;
+}
+
+/** Paint one tab's activity. Patches the existing button in place rather than
+ *  calling renderTabBar(): this runs every 2s per tab, and a full innerHTML
+ *  reconcile would restart hover transitions and swallow clicks whose
+ *  mousedown/mouseup straddle a rebuild. Same reasoning as setTabTitle. */
+export function setTabActivity(tabId: number, activity: PaneActivity): void {
+  const prev = tabActivityState.get(tabId) ?? NO_ACTIVITY;
+  if (prev.activity === activity.activity && prev.reason === activity.reason) return;
+  tabActivityState.set(tabId, activity);
+  const tab = findTabById(tabId);
+  if (!tab) return;
+  const el = tabBarEl?.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
+  if (!el) {
+    renderTabBar();
+    return;
+  }
+  applyActivity(el, tab, activity);
+}
+
+/** `activity.reason` is `waiting_for` or a background job's `detail`, both
+ *  written by Claude Code on disk, not by this app. It lands in `el.title`
+ *  below as a plain property assignment (never `innerHTML`), so this is not
+ *  a security boundary — but nothing stops Claude Code from writing a
+ *  multi-line or very long value, which would otherwise produce a native
+ *  tooltip of arbitrary size. */
+const MAX_REASON_CHARS = 120;
+
+/** Exported for tests. */
+export function truncateReason(reason: string): string {
+  if (reason.length <= MAX_REASON_CHARS) return reason;
+  return `${reason.slice(0, MAX_REASON_CHARS - 1)}…`;
+}
+
+function applyActivity(el: HTMLElement, tab: Tab, activity: PaneActivity): void {
+  if (activity.activity === "none") {
+    delete el.dataset.activity;
+  } else {
+    el.dataset.activity = activity.activity;
+  }
+  const displayName = tabDisplayName(tab);
+  const reason = activity.reason ? truncateReason(activity.reason) : null;
+  // No em dash: this string is read by the user.
+  const title = reason ? `${displayName} (${reason})` : displayName;
+  if (el.title !== title) el.title = title;
+}
 
 /** Set the badge state for a tab. Permission wins over stop/bell; stop wins
  *  over bell. Pass null to clear. Triggers a tab-bar re-render. */
@@ -277,6 +364,10 @@ export async function closeTab(id: number): Promise<void> {
 
   tab.container.remove();
   tabs.splice(idx, 1);
+  // Both maps are keyed by tab id and nothing else prunes them, so a long
+  // session of opening and closing tabs would leak an entry each time.
+  tabActivityState.delete(id);
+  tabBadge.delete(id);
 
   if (activeTabId === id) {
     const newActive = tabs[Math.min(idx, tabs.length - 1)];
@@ -663,6 +754,12 @@ function createTabEl(tabId: number): HTMLElement {
   idx.className = "tab-index";
   el.appendChild(idx);
 
+  // Always present; css hides it when [data-activity] is absent, so appearing
+  // and disappearing costs no layout shift.
+  const dot = document.createElement("span");
+  dot.className = "tab-activity";
+  el.appendChild(dot);
+
   const label = document.createElement("span");
   label.className = "tab-label";
   el.appendChild(label);
@@ -709,7 +806,7 @@ function updateTabEl(el: HTMLElement, tab: Tab, index: number) {
   el.dataset.tabIndex = String(index);
 
   const displayName = tabDisplayName(tab);
-  if (el.title !== displayName) el.title = displayName;
+  applyActivity(el, tab, tabActivityState.get(tab.id) ?? NO_ACTIVITY);
 
   const idx = el.querySelector<HTMLElement>(".tab-index")!;
   const idxText = String(index + 1);
@@ -795,6 +892,27 @@ function scrollActiveTabIntoView() {
   }
 }
 
+/** Claude Code's terminal-title prefix. Two frames alternating at 960ms while
+ *  it is working, plus a static mark when it is not:
+ *
+ *      var sB = ["◐", "◑"], lB = "✳", uTe = 960;
+ *
+ *  Kimbo now shows that state as a styled dot, so the glyph is redundant. It
+ *  is also actively harmful: it changes the label's width once a second, which
+ *  jitters the whole tab bar and forces a repaint plus a scroll-arrow
+ *  re-measure on every frame.
+ *
+ *  Deliberately narrow: exactly those three characters, only at position
+ *  zero, only when followed by a space. Another TUI's spinner is left alone. */
+const CLAUDE_TITLE_GLYPHS = ["◐ ", "◑ ", "✳ "];
+
+export function stripActivityGlyph(title: string): string {
+  for (const g of CLAUDE_TITLE_GLYPHS) {
+    if (title.startsWith(g)) return title.slice(g.length);
+  }
+  return title;
+}
+
 /** Override or clear the title for a given session's tab. Pass null to revert
     to the default tab name. The argument is the *terminal session* id (not
     the tab id) since OSC 0/2 fires from a terminal.
@@ -808,7 +926,10 @@ function scrollActiveTabIntoView() {
 export function setTabTitle(sessionId: number, title: string | null): void {
   const tab = findTabBySessionId(sessionId);
   if (!tab) return;
-  const next = title ?? undefined;
+  // Strip before the equality check below, so a title that alternates only in
+  // its glyph compares equal and costs no repaint at all.
+  const stripped = title === null ? null : stripActivityGlyph(title);
+  const next = stripped ? stripped : undefined;
   if (tab.titleOverride === next) return;
   tab.titleOverride = next;
   updateTabButtonInPlace(tab);
@@ -824,7 +945,7 @@ function updateTabButtonInPlace(tab: Tab): void {
     return;
   }
   const displayName = tabDisplayName(tab);
-  el.title = displayName;
+  applyActivity(el, tab, tabActivityState.get(tab.id) ?? NO_ACTIVITY);
   const label = el.querySelector<HTMLElement>(".tab-label");
   // Leave the label alone while an inline rename <input> owns it; the next
   // full render repaints the display name after the rename commits.

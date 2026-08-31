@@ -41,6 +41,17 @@ pub struct PidSession {
     pub session_id: String,
     pub cwd: Option<String>,
     pub started_at_ms: u64,
+    /// Claude Code's own live status for this session. Verbatim, not
+    /// interpreted here: `"busy"`, `"idle"`, `"waiting"`, and `"shell"` are
+    /// all observed, and the set is Claude Code's to grow. `busy` is
+    /// `isLoading || delegatedActive`, so it already covers a turn parked in
+    /// a Task call while subagents work.
+    pub status: Option<String>,
+    /// Why the session is waiting, when `status == "waiting"`. Human-readable
+    /// and shown in a tooltip: "input needed", "worker request",
+    /// "sandbox request", "dialog open", or a dialog's own label.
+    pub waiting_for: Option<String>,
+    pub status_updated_at_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -50,6 +61,11 @@ struct PidSessionRaw {
     cwd: Option<String>,
     #[serde(default, rename = "startedAt")]
     started_at_ms: u64,
+    status: Option<String>,
+    #[serde(rename = "waitingFor")]
+    waiting_for: Option<String>,
+    #[serde(rename = "statusUpdatedAt")]
+    status_updated_at_ms: Option<u64>,
 }
 
 /// Parse a `~/.claude/sessions/<pid>.json` body. Returns `None` on
@@ -62,6 +78,68 @@ pub(crate) fn parse_pid_json(body: &str) -> Option<PidSession> {
         session_id,
         cwd: raw.cwd,
         started_at_ms: raw.started_at_ms,
+        status: raw.status,
+        waiting_for: raw.waiting_for,
+        status_updated_at_ms: raw.status_updated_at_ms,
+    })
+}
+
+/// One background Claude Code session, from `~/.claude/jobs/<short>/state.json`.
+///
+/// These are the sessions `/fork` creates. They outlive the turn that spawned
+/// them, which is why a pane can look idle while work is still running: the
+/// `Stop` hook fires for the interactive session and says nothing about these.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobState {
+    pub session_id: String,
+    /// The interactive session that forked this job. Required: without it
+    /// there is nothing to attribute the job to, and matching by cwd instead
+    /// is wrong whenever two panes share a directory.
+    pub fork_parent_session_id: String,
+    /// `"active"`, `"blocked"`, or `"idle"`. The reliable tri-state; the
+    /// sibling `state` field is an open vocabulary (`blocked`, `failed`,
+    /// `running`, ...) and is deliberately not read.
+    pub tempo: Option<String>,
+    pub in_flight_tasks: u32,
+    /// ISO 8601, verbatim. Kept as a string because this crate has no date
+    /// dependency and `Date.parse` handles it for free on the JS side.
+    pub updated_at: Option<String>,
+    pub detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct JobStateRaw {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(rename = "forkParentSessionId")]
+    fork_parent_session_id: Option<String>,
+    tempo: Option<String>,
+    #[serde(rename = "inFlight")]
+    in_flight: Option<InFlightRaw>,
+    #[serde(rename = "updatedAt")]
+    updated_at: Option<String>,
+    detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InFlightRaw {
+    #[serde(default)]
+    tasks: u32,
+}
+
+/// Parse a `~/.claude/jobs/<short>/state.json` body. Returns `None` on
+/// malformed JSON, a missing `sessionId`, or a missing
+/// `forkParentSessionId` — the last of which is a deliberate drop, not an
+/// error.
+pub(crate) fn parse_job_state(body: &str) -> Option<JobState> {
+    let raw: JobStateRaw = serde_json::from_str(body).ok()?;
+    Some(JobState {
+        session_id: raw.session_id?,
+        fork_parent_session_id: raw.fork_parent_session_id?,
+        tempo: raw.tempo,
+        in_flight_tasks: raw.in_flight.map(|f| f.tasks).unwrap_or(0),
+        updated_at: raw.updated_at,
+        detail: raw.detail,
     })
 }
 
@@ -199,6 +277,134 @@ pub fn probe_claude_status_for_pid(root: u32) -> Option<ClaudeStatus> {
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Tab activity states
+// ---------------------------------------------------------------------------
+
+/// A background job as the frontend sees it. `JobState` minus the parent id,
+/// which has already been consumed to decide which PTY the job belongs to.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BackgroundJobState {
+    pub session_id: String,
+    pub tempo: Option<String>,
+    pub in_flight_tasks: u32,
+    pub updated_at: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// Raw Claude Code state for one PTY. Deliberately uninterpreted: every
+/// decision about what counts as busy lives in `src-ui/claude-activity.ts`,
+/// where it is a pure function with tests.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PtyClaudeState {
+    pub pty_id: u32,
+    pub session_id: String,
+    pub status: Option<String>,
+    pub waiting_for: Option<String>,
+    pub status_updated_at_ms: Option<u64>,
+    pub background: Vec<BackgroundJobState>,
+}
+
+/// Attach each background job to the PTY whose session forked it. Pure, so
+/// the attribution rules are testable without a process table.
+///
+/// A job with no matching parent among `sessions` is dropped rather than
+/// attributed by cwd: two panes in the same directory would both claim it.
+pub(crate) fn attach_background(
+    sessions: Vec<(u32, PidSession)>,
+    jobs: &[JobState],
+) -> Vec<PtyClaudeState> {
+    sessions
+        .into_iter()
+        .map(|(pty_id, session)| {
+            let background = jobs
+                .iter()
+                .filter(|j| j.fork_parent_session_id == session.session_id)
+                .map(|j| BackgroundJobState {
+                    session_id: j.session_id.clone(),
+                    tempo: j.tempo.clone(),
+                    in_flight_tasks: j.in_flight_tasks,
+                    updated_at: j.updated_at.clone(),
+                    detail: j.detail.clone(),
+                })
+                .collect();
+            PtyClaudeState {
+                pty_id,
+                session_id: session.session_id,
+                status: session.status,
+                waiting_for: session.waiting_for,
+                status_updated_at_ms: session.status_updated_at_ms,
+                background,
+            }
+        })
+        .collect()
+}
+
+/// Read every background job on disk. Missing directory yields an empty vec;
+/// an unreadable or malformed file is skipped rather than failing the batch.
+fn read_all_jobs(home: &str) -> Vec<JobState> {
+    let dir = PathBuf::from(home).join(".claude").join("jobs");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path().join("state.json");
+        if let Ok(body) = std::fs::read_to_string(&path) {
+            if let Some(job) = parse_job_state(&body) {
+                out.push(job);
+            }
+        }
+    }
+    out
+}
+
+/// Live Claude Code state for a batch of PTYs.
+///
+/// `pty_pids` is `(pty_id, root_pid)` pairs. One `ps` snapshot serves the
+/// whole batch, which is the point: the per-pane probes this replaces each
+/// shelled out to `ps` separately, so covering every pane in every tab now
+/// costs less process-table work than covering only the visible ones did.
+///
+/// A PTY with no Claude session is omitted from the result rather than
+/// returned as an empty entry.
+///
+/// Returns `None` when the probe learned nothing at all (no `HOME`, or the
+/// `ps` snapshot missed `PROBE_BUDGET`) so the caller can tell "we don't
+/// know" apart from `Some(vec![])`, the genuine "no Claude anywhere" answer.
+/// Collapsing those into the same empty `Vec` made a slow `ps` on a loaded
+/// machine look identical to every tab's Claude session having vanished —
+/// see `claude_tab_states` in `src-tauri/src/commands/claude.rs` and
+/// `runTick` in `src-ui/tab-activity.ts` for how each side holds last state
+/// on `None` instead of painting `none`.
+pub fn probe_claude_tab_states(pty_pids: &[(u32, u32)]) -> Option<Vec<PtyClaudeState>> {
+    if pty_pids.is_empty() {
+        return Some(Vec::new());
+    }
+    let home = std::env::var("HOME").ok()?;
+    let deadline = Instant::now() + PROBE_BUDGET;
+    let ps_out = run_with_deadline("ps", &["-axo", "pid=,ppid=,args="], deadline)?;
+
+    let jobs = read_all_jobs(&home);
+    let sessions_dir = PathBuf::from(&home).join(".claude").join("sessions");
+
+    let mut sessions: Vec<(u32, PidSession)> = Vec::new();
+    for &(pty_id, root_pid) in pty_pids {
+        for (pid, _args) in parse_descendants_with_args(&ps_out, root_pid) {
+            let path = sessions_dir.join(format!("{}.json", pid));
+            let Ok(body) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Some(session) = parse_pid_json(&body) {
+                sessions.push((pty_id, session));
+                break; // first claude descendant wins, as elsewhere in this file
+            }
+        }
+    }
+
+    Some(attach_background(sessions, &jobs))
 }
 
 /// Parse one `ps -axo pid=,ppid=,args=` line into `(pid, ppid, args)`.
@@ -712,6 +918,56 @@ junk junk
         assert_eq!(got.started_at_ms, 42);
     }
 
+    #[test]
+    fn parse_pid_json_reads_status_fields() {
+        // Shape taken verbatim from a live ~/.claude/sessions/<pid>.json.
+        let body = r#"{
+            "pid": 7496,
+            "sessionId": "1af5d332-cf0e-49ea-b7ee-9e1027a6c88d",
+            "cwd": "/Users/u/proj",
+            "startedAt": 1788192356257,
+            "kind": "interactive",
+            "status": "busy",
+            "updatedAt": 1788192511101,
+            "statusUpdatedAt": 1788192511101
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.session_id, "1af5d332-cf0e-49ea-b7ee-9e1027a6c88d");
+        assert_eq!(got.status.as_deref(), Some("busy"));
+        assert_eq!(got.status_updated_at_ms, Some(1788192511101));
+        assert_eq!(got.waiting_for, None);
+    }
+
+    #[test]
+    fn parse_pid_json_reads_waiting_for() {
+        let body = r#"{
+            "sessionId": "abc",
+            "status": "waiting",
+            "waitingFor": "input needed"
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.status.as_deref(), Some("waiting"));
+        assert_eq!(got.waiting_for.as_deref(), Some("input needed"));
+    }
+
+    #[test]
+    fn parse_pid_json_tolerates_a_file_with_no_status_fields() {
+        // Older Claude Code versions, and any future rename, must keep the
+        // three original fields working rather than failing the whole parse.
+        let body = r#"{
+            "sessionId": "abc",
+            "cwd": "/tmp/x",
+            "startedAt": 42
+        }"#;
+        let got = parse_pid_json(body).expect("happy path");
+        assert_eq!(got.session_id, "abc");
+        assert_eq!(got.cwd.as_deref(), Some("/tmp/x"));
+        assert_eq!(got.started_at_ms, 42);
+        assert_eq!(got.status, None);
+        assert_eq!(got.waiting_for, None);
+        assert_eq!(got.status_updated_at_ms, None);
+    }
+
     // -----------------------------------------------------------------
     // accumulate_jsonl_stats
     // -----------------------------------------------------------------
@@ -849,5 +1105,200 @@ not-json-at-all\n\
             None => unsafe { std::env::remove_var("HOME") },
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // parse_job_state
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_job_state_reads_a_live_forked_job() {
+        // Shape taken verbatim from a live ~/.claude/jobs/<short>/state.json.
+        let body = r#"{
+            "state": "blocked",
+            "detail": "awaiting work description or task",
+            "tempo": "blocked",
+            "inFlight": { "tasks": 2, "queued": 0, "kinds": [], "drainableMonitors": 0 },
+            "sessionId": "21259340-a8c8-4b0d-8b7b-95a5679175c9",
+            "cwd": "/Users/u/proj",
+            "forkParentSessionId": "08d0883d-c1ff-44ae-b972-ea8e9b4d3b1b",
+            "interactiveLineage": true,
+            "updatedAt": "2026-08-20T12:32:06.282Z"
+        }"#;
+        let got = parse_job_state(body).expect("happy path");
+        assert_eq!(got.session_id, "21259340-a8c8-4b0d-8b7b-95a5679175c9");
+        assert_eq!(
+            got.fork_parent_session_id,
+            "08d0883d-c1ff-44ae-b972-ea8e9b4d3b1b"
+        );
+        assert_eq!(got.tempo.as_deref(), Some("blocked"));
+        assert_eq!(got.in_flight_tasks, 2);
+        assert_eq!(got.updated_at.as_deref(), Some("2026-08-20T12:32:06.282Z"));
+        assert_eq!(
+            got.detail.as_deref(),
+            Some("awaiting work description or task")
+        );
+    }
+
+    #[test]
+    fn parse_job_state_drops_a_job_with_no_fork_parent() {
+        // Without a parent there is no pane to attribute the job to, and
+        // guessing by cwd is exactly the wrong answer when two panes share a
+        // directory. Dropping is the honest outcome.
+        let body = r#"{
+            "sessionId": "abc",
+            "tempo": "active",
+            "updatedAt": "2026-08-20T12:32:06.282Z"
+        }"#;
+        assert!(parse_job_state(body).is_none());
+    }
+
+    #[test]
+    fn parse_job_state_defaults_in_flight_tasks_when_absent() {
+        // The `state: failed` / `tempo: idle` shape, also taken from disk. It
+        // has no inFlight block at all.
+        let body = r#"{
+            "state": "failed",
+            "tempo": "idle",
+            "sessionId": "c6b15c14-7337-4b00-a733-e883c536e479",
+            "forkParentSessionId": "parent-1",
+            "updatedAt": "2026-08-20T12:30:39.083Z"
+        }"#;
+        let got = parse_job_state(body).expect("happy path");
+        assert_eq!(got.in_flight_tasks, 0);
+        assert_eq!(got.tempo.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn parse_job_state_returns_none_for_junk() {
+        assert!(parse_job_state("not json").is_none());
+        assert!(parse_job_state("{}").is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // read_all_jobs
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn read_all_jobs_returns_empty_for_missing_jobs_dir() {
+        // unique_temp_subdir creates `home` itself but never `home/.claude/jobs`.
+        let home = unique_temp_subdir("read-all-jobs-missing");
+        let got = read_all_jobs(home.to_str().expect("utf8 path"));
+        assert!(got.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn read_all_jobs_skips_malformed_files_and_dirs_with_no_state_json() {
+        let home = unique_temp_subdir("read-all-jobs-mixed");
+        let jobs_dir = home.join(".claude").join("jobs");
+
+        // One valid job.
+        let valid_dir = jobs_dir.join("job-valid");
+        std::fs::create_dir_all(&valid_dir).expect("create valid job dir");
+        std::fs::write(
+            valid_dir.join("state.json"),
+            r#"{
+                "sessionId": "job-1",
+                "forkParentSessionId": "parent-a",
+                "tempo": "active",
+                "inFlight": { "tasks": 1 },
+                "updatedAt": "2026-08-31T12:00:00.000Z",
+                "detail": "working"
+            }"#,
+        )
+        .expect("write valid state.json");
+
+        // One malformed job: unparseable JSON.
+        let malformed_dir = jobs_dir.join("job-malformed");
+        std::fs::create_dir_all(&malformed_dir).expect("create malformed job dir");
+        std::fs::write(malformed_dir.join("state.json"), "not json")
+            .expect("write malformed state.json");
+
+        // One job directory with no state.json at all.
+        let no_state_dir = jobs_dir.join("job-no-state");
+        std::fs::create_dir_all(&no_state_dir).expect("create job dir with no state.json");
+
+        let got = read_all_jobs(home.to_str().expect("utf8 path"));
+        assert_eq!(
+            got.len(),
+            1,
+            "expected only the one valid job, got {:?}",
+            got
+        );
+        assert_eq!(got[0].session_id, "job-1");
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- attach_background ----
+
+    fn pid_session(session_id: &str, status: &str) -> PidSession {
+        PidSession {
+            session_id: session_id.to_string(),
+            cwd: None,
+            started_at_ms: 0,
+            status: Some(status.to_string()),
+            waiting_for: None,
+            status_updated_at_ms: None,
+        }
+    }
+
+    fn job(session_id: &str, parent: &str, tempo: &str) -> JobState {
+        JobState {
+            session_id: session_id.to_string(),
+            fork_parent_session_id: parent.to_string(),
+            tempo: Some(tempo.to_string()),
+            in_flight_tasks: 0,
+            updated_at: Some("2026-08-31T12:00:00.000Z".to_string()),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn attach_background_pairs_a_job_with_its_forking_session() {
+        let sessions = vec![(7, pid_session("parent-a", "idle"))];
+        let jobs = vec![job("job-1", "parent-a", "active")];
+        let out = attach_background(sessions, &jobs);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].pty_id, 7);
+        assert_eq!(out[0].status.as_deref(), Some("idle"));
+        assert_eq!(out[0].background.len(), 1);
+        assert_eq!(out[0].background[0].session_id, "job-1");
+        assert_eq!(out[0].background[0].tempo.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn attach_background_ignores_a_job_belonging_to_another_session() {
+        let sessions = vec![(7, pid_session("parent-a", "idle"))];
+        let jobs = vec![job("job-1", "someone-else", "active")];
+        let out = attach_background(sessions, &jobs);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].background.is_empty());
+    }
+
+    #[test]
+    fn attach_background_gives_each_pty_only_its_own_jobs() {
+        let sessions = vec![
+            (7, pid_session("parent-a", "idle")),
+            (9, pid_session("parent-b", "busy")),
+        ];
+        let jobs = vec![
+            job("job-1", "parent-a", "active"),
+            job("job-2", "parent-b", "blocked"),
+            job("job-3", "parent-a", "idle"),
+        ];
+        let out = attach_background(sessions, &jobs);
+        let a = out.iter().find(|s| s.pty_id == 7).unwrap();
+        let b = out.iter().find(|s| s.pty_id == 9).unwrap();
+        assert_eq!(a.background.len(), 2);
+        assert_eq!(b.background.len(), 1);
+        assert_eq!(b.background[0].session_id, "job-2");
+    }
+
+    #[test]
+    fn attach_background_returns_empty_for_no_sessions() {
+        let out = attach_background(Vec::new(), &[job("job-1", "parent-a", "active")]);
+        assert!(out.is_empty());
     }
 }

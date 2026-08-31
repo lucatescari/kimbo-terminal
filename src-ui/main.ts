@@ -18,6 +18,7 @@ import { setTabTitle, setTabBadgeForSession } from "./tabs";
 import { initFindBar } from "./find-bar";
 import { initTitleBar } from "./title-bar";
 import { initStatusBar, stopStatusBarPolling } from "./status-bar";
+import { startTabActivityPoll, stopTabActivityPoll } from "./tab-activity";
 import { initCommandPalette } from "./command-palette";
 import { initWindowActivationTracking } from "./window-activation";
 import { applyRoot, onChange as onPrefsChange, getPrefs } from "./ui-prefs";
@@ -127,6 +128,11 @@ async function init() {
   // workspace-aware branch will grow when workspaces land per-tab state).
   await openInitialTabs();
 
+  // Per-tab Claude activity dots. Deliberately not tied to the HUD preference
+  // or to tab visibility; see src-ui/tab-activity.ts for why it cannot ride
+  // the HUD poll.
+  startTabActivityPoll();
+
   // Kick off session autosave AFTER the initial tabs are in place so the
   // first snapshot the poller sees is a real session and we don't blow the
   // saved state away with a "zero tabs" write during the split-second
@@ -139,6 +145,7 @@ async function init() {
     stopSessionAutosave();
     disposeTabs();
     stopStatusBarPolling();
+    stopTabActivityPoll();
   });
 
   // Wire claude-notify events to toast/badges/macOS notifications.

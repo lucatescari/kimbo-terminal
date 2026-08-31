@@ -1,5 +1,8 @@
 use crate::pty_manager::PtyManager;
-use kimbo_terminal::{probe_claude_session_for_pid, probe_claude_status_for_pid, ClaudeStatus};
+use kimbo_terminal::{
+    probe_claude_session_for_pid, probe_claude_status_for_pid, probe_claude_tab_states,
+    ClaudeStatus, PtyClaudeState,
+};
 use serde::Serialize;
 use std::io::Read;
 use std::process::Command;
@@ -48,6 +51,37 @@ pub fn claude_status(
 ) -> Result<Option<ClaudeStatus>, String> {
     let pid = manager.pid_of(id)?;
     Ok(probe_claude_status_for_pid(pid))
+}
+
+/// Live Claude Code activity for a batch of PTYs, for the tab activity dots.
+///
+/// Separate from `claude_status` on purpose. That one serves the per-pane HUD,
+/// which is skipped for panes in hidden tabs and when the HUD preference is
+/// off (see `chooseHudAction`). Background tabs are exactly the ones an
+/// activity dot is for, so this must not share that gating — and because one
+/// call covers every pane with a single `ps`, it is cheaper than the per-pane
+/// probes even while covering strictly more panes.
+///
+/// A PTY id we do not know, or one with no Claude session, is silently
+/// omitted. This is polled on a timer; a hard error per unknown id would make
+/// a closing pane a recurring failure.
+///
+/// `Ok(None)` means the probe itself failed to learn anything (no `HOME`, or
+/// the `ps` snapshot missed its deadline) — distinct from `Ok(Some(vec![]))`,
+/// the genuine "no Claude anywhere right now" answer. The TS side must not
+/// treat the two the same: see `realProbe` in `src-ui/tab-activity.ts`.
+// `(async)` keeps the ps snapshot and the two directory reads off the
+// macOS main/UI thread. See `probe_claude_session`.
+#[tauri::command(async)]
+pub fn claude_tab_states(
+    ids: Vec<u32>,
+    manager: State<'_, PtyManager>,
+) -> Result<Option<Vec<PtyClaudeState>>, String> {
+    let pty_pids: Vec<(u32, u32)> = ids
+        .into_iter()
+        .filter_map(|id| manager.pid_of(id).ok().map(|pid| (id, pid)))
+        .collect();
+    Ok(probe_claude_tab_states(&pty_pids))
 }
 
 #[derive(Clone, Serialize)]
