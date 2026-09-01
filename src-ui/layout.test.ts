@@ -127,8 +127,8 @@ describe("tab bar (handoff design)", () => {
   const tabRule = css.match(/\.tab\s*\{([^}]*)\}/)?.[1] ?? "";
   const tabBarRule = css.match(/#tab-bar\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  it("active tab background matches terminal area (--bg) via color-mix", () => {
-    expect(activeRule).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--bg\)/);
+  it("active tab background uses the theme's tab-active colour via color-mix", () => {
+    expect(activeRule).toMatch(/background:\s*color-mix\(in srgb,\s*var\(--tab-active-bg\)/);
   });
 
   it("tab bar uses monospace font", () => {

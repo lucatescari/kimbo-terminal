@@ -1,10 +1,12 @@
 /* ===========================================================================
    Kimbo — full design-token system.
 
-   Legacy tokens (--bg, --fg, --tab-inactive-fg, --accent-blue, …) are written
+   Legacy tokens (--bg, --fg, --titlebar-bg, --tab-active-bg, …) are written
    by theme.ts from the Rust-resolved ResolvedTheme. The handoff design tokens
    (--bg-elevated, --fg-strong, --accent-tint, …) are derived from the legacy
-   tokens via color-mix so NO backend change is required for theming.
+   tokens via color-mix so NO backend change is required for theming. Chrome
+   surfaces (title bar, tab bar, tabs, status bar) read the theme's own chrome
+   tokens — theme-contract.test.ts fails if any contract variable goes unread.
    =========================================================================== */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
@@ -37,7 +39,7 @@
   --fg: #cdd6f4;
   --cursor: #f5e0dc;
   --titlebar-bg: #181825;
-  --tab-bar-bg: #1e1e2e;
+  --tab-bar-bg: #181825;
   --tab-active-bg: #313244;
   --tab-inactive-bg: #1e1e2e;
   --tab-active-fg: #cdd6f4;
@@ -68,8 +70,20 @@
   --shadow-window: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 24px 80px rgba(0, 0, 0, 0.6);
 
   /* Design tokens derived from legacy tokens — no backend change needed. */
-  --bg-titlebar: color-mix(in oklab, var(--bg) 88%, black);
-  --bg-tabs: var(--bg);
+  /* The theme's own chrome colours. These variables are always *defined* —
+     applyTheme writes them on every load and the resolver fills a default for
+     each — so a CSS fallback would never fire. Defined is not the same as
+     suitable: all four chrome keys are `required: false`, and resolve() fills
+     them with unconditional DARK literals (titleBar.background and
+     tab.inactiveBackground → #1a1a1a, tab.activeBackground → #333333,
+     tab.activeForeground → #ffffff) without ever consulting the theme's
+     `type`. So a hand-authored minimal light theme that omits these keys now
+     gets dark chrome over a white terminal, where before the chrome was
+     derived from --bg and stayed coherent. The real fix is theme-type-aware
+     resolver defaults; that is a deliberate follow-up, not done here.
+     The :root literals above cover the pre-theme FOUC frame. */
+  --bg-titlebar: var(--titlebar-bg);
+  --bg-tabs: var(--tab-bar-bg);
   --bg-pane: var(--bg);
   --bg-sidebar: color-mix(in oklab, var(--bg) 92%, black);
   --bg-elevated: var(--surface);
@@ -339,10 +353,10 @@ body {
 #tab-bar {
   display: flex;
   align-items: stretch;
-  /* Chrome surface — transparent so #app-frame's --app-alpha fill shows
-     through. --bg-tabs == --bg at this layer, so at opacity=100 this is
-     visually identical to the pre-feature opaque fill. */
-  background: transparent;
+  /* Chrome surface — alpha-aware. --bg-tabs is the theme's tab-bar colour
+     (titleBar.background), so the strip matches the title bar rather than
+     the terminal; at opacity=100 this is an opaque fill of that colour. */
+  background: color-mix(in srgb, var(--bg-tabs) calc(var(--app-alpha, 1) * 100%), transparent);
   border-bottom: 1px solid var(--divider);
   height: 38px;
   flex-shrink: 0;
@@ -387,14 +401,14 @@ body {
   left: 0;
   /* Fade the underlying edge tab out beneath the chevron. */
   background: linear-gradient(to right,
-    color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
+    color-mix(in srgb, var(--bg-tabs) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
     transparent);
 }
 .tab-scroll-arrow.right {
   /* Sit just left of the pinned new-tab button (28px + 2×4px margin). */
   right: 36px;
   background: linear-gradient(to left,
-    color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
+    color-mix(in srgb, var(--bg-tabs) calc(var(--app-alpha, 1) * 100%), transparent) 55%,
     transparent);
 }
 .tab-scroll-arrow:hover {
@@ -426,7 +440,10 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--fg-muted);
-  background: transparent;
+  /* The theme's inactive-tab colour, alpha-aware. For themes where it equals
+     the tab-bar colour this is invisible; themes that separate the two get
+     the separation they asked for. */
+  background: color-mix(in srgb, var(--tab-inactive-bg) calc(var(--app-alpha, 1) * 100%), transparent);
   border: 0;
   cursor: pointer;
   max-width: 240px;
@@ -439,11 +456,19 @@ body {
 }
 .tab:hover:not(.active) {
   color: var(--fg);
-  background: var(--bg-hover);
+  /* Same 6% foreground tint --bg-hover carries, but mixed into the tab's own
+     background instead of replacing it — the tab keeps its theme colour
+     under the hover feedback. Nested mix pattern as in .pane-head. */
+  background: color-mix(
+    in srgb,
+    color-mix(in oklab, var(--fg) 6%, var(--tab-inactive-bg))
+      calc(var(--app-alpha, 1) * 100%),
+    transparent
+  );
 }
 .tab.active {
-  color: var(--fg-strong);
-  background: color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent);
+  color: var(--tab-active-fg);
+  background: color-mix(in srgb, var(--tab-active-bg) calc(var(--app-alpha, 1) * 100%), transparent);
 }
 .tab-label {
   max-width: 24ch;
@@ -574,7 +599,7 @@ body {
 }
 #tab-bar[data-style="pill"] .tab.active::after { display: none; }
 #tab-bar[data-style="pill"] .tab.active {
-  background: color-mix(in srgb, var(--bg) calc(var(--app-alpha, 1) * 100%), transparent);
+  background: color-mix(in srgb, var(--tab-active-bg) calc(var(--app-alpha, 1) * 100%), transparent);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 

@@ -681,7 +681,7 @@ impl JsonTheme {
         ThemeSwatches {
             background: self.color_or("terminal.background", "#000000"),
             foreground: self.color_or("terminal.foreground", "#ffffff"),
-            accent: self.color_or("terminal.ansiBlue", "#0000cc"),
+            accent: self.color_or("panel.activeBorder", "#0066ff"),
             cursor: self.color_or("terminal.cursor", "#ffffff"),
             green: Some(self.color_or("terminal.ansiGreen", "#00cc00")),
             yellow: Some(self.color_or("terminal.ansiYellow", "#cccc00")),
@@ -874,7 +874,14 @@ mod json_tests {
         let s = theme.swatches();
         assert_eq!(s.background, "#1a1a1a");
         assert_eq!(s.foreground, "#d4d4d4");
-        // Accent is ANSI blue for the unified card preview.
+        // Accent is panel.activeBorder: the theme's *declared signature
+        // colour*, the key authors reach for to say "this is my colour".
+        // It is not chrome — none of the four consumers paints chrome with
+        // it. It shows up as the mock shell prompt's path segment on the
+        // card (theme-card.ts), as the stand-in for ansiGreen/ansiYellow on
+        // index-only themes that carry no richer swatches, in the gallery's
+        // colour-word search (theme-filter.ts), and on the studio's cards.
+        // (kimbo-dark sets it equal to its ANSI blue.)
         assert_eq!(s.accent, "#569cd6");
         assert_eq!(s.cursor, "#e0e0e0");
         // A disk theme always carries the richer preview colors; only the
@@ -902,7 +909,7 @@ mod json_tests {
         assert_eq!(s.background, r.background, "background fallback");
         assert_eq!(s.foreground, r.foreground, "foreground fallback");
         assert_eq!(s.cursor, r.cursor, "cursor fallback");
-        assert_eq!(s.accent, r.ansi_blue, "accent/ansiBlue fallback");
+        assert_eq!(s.accent, r.active_border, "accent/activeBorder fallback");
         assert_eq!(s.green.unwrap(), r.ansi_green, "green fallback");
         assert_eq!(s.yellow.unwrap(), r.ansi_yellow, "yellow fallback");
         assert_eq!(

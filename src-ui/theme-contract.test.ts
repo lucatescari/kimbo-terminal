@@ -160,3 +160,61 @@ describe("theme contract: xterm theme mapping", () => {
     }
   });
 });
+
+describe("theme contract: every CSS variable is consumed by style.css", () => {
+  // The write side is already pinned above: applyTheme sets exactly the
+  // variables the contract claims. This is the read side: a variable that
+  // style.css never references is a theme key that renders nothing — the
+  // April 2026 redesign left four chrome keys dead exactly this way, and
+  // every published theme kept setting them for months with no effect.
+  //
+  // What this guard can and cannot see: it is a TEXTUAL scan and it is NOT
+  // transitive. --tab-bar-bg counts as read only because of the one-hop
+  // `--bg-tabs: var(--tab-bar-bg)` indirection in :root; a variable read only
+  // two hops away, or read in the *wrong* rule, passes just the same. The
+  // semantic guard for the chrome surfaces — that each token actually paints
+  // the surface it is meant to — is theme-chrome-tokens.browser.test.ts,
+  // which measures painted colours in a real Chromium. Both are needed: this
+  // one catches a key with no reader at all, that one catches a key with the
+  // wrong reader.
+  //
+  // An EXEMPT entry is a recorded design decision about a variable that CSS
+  // is not supposed to read — never a way to silence the guard when a key
+  // turns out to be dead. Wiring a variable into an arbitrary rule just to
+  // clear this list is the same bug in the other direction.
+  //   --accent-blue: written on purpose without a current reader; pinned as
+  //     still-written by theme-accent-controls.browser.test.ts ("keeps
+  //     --accent-blue itself wired to ANSI blue").
+  //   --cursor: terminal.cursor reaches the terminal through xterm's ITheme,
+  //     not through CSS, so no rule should read it. It is chosen to work as a
+  //     large filled block on the terminal background; borrowing it for a 1px
+  //     UI caret dropped catppuccin-latte to 2.34:1 against --bg-input,
+  //     under WCAG 1.4.11's 3:1 for non-text indicators.
+  const EXEMPT = new Set<string>(["--accent-blue", "--cursor"]);
+
+  it("reads every variable a theme key feeds, so no key is silently dead", () => {
+    // Strip comments first: a variable mentioned only inside a CSS comment is
+    // not read by anything. style.css has a `var(--bg)` in prose today.
+    const css = readFileSync(resolve(__dirname, "style.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+
+    const dead: string[] = [];
+    for (const k of contract.keys) {
+      for (const cssVar of k.cssVars as string[]) {
+        if (EXEMPT.has(cssVar)) continue;
+        const used = css.includes(`var(${cssVar})`) || css.includes(`var(${cssVar},`);
+        if (!used) dead.push(`${cssVar} (from ${k.key})`);
+      }
+    }
+
+    expect(
+      dead,
+      "applyTheme writes these variables but style.css never reads them, " +
+        "so the theme keys behind them do nothing. Wire each one into a " +
+        "rule or a derived token — or, only for a deliberate decision " +
+        "recorded in a test, add it to EXEMPT above.",
+    ).toEqual([]);
+  });
+});

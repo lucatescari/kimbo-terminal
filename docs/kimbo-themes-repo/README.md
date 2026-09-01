@@ -51,6 +51,8 @@ See the [theme creation guide](https://github.com/lucatescari/kimbo-terminal/blo
 
 Requirements:
 - Top-level fields: `name`, `type` (`"dark"` or `"light"`), `author` (GitHub username), `version`, `colors`.
-- Four color keys are required for the swatch preview: `terminal.background`, `terminal.foreground`, `terminal.ansiBlue`, `terminal.cursor`. Other VS Code-style color keys are optional and fall back to defaults.
+- Four color keys are required: `terminal.background`, `terminal.foreground`, `terminal.ansiBlue`, `terminal.cursor`. Other VS Code-style color keys are optional and fall back to defaults.
+- The accent on your card comes from `panel.activeBorder` — your theme's signature colour. It is optional, but worth setting: `terminal.ansiBlue` no longer feeds the preview, so tuning it for the card tunes the wrong key.
+- The chrome keys (`titleBar.background`, `tab.activeBackground`, `tab.inactiveBackground`, `tab.activeForeground`) are now painted by the app. Their defaults are dark regardless of `type`, so a light theme that omits them gets dark chrome over a light terminal — set them explicitly.
 - Valid `#RRGGBB` hex values.
 - Filename matches the slug (lowercase with hyphens).
