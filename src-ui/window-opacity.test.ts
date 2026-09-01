@@ -108,6 +108,8 @@ const CHROME_TOKENS = [
   "--bg-pane",
   "--bg-titlebar",
   "--bg-sidebar",
+  "--tab-active-bg",
+  "--tab-inactive-bg",
 ];
 
 const CHROME_TOKEN_RE = new RegExp(
@@ -245,6 +247,8 @@ describe("window opacity: no opaque chrome surfaces", () => {
       { selector: "#status-bar", label: "status bar" },
       { selector: ".pane", label: "pane" },
       { selector: ".pane-head", label: "pane head" },
+      { selector: ".tab", label: "inactive tab" },
+      { selector: ".tab.active", label: "active tab" },
     ];
 
     const rules = extractRules(CSS);

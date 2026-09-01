@@ -75,7 +75,20 @@ Community themes are JSON files with five required top-level fields and a VS Cod
 | `type` | `"dark"` or `"light"`. |
 | `author` | Your GitHub username — no `@`, no URL. Rendered on the card as `@username` linked to your GitHub profile. |
 | `version` | Free-form; semver recommended. Shown next to the author on the card. |
-| `colors` | Color map (VS Code schema). Four keys are **required for the swatch preview**: `terminal.background`, `terminal.foreground`, `terminal.ansiBlue`, `terminal.cursor`. The other keys have reasonable defaults. |
+| `colors` | Color map (VS Code schema). Four keys are **required**: `terminal.background`, `terminal.foreground`, `terminal.ansiBlue`, `terminal.cursor`. The other keys have reasonable defaults. |
+
+The accent your card shows is `panel.activeBorder` — the key that declares your
+theme's signature colour. It is optional, but if you leave it out the card falls
+back to a generic default, so set it to the colour you want your theme
+remembered by. (`terminal.ansiBlue` is still required, but it no longer feeds the
+preview — tuning it for the card's sake tunes the wrong key.)
+
+The window-chrome keys — `titleBar.background`, `tab.activeBackground`,
+`tab.inactiveBackground`, `tab.activeForeground` — are now actually painted by
+the app; between the April 2026 redesign and this fix they were ignored and the
+chrome was derived from `terminal.background`. They are optional, but their defaults are dark whatever
+your theme's `type` says, so **a light theme that omits them gets dark chrome
+over a light terminal**. Set them explicitly on light themes.
 
 ## Testing a theme locally
 

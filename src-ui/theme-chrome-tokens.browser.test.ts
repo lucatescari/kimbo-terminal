@@ -116,6 +116,23 @@ describe("window chrome paints the theme's chrome tokens", () => {
     expect(rgba(bgOf("#probe-inactive"))).toBe("0 255 0 / 1");
   });
 
+  it("keeps the active tab on its own colour in the pill and chevron styles", () => {
+    // The plan's manual walkthrough included "set tab style to Pill and to
+    // Chevron: active tab still legible in both". Pill has its own
+    // `#tab-bar[data-style="pill"] .tab.active` background override — one of
+    // the wire-back's seven edits — and chevron inherits `.tab.active`'s.
+    // Both must land on tab.activeBackground, not on --bg.
+    const tabBar = document.querySelector("#tab-bar") as HTMLElement;
+
+    tabBar.dataset.style = "pill";
+    expect(rgba(bgOf("#probe-active")), "pill active tab").toBe("0 0 255 / 1");
+    expect(rgba(bgOf("#probe-inactive")), "pill inactive tab").toBe("0 255 0 / 1");
+
+    tabBar.dataset.style = "chevron";
+    expect(rgba(bgOf("#probe-active")), "chevron active tab").toBe("0 0 255 / 1");
+    expect(rgba(bgOf("#probe-inactive")), "chevron inactive tab").toBe("0 255 0 / 1");
+  });
+
   it("leaves no chrome surface painted with the terminal background", () => {
     const terminalBg = "17 17 17 / 1";
     for (const sel of ["#title-bar", "#tab-bar", "#status-bar", "#probe-active", "#probe-inactive"]) {
@@ -134,5 +151,70 @@ describe("the chrome tokens stay alpha-aware", () => {
     expect(rgba(bgOf("#status-bar"))).toBe("255 0 0 / 0.5");
     expect(rgba(bgOf("#probe-active"))).toBe("0 0 255 / 0.5");
     expect(rgba(bgOf("#probe-inactive"))).toBe("0 255 0 / 0.5");
+  });
+});
+
+describe("a theme that omits the chrome keys", () => {
+  // The hand-authored-theme path. All four chrome keys are `required: false`,
+  // and resolve() fills each with an unconditional DARK literal without ever
+  // looking at the theme's `type` (titleBar.background and
+  // tab.inactiveBackground → #1a1a1a, tab.activeBackground → #333333,
+  // tab.activeForeground → #ffffff). So a minimal LIGHT theme that omits them
+  // now gets dark chrome over a white terminal, where before the wire-back the
+  // chrome derived from --bg and stayed coherent. That is a known trade-off of
+  // this branch; theme-type-aware resolver defaults are the real fix and are a
+  // deliberate follow-up. These tests pin the current behaviour so the
+  // follow-up has to change them on purpose.
+
+  it("falls back to the stylesheet's own dark literals, not to --bg", () => {
+    // Removing the variables exposes style.css's :root layer — the pre-theme
+    // FOUC frame. In the running app applyTheme always writes these (see the
+    // next test); this is what a page paints before the first theme lands.
+    for (const name of [
+      "--titlebar-bg",
+      "--tab-bar-bg",
+      "--tab-active-bg",
+      "--tab-inactive-bg",
+      "--tab-active-fg",
+    ]) {
+      root.style.removeProperty(name);
+    }
+
+    // #181825 — the title bar and the tab strip agree, because both :root
+    // literals stand in for the single titleBar.background field applyTheme
+    // feeds them from. They disagreed until this branch made --tab-bar-bg
+    // paint, which would have flashed a mismatched strip.
+    expect(rgba(bgOf("#title-bar")), "titlebar FOUC literal").toBe("24 24 37 / 1");
+    expect(rgba(bgOf("#tab-bar")), "tab-bar FOUC literal").toBe("24 24 37 / 1");
+    expect(rgba(bgOf("#status-bar")), "status-bar FOUC literal").toBe("24 24 37 / 1");
+    expect(rgba(bgOf("#probe-active")), "active tab FOUC literal").toBe("49 50 68 / 1"); // #313244
+    expect(rgba(bgOf("#probe-inactive")), "inactive tab FOUC literal").toBe("30 30 46 / 1"); // #1e1e2e
+    expect(
+      rgba(getComputedStyle(document.querySelector("#probe-active")!).color),
+      "active tab fg FOUC literal",
+    ).toBe("205 214 244 / 1"); // #cdd6f4
+  });
+
+  it("gets the resolver's dark chrome over a light terminal", () => {
+    // What the app actually does for a light theme with no chrome keys:
+    // applyTheme writes resolve()'s literals verbatim. Asserted here rather
+    // than wished away — this is the Important #4 warning, in test form.
+    root.style.setProperty("--bg", "#ffffff");
+    root.style.setProperty("--titlebar-bg", "#1a1a1a");
+    root.style.setProperty("--tab-bar-bg", "#1a1a1a");
+    root.style.setProperty("--tab-inactive-bg", "#1a1a1a");
+    root.style.setProperty("--tab-active-bg", "#333333");
+    root.style.setProperty("--tab-active-fg", "#ffffff");
+
+    expect(rgba(bgOf("#title-bar")), "dark title bar on a light theme").toBe("26 26 26 / 1");
+    expect(rgba(bgOf("#tab-bar")), "dark tab strip on a light theme").toBe("26 26 26 / 1");
+    expect(rgba(bgOf("#probe-inactive")), "dark inactive tab on a light theme").toBe(
+      "26 26 26 / 1",
+    );
+    expect(rgba(bgOf("#probe-active")), "dark active tab on a light theme").toBe("51 51 51 / 1");
+    expect(
+      rgba(getComputedStyle(document.querySelector("#probe-active")!).color),
+      "white active-tab label on a light theme",
+    ).toBe("255 255 255 / 1");
   });
 });

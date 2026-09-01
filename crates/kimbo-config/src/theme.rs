@@ -874,8 +874,13 @@ mod json_tests {
         let s = theme.swatches();
         assert_eq!(s.background, "#1a1a1a");
         assert_eq!(s.foreground, "#d4d4d4");
-        // Accent is panel.activeBorder — the same key the window chrome's
-        // --accent derives from, so the card matches the installed look.
+        // Accent is panel.activeBorder: the theme's *declared signature
+        // colour*, the key authors reach for to say "this is my colour".
+        // It is not chrome — none of the four consumers paints chrome with
+        // it. It shows up as the mock shell prompt's path segment on the
+        // card (theme-card.ts), as the stand-in for ansiGreen/ansiYellow on
+        // index-only themes that carry no richer swatches, in the gallery's
+        // colour-word search (theme-filter.ts), and on the studio's cards.
         // (kimbo-dark sets it equal to its ANSI blue.)
         assert_eq!(s.accent, "#569cd6");
         assert_eq!(s.cursor, "#e0e0e0");

@@ -168,13 +168,37 @@ describe("theme contract: every CSS variable is consumed by style.css", () => {
   // April 2026 redesign left four chrome keys dead exactly this way, and
   // every published theme kept setting them for months with no effect.
   //
-  // --accent-blue is written on purpose without a current reader (see
-  // theme-accent-controls.browser.test.ts: "keeps --accent-blue itself
-  // wired to ANSI blue") — it is the one allowed exemption.
-  const EXEMPT = new Set<string>(["--accent-blue"]);
+  // What this guard can and cannot see: it is a TEXTUAL scan and it is NOT
+  // transitive. --tab-bar-bg counts as read only because of the one-hop
+  // `--bg-tabs: var(--tab-bar-bg)` indirection in :root; a variable read only
+  // two hops away, or read in the *wrong* rule, passes just the same. The
+  // semantic guard for the chrome surfaces — that each token actually paints
+  // the surface it is meant to — is theme-chrome-tokens.browser.test.ts,
+  // which measures painted colours in a real Chromium. Both are needed: this
+  // one catches a key with no reader at all, that one catches a key with the
+  // wrong reader.
+  //
+  // An EXEMPT entry is a recorded design decision about a variable that CSS
+  // is not supposed to read — never a way to silence the guard when a key
+  // turns out to be dead. Wiring a variable into an arbitrary rule just to
+  // clear this list is the same bug in the other direction.
+  //   --accent-blue: written on purpose without a current reader; pinned as
+  //     still-written by theme-accent-controls.browser.test.ts ("keeps
+  //     --accent-blue itself wired to ANSI blue").
+  //   --cursor: terminal.cursor reaches the terminal through xterm's ITheme,
+  //     not through CSS, so no rule should read it. It is chosen to work as a
+  //     large filled block on the terminal background; borrowing it for a 1px
+  //     UI caret dropped catppuccin-latte to 2.34:1 against --bg-input,
+  //     under WCAG 1.4.11's 3:1 for non-text indicators.
+  const EXEMPT = new Set<string>(["--accent-blue", "--cursor"]);
 
   it("reads every variable a theme key feeds, so no key is silently dead", () => {
-    const css = readFileSync(resolve(__dirname, "style.css"), "utf8");
+    // Strip comments first: a variable mentioned only inside a CSS comment is
+    // not read by anything. style.css has a `var(--bg)` in prose today.
+    const css = readFileSync(resolve(__dirname, "style.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
 
     const dead: string[] = [];
     for (const k of contract.keys) {

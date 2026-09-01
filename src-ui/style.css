@@ -39,7 +39,7 @@
   --fg: #cdd6f4;
   --cursor: #f5e0dc;
   --titlebar-bg: #181825;
-  --tab-bar-bg: #1e1e2e;
+  --tab-bar-bg: #181825;
   --tab-active-bg: #313244;
   --tab-inactive-bg: #1e1e2e;
   --tab-active-fg: #cdd6f4;
@@ -70,9 +70,18 @@
   --shadow-window: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 24px 80px rgba(0, 0, 0, 0.6);
 
   /* Design tokens derived from legacy tokens — no backend change needed. */
-  /* The theme's own chrome colours. Every theme carries them (the resolver
-     fills defaults, the studio exports all keys), so no fallback is needed;
-     the :root literals above cover the pre-theme FOUC frame. */
+  /* The theme's own chrome colours. These variables are always *defined* —
+     applyTheme writes them on every load and the resolver fills a default for
+     each — so a CSS fallback would never fire. Defined is not the same as
+     suitable: all four chrome keys are `required: false`, and resolve() fills
+     them with unconditional DARK literals (titleBar.background and
+     tab.inactiveBackground → #1a1a1a, tab.activeBackground → #333333,
+     tab.activeForeground → #ffffff) without ever consulting the theme's
+     `type`. So a hand-authored minimal light theme that omits these keys now
+     gets dark chrome over a white terminal, where before the chrome was
+     derived from --bg and stayed coherent. The real fix is theme-type-aware
+     resolver defaults; that is a deliberate follow-up, not done here.
+     The :root literals above cover the pre-theme FOUC frame. */
   --bg-titlebar: var(--titlebar-bg);
   --bg-tabs: var(--tab-bar-bg);
   --bg-pane: var(--bg);
@@ -148,7 +157,7 @@
 input,
 select,
 textarea,
-button { caret-color: var(--cursor); }
+button { caret-color: var(--fg); }
 
 html,
 body {
