@@ -160,3 +160,37 @@ describe("theme contract: xterm theme mapping", () => {
     }
   });
 });
+
+describe("theme contract: every CSS variable is consumed by style.css", () => {
+  // The write side is already pinned above: applyTheme sets exactly the
+  // variables the contract claims. This is the read side: a variable that
+  // style.css never references is a theme key that renders nothing — the
+  // April 2026 redesign left four chrome keys dead exactly this way, and
+  // every published theme kept setting them for months with no effect.
+  //
+  // --accent-blue is written on purpose without a current reader (see
+  // theme-accent-controls.browser.test.ts: "keeps --accent-blue itself
+  // wired to ANSI blue") — it is the one allowed exemption.
+  const EXEMPT = new Set<string>(["--accent-blue"]);
+
+  it("reads every variable a theme key feeds, so no key is silently dead", () => {
+    const css = readFileSync(resolve(__dirname, "style.css"), "utf8");
+
+    const dead: string[] = [];
+    for (const k of contract.keys) {
+      for (const cssVar of k.cssVars as string[]) {
+        if (EXEMPT.has(cssVar)) continue;
+        const used = css.includes(`var(${cssVar})`) || css.includes(`var(${cssVar},`);
+        if (!used) dead.push(`${cssVar} (from ${k.key})`);
+      }
+    }
+
+    expect(
+      dead,
+      "applyTheme writes these variables but style.css never reads them, " +
+        "so the theme keys behind them do nothing. Wire each one into a " +
+        "rule or a derived token — or, only for a deliberate decision " +
+        "recorded in a test, add it to EXEMPT above.",
+    ).toEqual([]);
+  });
+});
