@@ -34,6 +34,16 @@ const MAX_EDGE = 360;
 const GAP = 12;
 const MARGIN = 8;
 
+/** How long a failed read is remembered, so a file that cannot be previewed
+ *  is not read again on every repaint. Time-limited because a screenshot can
+ *  be read while it is still being written. */
+const FAILURE_MEMO_MS = 5_000;
+/** Cap on remembered failures, so a long session cannot grow the map. */
+const MAX_FAILURES = 64;
+/** How far the pointer must move for a dismissed thumbnail to be welcome
+ *  again. Small, because it only has to beat "did not move at all". */
+const MOVED_PX = 2;
+
 /** How long a thumbnail survives a hide before it is actually torn down.
  *  xterm drops the current link and asks the provider again on every repaint
  *  of the hovered row, firing leave and then hover each time; while output
@@ -60,10 +70,16 @@ export function isPreviewableImage(path: string): boolean {
   return PREVIEWABLE.has(name.slice(dot + 1).toLowerCase());
 }
 
+/** A point in viewport coordinates: where the pointer is. */
+export interface Anchor {
+  x: number;
+  y: number;
+}
+
 export interface ImagePreview {
   /** Fetch and show `path` near a viewport point. Resolves once the popover is
    *  up, or once the attempt has been abandoned. Never rejects. */
-  show(path: string, anchor: { x: number; y: number }): Promise<void>;
+  show(path: string, anchor: Anchor): Promise<void>;
   /** Take the popover down and cancel any fetch still in flight. */
   hide(): void;
   /** Tear down for good. Safe to call more than once. */
@@ -71,43 +87,87 @@ export interface ImagePreview {
 }
 
 export function createImagePreview(): ImagePreview {
-  let shown: { el: HTMLElement; url: string; path: string } | null = null;
-  let pendingHide: ReturnType<typeof setTimeout> | null = null;
+  // Ownership is the whole design here. Three rounds of bugs in this module
+  // were all the same shape: a fetch that finished after the pointer had moved
+  // on, writing to the display anyway. So the async work below builds a
+  // popover and touches nothing else, and every mutation of what is on screen
+  // goes through `clear` and `render`, which are called from exactly one gate
+  // after all awaits have settled.
+
+  /** What should be on screen. Written only by show, hide, hideNow, dispose. */
+  let desired: { path: string; anchor: Anchor } | null = null;
+  /** What IS on screen. Written only by clear and render. */
+  let displayed: { path: string; el: HTMLElement; url: string } | null = null;
+  /** What was taken away by the keyboard or by losing focus, and where the
+   *  pointer was at the time. xterm re-asks for the hovered link on every
+   *  repaint without the pointer moving, so a dismissal that does not outlive
+   *  the frame is not a dismissal at all. */
+  let dismissed: { path: string; anchor: Anchor } | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
-  /** The path that should be on screen right now, or null for none. A fetch
-   *  renders only if this still names its path: anything else means the
-   *  pointer has moved on, the keyboard was used, or the pane is gone. */
-  let wanted: string | null = null;
-  /** Where to put it. Read at insertion time rather than captured when the
-   *  fetch started, so a pointer that kept moving during the read (or a
-   *  caller that joined one already running) still gets the popover next to
-   *  where it actually is. */
-  let wantedAnchor: { x: number; y: number } = { x: 0, y: 0 };
-  /** Fetches currently running, keyed by path, so a repaint storm joins the
-   *  read already out instead of starting another. Keyed rather than a single
-   *  slot because the pointer can cross a second path and come back while the
-   *  first is still in flight; a single slot lost track of the first and
-   *  started it again, and both renders then landed. */
-  const inFlight = new Map<string, Promise<void>>();
+  /** Loads in flight, keyed by path, so a repaint storm joins the read already
+   *  out instead of starting another. Keyed rather than a single slot because
+   *  the pointer can cross a second path and come back while the first is
+   *  still running. */
+  const loads = new Map<string, Promise<void>>();
+  /** Paths whose load failed, and when. Without this a file that cannot be
+   *  previewed at all (over the size cap, deleted, mislabelled) was read again
+   *  every single frame, since nothing was shown and nothing was in flight. */
+  const failures = new Map<string, number>();
 
-  const cancelPendingHide = (): void => {
-    if (pendingHide === null) return;
-    clearTimeout(pendingHide);
-    pendingHide = null;
+  const cancelHideTimer = (): void => {
+    if (hideTimer === null) return;
+    clearTimeout(hideTimer);
+    hideTimer = null;
   };
 
-  const teardown = (): void => {
-    cancelPendingHide();
-    if (!shown) return;
-    shown.el.remove();
-    URL.revokeObjectURL(shown.url);
-    shown = null;
+  /** One of the two functions allowed to touch the DOM or a blob URL. */
+  const clear = (): void => {
+    cancelHideTimer();
+    if (!displayed) return;
+    displayed.el.remove();
+    URL.revokeObjectURL(displayed.url);
+    displayed = null;
   };
 
-  /** Gone now: the keyboard was used, focus left, or the pane is going away. */
+  /** The other one. */
+  const render = (path: string, el: HTMLElement, url: string, anchor: Anchor): void => {
+    clear();
+    document.body.appendChild(el);
+    displayed = { path, el, url };
+    place(el, anchor);
+  };
+
+  const rememberFailure = (path: string): void => {
+    if (failures.size >= MAX_FAILURES) {
+      const oldest = failures.keys().next().value;
+      if (oldest !== undefined) failures.delete(oldest);
+    }
+    failures.set(path, Date.now());
+  };
+
+  const recentlyFailed = (path: string): boolean => {
+    const at = failures.get(path);
+    if (at === undefined) return false;
+    // Time-limited rather than permanent: a screenshot can be read while it is
+    // still being written, and that should not disqualify it for the session.
+    if (Date.now() - at < FAILURE_MEMO_MS) return true;
+    failures.delete(path);
+    return false;
+  };
+
+  const stillDismissed = (path: string, anchor: Anchor): boolean =>
+    dismissed !== null &&
+    dismissed.path === path &&
+    Math.abs(dismissed.anchor.x - anchor.x) <= MOVED_PX &&
+    Math.abs(dismissed.anchor.y - anchor.y) <= MOVED_PX;
+
+  /** Gone now: the keyboard was used, focus left, or the pane is going away.
+   *  Stays gone until the pointer moves or lands on something else. */
   const hideNow = (): void => {
-    wanted = null;
-    teardown();
+    if (desired) dismissed = { path: desired.path, anchor: desired.anchor };
+    desired = null;
+    clear();
   };
 
   /** Pressing a modifier is not "using the keyboard": the caption asks for
@@ -124,19 +184,18 @@ export function createImagePreview(): ImagePreview {
   /** Gone shortly, unless the same path comes straight back. See
    *  HIDE_GRACE_MS for why the delay is load-bearing. */
   const hide = (): void => {
-    wanted = null;
-    if (!shown) return;
-    cancelPendingHide();
-    pendingHide = setTimeout(teardown, HIDE_GRACE_MS);
+    desired = null;
+    if (!displayed) return;
+    cancelHideTimer();
+    hideTimer = setTimeout(clear, HIDE_GRACE_MS);
   };
 
   /** Cmd+click opens Preview, which takes focus while the pointer has not
-   *  moved: xterm re-asks for the link on the next repaint and the thumbnail
-   *  would come straight back over the terminal. Losing focus says it should
-   *  not. Registered once, for the life of the preview. */
+   *  moved. Losing focus dismisses the thumbnail, and because a dismissal
+   *  outlives the frame it does not come straight back on the next repaint. */
   window.addEventListener("blur", hideNow);
 
-  const place = (el: HTMLElement, anchor: { x: number; y: number }): void => {
+  const place = (el: HTMLElement, anchor: Anchor): void => {
     // The image is decoded before the popover is inserted, so these are the
     // real dimensions. The fallback covers a host with no layout at all.
     const width = el.offsetWidth || MAX_EDGE;
@@ -153,30 +212,35 @@ export function createImagePreview(): ImagePreview {
     el.style.top = `${Math.max(MARGIN, top)}px`;
   };
 
-  /** Fetch, decode and insert. Split out so `show` can dedupe callers onto a
-   *  single run of it. Bails at every await whose result is no longer wanted. */
-  const load = async (path: string): Promise<void> => {
+  /** Read, decode and build the popover for `path`. Deliberately touches no
+   *  shared state and never renders: it returns something for the single gate
+   *  in `load` to accept or throw away, which is what stops a fetch that has
+   *  been overtaken from writing to the display. `stillWanted` is a read, not
+   *  a write, and only lets it stop early rather than decode an image nobody
+   *  is waiting for. Anything it allocated is released before it gives up. */
+  const build = async (
+    path: string,
+    stillWanted: () => boolean,
+  ): Promise<{ el: HTMLElement; url: string } | "failed" | "abandoned"> => {
     let base64: string | null = null;
     try {
       base64 = await invoke<string | null>("read_image_bytes", { path });
     } catch {
-      base64 = null;
+      return "failed";
     }
-    if (wanted !== path) return;
+    // Overtaken while the file was being read: not a failure, and worth
+    // stopping before decoding a bitmap nobody is going to look at.
+    if (!stillWanted()) return "abandoned";
 
     const bytes = base64 ? decodeBase64Bytes(base64, MAX_BYTES) : null;
     const format = bytes ? sniffBitmapFormat(bytes) : null;
-    if (!bytes || !format) {
-      teardown();
-      return;
-    }
+    if (!bytes || !format) return "failed";
 
     // `bytes as BlobPart` matches osc1337-renderer.ts: TypeScript types a
     // Uint8Array over ArrayBufferLike, which no longer satisfies BlobPart.
     const url = URL.createObjectURL(
       new Blob([bytes as BlobPart], { type: `image/${format}` }),
     );
-
     const img = document.createElement("img");
     img.src = url;
     img.alt = "";
@@ -190,15 +254,9 @@ export function createImagePreview(): ImagePreview {
       await img.decode();
     } catch {
       URL.revokeObjectURL(url);
-      teardown();
-      return;
-    }
-    if (wanted !== path) {
-      URL.revokeObjectURL(url);
-      return;
+      return "failed";
     }
 
-    teardown();
     const el = document.createElement("div");
     el.className = "image-preview";
     const caption = document.createElement("div");
@@ -211,19 +269,39 @@ export function createImagePreview(): ImagePreview {
     hint.textContent = "Cmd+click to open";
     caption.append(name, hint);
     el.append(img, caption);
-
-    document.body.appendChild(el);
-    shown = { el, url, path };
-    place(el, wantedAnchor);
+    return { el, url };
   };
 
-  const show = async (
-    path: string,
-    anchor: { x: number; y: number },
-  ): Promise<void> => {
+  /** The single gate. Everything a completed load is permitted to do is here,
+   *  and it happens after every await has settled, so there is no window in
+   *  which a stale result can act. */
+  const load = async (path: string): Promise<void> => {
+    const built = await build(path, () => desired?.path === path);
+
+    if (built === "abandoned") return;
+    if (built === "failed") {
+      rememberFailure(path);
+      // Only take the display down if the failure is about what is wanted now.
+      // A late failure for a path the pointer has already left must not remove
+      // the thumbnail of the one it has moved to.
+      if (desired?.path === path) clear();
+      return;
+    }
+    if (desired?.path !== path) {
+      URL.revokeObjectURL(built.url);
+      return;
+    }
+    render(path, built.el, built.url, desired.anchor);
+  };
+
+  const show = async (path: string, anchor: Anchor): Promise<void> => {
     if (disposed) return;
-    wanted = path;
-    wantedAnchor = anchor;
+    // A dismissal holds until the pointer moves or moves on.
+    if (stillDismissed(path, anchor)) return;
+    dismissed = null;
+    if (recentlyFailed(path)) return;
+
+    desired = { path, anchor };
 
     // Any keystroke dismisses the thumbnail. The pointer can rest on a link
     // while the keyboard does something else: switching tab with Cmd+2 moves
@@ -236,26 +314,25 @@ export function createImagePreview(): ImagePreview {
 
     // Already up for this very path: xterm is re-asking after a repaint, so
     // keep the element (and its running animation), just follow the pointer.
-    if (shown?.path === path) {
-      cancelPendingHide();
-      place(shown.el, anchor);
+    if (displayed?.path === path) {
+      cancelHideTimer();
+      place(displayed.el, anchor);
       return;
     }
 
-    // Already being fetched. Nothing is shown yet, so without this the
-    // repaint storm that re-asks every frame would start a fresh read of the
-    // same file every frame and discard all but the last. The newest anchor
-    // is already recorded above, so joining the read does not inherit a stale
-    // pointer position.
-    const running = inFlight.get(path);
+    // Already being read. Nothing is shown yet, so without this the repaint
+    // storm that re-asks every frame would start a fresh read of the same file
+    // every frame and discard all but the last. The newest anchor is already
+    // recorded above, so joining a read does not inherit a stale one.
+    const running = loads.get(path);
     if (running) return running;
 
     const done = load(path).finally(() => {
       // Compare identity, not just the key: a stale run must not delete the
       // entry belonging to a newer one for the same path.
-      if (inFlight.get(path) === done) inFlight.delete(path);
+      if (loads.get(path) === done) loads.delete(path);
     });
-    inFlight.set(path, done);
+    loads.set(path, done);
     return done;
   };
 
@@ -266,7 +343,8 @@ export function createImagePreview(): ImagePreview {
       disposed = true;
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", hideNow);
-      hideNow();
+      desired = null;
+      clear();
     },
   };
 }

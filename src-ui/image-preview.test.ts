@@ -459,3 +459,85 @@ describe("createImagePreview when the pointer crosses several paths", () => {
     expect(Number.parseFloat(popover()!.style.left)).toBeGreaterThan(600);
   });
 });
+
+describe("createImagePreview failure and dismissal handling", () => {
+  /** Take manual control of image decoding for one test. Returns the pending
+   *  decodes in call order so they can be settled individually. */
+  function manualDecode() {
+    const calls: Array<{ resolve: () => void; reject: () => void }> = [];
+    HTMLImageElement.prototype.decode = vi.fn(
+      () =>
+        new Promise<void>((res, rej) => {
+          calls.push({ resolve: () => res(), reject: () => rej(new Error("bad")) });
+        }),
+    ) as unknown as HTMLImageElement["decode"];
+    return calls;
+  }
+
+  it("a rejected decode does not remove the thumbnail the pointer is on", async () => {
+    // A truncated file passes the magic-byte sniff and only fails at decode.
+    // If that late failure tears down whatever is on screen, it takes another
+    // path's thumbnail with it and nothing is left to put it back.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const decodes = manualDecode();
+    const preview = createImagePreview();
+
+    const bad = preview.show("/tmp/corrupt.png", { x: 10, y: 10 });
+    await Promise.resolve();
+    const good = preview.show("/tmp/good.png", { x: 20, y: 10 });
+    await Promise.resolve();
+    decodes[1]?.resolve(); // the good one lands first
+    await good;
+    decodes[0]?.reject(); // the abandoned one fails afterwards
+    await bad;
+
+    expect(popover()).not.toBeNull();
+    expect(popover()!.textContent).toContain("good.png");
+  });
+
+  it("does not read a file again and again once it has failed", async () => {
+    // xterm re-asks for the hovered link on every repaint. A file that cannot
+    // be previewed (too large, deleted, mislabelled) leaves nothing shown and
+    // nothing in flight, so every frame started the read afresh.
+    invokeMock.mockResolvedValue(null);
+    const preview = createImagePreview();
+
+    for (let i = 0; i < 10; i++) {
+      preview.hide();
+      await preview.show("/tmp/gone.png", { x: 10, y: 10 });
+    }
+
+    expect(invokeMock.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it("stays dismissed after the window loses focus, until the pointer moves", async () => {
+    // The pointer has not moved, so xterm keeps re-asking on every repaint.
+    // A dismissal that only lasts one frame is no dismissal at all, which is
+    // what made the blur handler useless against Cmd+click opening Preview.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    window.dispatchEvent(new Event("blur"));
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+
+    // Moving the pointer is a fresh intent, so it comes back.
+    await preview.show("/tmp/shot.png", { x: 400, y: 300 });
+    expect(popover()).not.toBeNull();
+  });
+
+  it("stays dismissed after a keystroke, until the pointer moves", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+  });
+});
