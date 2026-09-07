@@ -95,6 +95,10 @@ const OPAQUE_OVERLAY_SELECTORS = new Set<string>([
   ".welcome",
   ".codeblock",
   ".font-preview",
+  // Backdrop behind a hovered screenshot. An image with an alpha channel needs
+  // something solid under it or it reads as a hole in the popover, and the
+  // popover is an overlay above the chrome rather than a chrome surface.
+  ".image-preview img",
 ]);
 
 // Tokens that represent the window-chrome base color. A bare reference to

@@ -74,4 +74,20 @@ describe("detectFilePaths", () => {
     expect(detectFilePaths("")).toEqual([]);
     expect(detectFilePaths("   \t ")).toEqual([]);
   });
+
+  it("recovers the path when a bracketed tag is glued to its front", () => {
+    // Claude Code prints image attachments as "[image]/abs/path.png" with no
+    // space, so the plain leading-punctuation strip leaves "image]" attached.
+    const line = "  \u203a [image]/tmp/shot.png";
+    const got = detectFilePaths(line);
+    const inner = got.find((c) => c.raw === "/tmp/shot.png");
+    expect(inner).toBeDefined();
+    expect(line.slice(inner!.startCol, inner!.endCol)).toBe("/tmp/shot.png");
+  });
+
+  it("keeps a fully bracketed path as a single candidate", () => {
+    expect(detectFilePaths("[/etc/hosts]").map((c) => c.raw)).toEqual([
+      "/etc/hosts",
+    ]);
+  });
 });

@@ -2621,3 +2621,50 @@ body {
 .pane-head--badge-perm::after {
   background: var(--kimbo-notify-perm);
 }
+
+/* Hover thumbnail for an image path in terminal output (image-preview.ts).
+   Fixed-position and pointer-transparent so it never eats a click meant for
+   the terminal underneath, and so it can float over a full-screen TUI that
+   reserves no room for it. max-width/height match MAX_EDGE in the module. */
+.image-preview {
+  position: fixed;
+  z-index: 620;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  animation: dd-rise 0.12s ease-out;
+  -webkit-app-region: no-drag;
+}
+.image-preview img {
+  display: block;
+  max-width: 360px;
+  max-height: 360px;
+  border-radius: var(--radius-sm);
+  /* A screenshot with a transparent background would otherwise blend into the
+     popover and read as a hole in it. */
+  background: var(--bg);
+}
+.image-preview-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 360px;
+  font-size: 11px;
+}
+.image-preview-name {
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-preview-hint {
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
