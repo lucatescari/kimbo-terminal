@@ -34,6 +34,16 @@ const MAX_EDGE = 360;
 const GAP = 12;
 const MARGIN = 8;
 
+/** How long a thumbnail survives a hide before it is actually torn down.
+ *  xterm drops the current link and asks the provider again on every repaint
+ *  of the hovered row, firing leave and then hover each time; while output
+ *  streams that is once a frame. Tearing down at once would re-read the file
+ *  over IPC and restart the entrance animation every frame, so the thumbnail
+ *  would strobe instead of appearing. The grace period is long enough to
+ *  bridge that gap and short enough to feel immediate when the pointer really
+ *  has left. */
+const HIDE_GRACE_MS = 150;
+
 /** Extensions worth asking the backend for. The real gate is the magic-byte
  *  sniff in osc1337.ts, which is also the set of formats this list mirrors;
  *  the extension check just avoids an IPC round-trip and a file read for every
@@ -61,34 +71,45 @@ export interface ImagePreview {
 }
 
 export function createImagePreview(): ImagePreview {
-  let shown: { el: HTMLElement; url: string } | null = null;
+  let shown: { el: HTMLElement; url: string; path: string } | null = null;
+  let pendingHide: ReturnType<typeof setTimeout> | null = null;
   // Bumped by every show and every hide. A fetch whose generation is stale
   // lost its race: the pointer has since moved to another link or left the
   // terminal, and its image must not appear.
   let generation = 0;
 
+  const cancelPendingHide = (): void => {
+    if (pendingHide === null) return;
+    clearTimeout(pendingHide);
+    pendingHide = null;
+  };
+
   const teardown = (): void => {
+    cancelPendingHide();
     if (!shown) return;
     shown.el.remove();
     URL.revokeObjectURL(shown.url);
     shown = null;
   };
 
-  const hide = (): void => {
+  /** Gone now: the keyboard was used, or the pane is going away. */
+  const hideNow = (): void => {
     generation++;
     teardown();
   };
 
-  // Any keystroke dismisses the thumbnail. The pointer can rest on a link
-  // while the keyboard does something else: switching tab with Cmd+2 moves no
-  // mouse, so xterm never fires the link's `leave` and the thumbnail would
-  // hang over whatever the keystroke brought up. Listening from creation
-  // rather than from each show also cancels a fetch that is still in flight.
-  document.addEventListener("keydown", hide);
+  /** Gone shortly, unless the same path comes straight back. See
+   *  HIDE_GRACE_MS for why the delay is load-bearing. */
+  const hide = (): void => {
+    generation++;
+    if (!shown) return;
+    cancelPendingHide();
+    pendingHide = setTimeout(teardown, HIDE_GRACE_MS);
+  };
 
   const place = (el: HTMLElement, anchor: { x: number; y: number }): void => {
-    // offsetWidth is 0 until the image has laid out, so fall back to the
-    // largest the popover is allowed to be and re-place on load.
+    // The image is decoded before the popover is inserted, so these are the
+    // real dimensions. The fallback covers a host with no layout at all.
     const width = el.offsetWidth || MAX_EDGE;
     const height = el.offsetHeight || MAX_EDGE;
     const left = Math.min(anchor.x + GAP, window.innerWidth - width - MARGIN);
@@ -107,7 +128,24 @@ export function createImagePreview(): ImagePreview {
     path: string,
     anchor: { x: number; y: number },
   ): Promise<void> => {
+    // Any keystroke dismisses the thumbnail. The pointer can rest on a link
+    // while the keyboard does something else: switching tab with Cmd+2 moves
+    // no mouse, so xterm never fires the link's `leave` and the thumbnail
+    // would hang over whatever the keystroke brought up. Registered here
+    // rather than at creation so a preview that never showed anything cannot
+    // leave a listener behind; addEventListener is a no-op for a handler
+    // already registered.
+    document.addEventListener("keydown", hideNow);
+
     const mine = ++generation;
+
+    // Already up for this very path: xterm is re-asking after a repaint, so
+    // keep the element (and its running animation), just follow the pointer.
+    if (shown?.path === path) {
+      cancelPendingHide();
+      place(shown.el, anchor);
+      return;
+    }
 
     let base64: string | null = null;
     try {
@@ -124,21 +162,36 @@ export function createImagePreview(): ImagePreview {
       return;
     }
 
-    teardown();
     // `bytes as BlobPart` matches osc1337-renderer.ts: TypeScript types a
     // Uint8Array over ArrayBufferLike, which no longer satisfies BlobPart.
     const url = URL.createObjectURL(
       new Blob([bytes as BlobPart], { type: `image/${format}` }),
     );
 
-    const el = document.createElement("div");
-    el.className = "image-preview";
     const img = document.createElement("img");
     img.src = url;
     img.alt = "";
-    img.addEventListener("load", () => {
-      if (shown?.el === el) place(el, anchor);
-    });
+
+    // Decode before the popover goes in. An <img> that has not loaded has no
+    // dimensions, so a popover placed around it would be measured at the
+    // height of its caption alone: it would be pinned just above the pointer,
+    // then grow down over the line being read. Decoding first means one
+    // placement, at the size it will actually be.
+    try {
+      await img.decode();
+    } catch {
+      URL.revokeObjectURL(url);
+      teardown();
+      return;
+    }
+    if (mine !== generation) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    teardown();
+    const el = document.createElement("div");
+    el.className = "image-preview";
     const caption = document.createElement("div");
     caption.className = "image-preview-caption";
     const name = document.createElement("span");
@@ -151,7 +204,7 @@ export function createImagePreview(): ImagePreview {
     el.append(img, caption);
 
     document.body.appendChild(el);
-    shown = { el, url };
+    shown = { el, url, path };
     place(el, anchor);
   };
 
@@ -159,8 +212,8 @@ export function createImagePreview(): ImagePreview {
     show,
     hide,
     dispose(): void {
-      document.removeEventListener("keydown", hide);
-      hide();
+      document.removeEventListener("keydown", hideNow);
+      hideNow();
     },
   };
 }

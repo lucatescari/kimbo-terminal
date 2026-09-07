@@ -29,6 +29,13 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn((url: string) => {
     revoked.push(url);
   }) as unknown as typeof URL.revokeObjectURL;
+  // jsdom implements neither blob URLs nor image decoding. Production decodes
+  // the bitmap before inserting the popover so it can be placed at its real
+  // size; here the decode resolves and the element keeps a zero-sized box,
+  // which is what the MAX_EDGE fallback in place() is for.
+  HTMLImageElement.prototype.decode = vi
+    .fn()
+    .mockResolvedValue(undefined) as unknown as HTMLImageElement["decode"];
   document.body.innerHTML = "";
 });
 
@@ -82,15 +89,18 @@ describe("createImagePreview", () => {
     });
   });
 
-  it("removes the popover and releases the blob on hide", async () => {
+  it("removes the popover and releases the blob shortly after hide", async () => {
+    vi.useFakeTimers();
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
     await preview.show("/tmp/shot.png", { x: 0, y: 0 });
 
     preview.hide();
+    vi.runAllTimers();
 
     expect(popover()).toBeNull();
     expect(revoked).toEqual([created[0]]);
+    vi.useRealTimers();
   });
 
   it("shows nothing when the backend refuses the file", async () => {
@@ -201,11 +211,13 @@ describe("createImagePreview dismissal on input", () => {
     expect(popover()).toBeNull();
   });
 
-  it("leaves no listener behind on dispose", () => {
+  it("leaves no listener behind on dispose", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
     const added = vi.spyOn(document, "addEventListener");
     const removed = vi.spyOn(document, "removeEventListener");
 
     const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
     const registered = added.mock.calls.find((c) => c[0] === "keydown");
     preview.dispose();
 
@@ -213,5 +225,87 @@ describe("createImagePreview dismissal on input", () => {
     expect(removed).toHaveBeenCalledWith("keydown", registered![1]);
     added.mockRestore();
     removed.mockRestore();
+  });
+
+  it("registers nothing at all until it has something to show", () => {
+    // createImagePreview runs while the pane is still being built, before the
+    // PTY exists. If it registered a listener there and the pane then failed
+    // to come up, dispose would never be reached and the listener would
+    // outlive the attempt.
+    const added = vi.spyOn(document, "addEventListener");
+
+    createImagePreview();
+
+    expect(added.mock.calls.filter((c) => c[0] === "keydown")).toEqual([]);
+    added.mockRestore();
+  });
+});
+
+describe("createImagePreview while xterm re-asks for the hovered link", () => {
+  // xterm drops the current link and asks the provider again on every repaint
+  // of the hovered row, firing leave then hover each time. While output
+  // streams that is once a frame, so a hide that tore down at once would
+  // re-read the file over IPC and restart the entrance animation every frame:
+  // the thumbnail would strobe and never rise above a sliver of opacity.
+  it("does not re-read the file when the same path comes straight back", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 11, y: 10 });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(popover()).not.toBeNull();
+  });
+
+  it("keeps the very same element, so the entrance animation is not restarted", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    const first = popover();
+
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBe(first);
+    expect(created).toHaveLength(1);
+  });
+
+  it("still moves to the new pointer position on the way back", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 400 });
+
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 300 });
+
+    // 300 - GAP - MAX_EDGE is negative, so it drops below the pointer.
+    expect(popover()!.style.top).toBe("324px");
+  });
+
+  it("swaps the image when a different path is hovered", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/one.png", { x: 10, y: 10 });
+
+    preview.hide();
+    await preview.show("/tmp/two.png", { x: 10, y: 10 });
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(popover()!.textContent).toContain("two.png");
+    expect(revoked).toEqual([created[0]]);
+  });
+
+  it("a keystroke removes the thumbnail at once, with no grace period", async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+
+    expect(popover()).toBeNull();
+    vi.useRealTimers();
   });
 });

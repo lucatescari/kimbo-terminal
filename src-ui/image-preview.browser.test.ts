@@ -124,3 +124,40 @@ describe("image preview against the app's own layout", () => {
     await preview.show("/tmp/shot.png", { x: 40, y });
   }
 });
+
+describe("image preview placement is right the first time", () => {
+  // place() runs as soon as the popover is inserted. The caption is already
+  // laid out at that point, so offsetHeight reports the caption's ~25px rather
+  // than the ~390px the popover becomes once the image is in: the popover was
+  // pinned just above the pointer, then grew down over the line being read,
+  // and only a later re-place moved it. Measuring before any load handler
+  // could run is what catches that.
+  it("is inside the viewport as soon as show resolves", async () => {
+    invokeMock.mockResolvedValue(largePngBase64());
+    const preview = createImagePreview();
+    shown.push(preview);
+
+    await preview.show("/tmp/shot.png", { x: 40, y: window.innerHeight - 40 });
+    const rect = document
+      .querySelector(".image-preview")!
+      .getBoundingClientRect();
+
+    expect(rect.height).toBeGreaterThan(100); // the image is already laid out
+    expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(rect.top).toBeGreaterThanOrEqual(0);
+  });
+
+  it("does not cover the line the pointer is on", async () => {
+    invokeMock.mockResolvedValue(largePngBase64());
+    const preview = createImagePreview();
+    shown.push(preview);
+
+    const y = window.innerHeight - 40;
+    await preview.show("/tmp/shot.png", { x: 40, y });
+    const rect = document
+      .querySelector(".image-preview")!
+      .getBoundingClientRect();
+
+    expect(rect.bottom).toBeLessThanOrEqual(y);
+  });
+});

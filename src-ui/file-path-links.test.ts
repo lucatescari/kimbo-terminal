@@ -25,7 +25,7 @@ interface FakeLink {
 /** Minimal xterm stand-in: one buffer line, captures the link provider. */
 function fakeTerm(lineText: string) {
   let provider: { provideLinks(y: number, cb: (links: FakeLink[] | undefined) => void): void } | null = null;
-  let scrolled: (() => void) | null = null;
+  const scrollListeners: Array<() => void> = [];
   const term = {
     cols: 80,
     buffer: {
@@ -39,11 +39,18 @@ function fakeTerm(lineText: string) {
       return { dispose() {} };
     },
     onScroll: (cb: () => void) => {
-      scrolled = cb;
+      scrollListeners.push(cb);
       return { dispose() {} };
     },
   };
-  return { term, getProvider: () => provider!, scroll: () => scrolled?.() };
+  return {
+    term,
+    getProvider: () => provider!,
+    scroll: () => {
+      for (const cb of scrollListeners) cb();
+    },
+    scrollListenerCount: () => scrollListeners.length,
+  };
 }
 
 /** Drive the (async) provider for line 1 and resolve with its links. */
@@ -65,11 +72,14 @@ function fakeWrappedTerm(rows: { text: string; isWrapped: boolean }[], cols: num
         getLine: (i: number) => {
           const row = rows[i];
           if (!row) return null;
-          const padded = row.text.padEnd(cols, " ");
           return {
             isWrapped: row.isWrapped,
+            // Faithful to xterm: trimRight drops only cells that were never
+            // written, so a space the fixture itself contains survives. A
+            // fake that trimmed those too hid a real bug (a fragment padded
+            // by the TUI never looked flush with the end of its row).
             translateToString: (trimRight?: boolean) =>
-              trimRight ? padded.replace(/\s+$/, "") : padded,
+              trimRight ? row.text : row.text.padEnd(cols, " "),
           };
         },
       },
@@ -292,6 +302,16 @@ describe("attachFilePathLinks image hover preview", () => {
     expect(() => links![0].hover?.({} as MouseEvent, shot)).not.toThrow();
   });
 
+  it("registers exactly one scroll listener", async () => {
+    // Two registrations would hide twice per scroll and bump the supersede
+    // counter twice, cancelling a fetch that had every right to finish.
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, scrollListenerCount } = fakeTerm("wrote /tmp/shot.png");
+    attachFilePathLinks(term as never, () => null, preview);
+
+    expect(scrollListenerCount()).toBe(1);
+  });
+
   it("takes the preview down when the buffer scrolls under the pointer", async () => {
     // xterm fires `leave` on mouse-out and on a position change, but not when
     // the wheel moves the buffer under a stationary pointer, which would leave
@@ -308,5 +328,161 @@ describe("attachFilePathLinks image hover preview", () => {
     scroll();
 
     expect(preview.hide).toHaveBeenCalled();
+  });
+});
+
+describe("attachFilePathLinks across a hanging-indent soft wrap", () => {
+  // What Claude Code actually prints for an image attachment: it breaks the
+  // path at the terminal width itself and indents the remainder, so xterm
+  // marks neither row wrapped.
+  const ROWS = [
+    { text: "  \u203a [image]/tmp/kimbo/scratch/n", isWrapped: false },
+    { text: "        ew-desktop.png      (109KB)", isWrapped: false },
+  ];
+  const FULL = "/tmp/kimbo/scratch/new-desktop.png";
+
+  function backendKnowsOnly(...paths: string[]) {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      paths.includes(args.raw) ? args.raw : null,
+    );
+  }
+
+  it("links the head fragment to the whole joined path", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(FULL);
+    expect(links![0].range).toEqual({
+      start: { x: 12, y: 1 },
+      end: { x: 31, y: 1 },
+    });
+  });
+
+  it("links the indented remainder on the second row", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 2);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(FULL);
+    expect(links![0].range).toEqual({
+      start: { x: 9, y: 2 },
+      end: { x: 22, y: 2 },
+    });
+  });
+
+  it("opens the joined path from either row", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 2);
+    links![0].activate({ metaKey: true, shiftKey: false } as MouseEvent, FULL);
+
+    expect(openMock).toHaveBeenCalledWith(FULL);
+  });
+
+  it("leaves a fragment alone when it is a real path in its own right", async () => {
+    // "cat /etc" followed by an indented "/hosts" must not become a link to
+    // /etc/hosts. A tail that resolves was printed whole, not broken.
+    backendKnowsOnly("/etc", "/etc/hosts");
+    const { term, getProvider } = fakeWrappedTerm(
+      [
+        { text: "cat /etc", isWrapped: false },
+        { text: "    /hosts", isWrapped: false },
+      ],
+      40,
+    );
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links!.map((l) => l.text)).toEqual(["/etc"]);
+  });
+
+  it("previews a joined image path on hover", async () => {
+    backendKnowsOnly(FULL);
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null, preview);
+
+    const links = await provideAt(getProvider, 2);
+    links![0].hover!({ clientX: 5, clientY: 6 } as MouseEvent, FULL);
+
+    expect(preview.show).toHaveBeenCalledWith(FULL, { x: 5, y: 6 });
+  });
+});
+
+describe("attachFilePathLinks across a three-row soft wrap", () => {
+  // The same Claude Code attachment in a narrow split pane: the path is broken
+  // twice, so the middle row is a fragment with no path-like shape of its own.
+  const ROWS = [
+    { text: "  \u203a [image]/tmp/kimbo/scra", isWrapped: false },
+    { text: "        tch/new-desk", isWrapped: false },
+    { text: "        top.png      (109KB)", isWrapped: false },
+  ];
+  const FULL = "/tmp/kimbo/scratch/new-desktop.png";
+
+  function backendKnowsOnly(path: string) {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === path ? path : null,
+    );
+  }
+
+  it("links the middle fragment to the whole path", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 2);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(FULL);
+    expect(links![0].range).toEqual({
+      start: { x: 9, y: 2 },
+      end: { x: 20, y: 2 },
+    });
+  });
+
+  it("links the last fragment to the whole path", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 3);
+    expect(links).toHaveLength(1);
+    expect(links![0].range).toEqual({
+      start: { x: 9, y: 3 },
+      end: { x: 15, y: 3 },
+    });
+  });
+
+  it("links the first fragment to the whole path", async () => {
+    backendKnowsOnly(FULL);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(FULL);
+  });
+
+  it("links a fragment the TUI padded with trailing spaces", async () => {
+    const rows = [
+      { text: "  \u203a [image]/tmp/kimbo/scratch/n     ", isWrapped: false },
+      { text: "        ew-desktop.png      (109KB)", isWrapped: false },
+    ];
+    const full = "/tmp/kimbo/scratch/new-desktop.png";
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === full ? full : null,
+    );
+    const { term, getProvider } = fakeWrappedTerm(rows, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(full);
   });
 });
