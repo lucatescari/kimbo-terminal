@@ -47,6 +47,16 @@ function popover(): HTMLElement | null {
   return document.querySelector(".image-preview");
 }
 
+/** A hover target standing in for a link whose box sits at the given point.
+ *  The pointer is reported at the same place, which is what the real provider
+ *  does when the pointer is inside the link. */
+function at(x: number, y: number) {
+  return {
+    rect: { left: x, right: x + 40, top: y, bottom: y + 10 },
+    pointer: { x, y },
+  };
+}
+
 describe("isPreviewableImage", () => {
   it("accepts the bitmap extensions the renderer can decode, any case", () => {
     expect(isPreviewableImage("/tmp/shot.png")).toBe(true);
@@ -70,7 +80,7 @@ describe("createImagePreview", () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
 
-    await preview.show("/tmp/new-desktop-ticked.png", { x: 40, y: 60 });
+    await preview.show("/tmp/new-desktop-ticked.png", at(40, 60));
 
     const img = popover()?.querySelector("img");
     expect(img).toBeTruthy();
@@ -82,7 +92,7 @@ describe("createImagePreview", () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
 
-    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    await preview.show("/tmp/shot.png", at(0, 0));
 
     expect(invokeMock).toHaveBeenCalledWith("read_image_bytes", {
       path: "/tmp/shot.png",
@@ -93,7 +103,7 @@ describe("createImagePreview", () => {
     vi.useFakeTimers();
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    await preview.show("/tmp/shot.png", at(0, 0));
 
     preview.hide();
     vi.runAllTimers();
@@ -107,7 +117,7 @@ describe("createImagePreview", () => {
     invokeMock.mockResolvedValue(null);
     const preview = createImagePreview();
 
-    await preview.show("/tmp/gone.png", { x: 0, y: 0 });
+    await preview.show("/tmp/gone.png", at(0, 0));
 
     expect(popover()).toBeNull();
     expect(created).toEqual([]);
@@ -117,7 +127,7 @@ describe("createImagePreview", () => {
     invokeMock.mockResolvedValue(btoa("this is not an image at all"));
     const preview = createImagePreview();
 
-    await preview.show("/tmp/fake.png", { x: 0, y: 0 });
+    await preview.show("/tmp/fake.png", at(0, 0));
 
     expect(popover()).toBeNull();
   });
@@ -134,8 +144,8 @@ describe("createImagePreview", () => {
       .mockResolvedValueOnce(PNG_B64);
     const preview = createImagePreview();
 
-    const first = preview.show("/tmp/one.png", { x: 0, y: 0 });
-    await preview.show("/tmp/two.png", { x: 0, y: 0 });
+    const first = preview.show("/tmp/one.png", at(0, 0));
+    await preview.show("/tmp/two.png", at(0, 0));
     const afterSecond = popover()!.querySelector("img")!.src;
     releaseFirst(PNG_B64);
     await first;
@@ -148,7 +158,7 @@ describe("createImagePreview", () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
 
-    await preview.show("/tmp/shot.png", { x: window.innerWidth - 4, y: 20 });
+    await preview.show("/tmp/shot.png", at(window.innerWidth - 4, 20));
 
     const left = Number.parseFloat(popover()!.style.left);
     expect(left).toBeGreaterThanOrEqual(0);
@@ -158,7 +168,7 @@ describe("createImagePreview", () => {
   it("releases everything on dispose", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    await preview.show("/tmp/shot.png", at(0, 0));
 
     preview.dispose();
 
@@ -173,7 +183,7 @@ describe("createImagePreview", () => {
     );
     const preview = createImagePreview();
 
-    const pending = preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    const pending = preview.show("/tmp/shot.png", at(0, 0));
     preview.hide();
     release(PNG_B64);
     await pending;
@@ -189,7 +199,7 @@ describe("createImagePreview dismissal on input", () => {
     // and the thumbnail would hang over the tab you switched to.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "2" }));
 
@@ -203,7 +213,7 @@ describe("createImagePreview dismissal on input", () => {
     );
     const preview = createImagePreview();
 
-    const pending = preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    const pending = preview.show("/tmp/shot.png", at(10, 10));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
     release(PNG_B64);
     await pending;
@@ -217,7 +227,7 @@ describe("createImagePreview dismissal on input", () => {
     const removed = vi.spyOn(document, "removeEventListener");
 
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    await preview.show("/tmp/shot.png", at(0, 0));
     const registered = added.mock.calls.find((c) => c[0] === "keydown");
     preview.dispose();
 
@@ -250,10 +260,10 @@ describe("createImagePreview while xterm re-asks for the hovered link", () => {
   it("does not re-read the file when the same path comes straight back", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     preview.hide();
-    await preview.show("/tmp/shot.png", { x: 11, y: 10 });
+    await preview.show("/tmp/shot.png", at(11, 10));
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(popover()).not.toBeNull();
@@ -262,35 +272,38 @@ describe("createImagePreview while xterm re-asks for the hovered link", () => {
   it("keeps the very same element, so the entrance animation is not restarted", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
     const first = popover();
 
     preview.hide();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     expect(popover()).toBe(first);
     expect(created).toHaveLength(1);
   });
 
-  it("still moves to the new pointer position on the way back", async () => {
+  it("re-places against the link on the way back", async () => {
+    // The row can have scrolled while it was away, so the kept element is
+    // placed again from the newest rect.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 400 });
+    await preview.show("/tmp/shot.png", at(10, 400));
 
     preview.hide();
-    await preview.show("/tmp/shot.png", { x: 10, y: 300 });
+    await preview.show("/tmp/shot.png", at(10, 300));
 
-    // 300 - GAP - MAX_EDGE is negative, so it drops below the pointer.
-    expect(popover()!.style.top).toBe("324px");
+    // No room above a link at y=300 for a 360px thumbnail, so it drops just
+    // below the link's bottom edge.
+    expect(popover()!.style.top).toBe("322px");
   });
 
   it("swaps the image when a different path is hovered", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/one.png", { x: 10, y: 10 });
+    await preview.show("/tmp/one.png", at(10, 10));
 
     preview.hide();
-    await preview.show("/tmp/two.png", { x: 10, y: 10 });
+    await preview.show("/tmp/two.png", at(10, 10));
 
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(popover()!.textContent).toContain("two.png");
@@ -301,7 +314,7 @@ describe("createImagePreview while xterm re-asks for the hovered link", () => {
     vi.useFakeTimers();
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
 
@@ -317,7 +330,7 @@ describe("createImagePreview and modifier keys", () => {
     // you reached for it.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     for (const key of ["Meta", "Shift", "Alt", "Control"]) {
       document.dispatchEvent(new KeyboardEvent("keydown", { key }));
@@ -330,7 +343,7 @@ describe("createImagePreview and modifier keys", () => {
   it("still goes away on a key that does something", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     // Cmd+2 switches tab, which moves no mouse and so fires no `leave`.
     document.dispatchEvent(
@@ -348,7 +361,7 @@ describe("createImagePreview lifecycle gaps found in review", () => {
     // straight back; losing focus is the signal that it should not.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     window.dispatchEvent(new Event("blur"));
 
@@ -367,9 +380,9 @@ describe("createImagePreview lifecycle gaps found in review", () => {
     const preview = createImagePreview();
 
     const shows = [
-      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
-      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
-      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+      preview.show("/tmp/shot.png", at(10, 10)),
+      preview.show("/tmp/shot.png", at(10, 10)),
+      preview.show("/tmp/shot.png", at(10, 10)),
     ];
     release(PNG_B64);
     await Promise.all(shows);
@@ -388,7 +401,7 @@ describe("createImagePreview lifecycle gaps found in review", () => {
     const preview = createImagePreview();
 
     preview.dispose();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     expect(popover()).toBeNull();
     expect(added.mock.calls.filter((c) => c[0] === "keydown")).toEqual([]);
@@ -399,7 +412,7 @@ describe("createImagePreview lifecycle gaps found in review", () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const removed = vi.spyOn(window, "removeEventListener");
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+    await preview.show("/tmp/shot.png", at(0, 0));
 
     preview.dispose();
 
@@ -428,9 +441,9 @@ describe("createImagePreview when the pointer crosses several paths", () => {
     const release = heldBackend();
     const preview = createImagePreview();
 
-    const a1 = preview.show("/tmp/a.png", { x: 10, y: 10 });
-    const b = preview.show("/tmp/b.png", { x: 20, y: 10 });
-    const a2 = preview.show("/tmp/a.png", { x: 30, y: 10 });
+    const a1 = preview.show("/tmp/a.png", at(10, 10));
+    const b = preview.show("/tmp/b.png", at(20, 10));
+    const a2 = preview.show("/tmp/a.png", at(30, 10));
     release["/tmp/a.png"]?.(PNG_B64);
     release["/tmp/b.png"]?.(PNG_B64);
     await Promise.all([a1, b, a2]);
@@ -442,21 +455,20 @@ describe("createImagePreview when the pointer crosses several paths", () => {
     expect(created).toHaveLength(1); // one popover built, not two
   });
 
-  it("appears at the pointer's latest position, not where the read started", async () => {
-    // The pointer slides along a long underlined path while the read is out.
-    // Joining the in-flight read must not also inherit its stale anchor.
+  it("appears against the newest link box, not the one the read started on", async () => {
+    // The same file can be named twice on screen. Joining a read already in
+    // flight must not inherit the box it started against.
     const release = heldBackend();
     const preview = createImagePreview();
 
-    const first = preview.show("/tmp/a.png", { x: 100, y: 400 });
-    const second = preview.show("/tmp/a.png", { x: 640, y: 400 });
+    const first = preview.show("/tmp/a.png", at(100, 400));
+    const second = preview.show("/tmp/a.png", at(640, 400));
     release["/tmp/a.png"]?.(PNG_B64);
     await Promise.all([first, second]);
 
-    // Anchored at 640 the popover is clamped to the window; at the stale 100
-    // it would sit at 112px.
-    expect(popover()!.style.left).not.toBe("112px");
-    expect(Number.parseFloat(popover()!.style.left)).toBeGreaterThan(600);
+    // Centred on the second box (640..680) a 360px thumbnail starts at 480;
+    // centred on the first (100..140) it would be clamped to the 8px margin.
+    expect(Number.parseFloat(popover()!.style.left)).toBeCloseTo(480, 0);
   });
 });
 
@@ -482,9 +494,9 @@ describe("createImagePreview failure and dismissal handling", () => {
     const decodes = manualDecode();
     const preview = createImagePreview();
 
-    const bad = preview.show("/tmp/corrupt.png", { x: 10, y: 10 });
+    const bad = preview.show("/tmp/corrupt.png", at(10, 10));
     await Promise.resolve();
-    const good = preview.show("/tmp/good.png", { x: 20, y: 10 });
+    const good = preview.show("/tmp/good.png", at(20, 10));
     await Promise.resolve();
     decodes[1]?.resolve(); // the good one lands first
     await good;
@@ -504,7 +516,7 @@ describe("createImagePreview failure and dismissal handling", () => {
 
     for (let i = 0; i < 10; i++) {
       preview.hide();
-      await preview.show("/tmp/gone.png", { x: 10, y: 10 });
+      await preview.show("/tmp/gone.png", at(10, 10));
     }
 
     expect(invokeMock.mock.calls.length).toBeLessThanOrEqual(2);
@@ -516,27 +528,27 @@ describe("createImagePreview failure and dismissal handling", () => {
     // what made the blur handler useless against Cmd+click opening Preview.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     window.dispatchEvent(new Event("blur"));
     preview.hide();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     expect(popover()).toBeNull();
 
     // Moving the pointer is a fresh intent, so it comes back.
-    await preview.show("/tmp/shot.png", { x: 400, y: 300 });
+    await preview.show("/tmp/shot.png", at(400, 300));
     expect(popover()).not.toBeNull();
   });
 
   it("stays dismissed after a keystroke, until the pointer moves", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
     preview.hide();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     expect(popover()).toBeNull();
   });
@@ -550,11 +562,11 @@ describe("createImagePreview dismissal and memo edge cases", () => {
     // cleared it, so the next repaint put the thumbnail straight back.
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     preview.hide(); // activate()
     window.dispatchEvent(new Event("blur")); // Preview.app takes focus
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 }); // next repaint
+    await preview.show("/tmp/shot.png", at(10, 10)); // next repaint
 
     expect(popover()).toBeNull();
   });
@@ -562,11 +574,11 @@ describe("createImagePreview dismissal and memo edge cases", () => {
   it("stays dismissed when a keystroke lands after the hide", async () => {
     invokeMock.mockResolvedValue(PNG_B64);
     const preview = createImagePreview();
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     preview.hide();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
-    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+    await preview.show("/tmp/shot.png", at(10, 10));
 
     expect(popover()).toBeNull();
   });
@@ -583,13 +595,13 @@ describe("createImagePreview dismissal and memo edge cases", () => {
     );
     const preview = createImagePreview();
 
-    const a = preview.show("/tmp/a.png", { x: 10, y: 10 });
-    await preview.show("/tmp/b.png", { x: 20, y: 10 });
+    const a = preview.show("/tmp/a.png", at(10, 10));
+    await preview.show("/tmp/b.png", at(20, 10));
     releaseA(null); // a cannot be previewed
     await a;
     invokeMock.mockClear();
 
-    await preview.show("/tmp/a.png", { x: 400, y: 300 });
+    await preview.show("/tmp/a.png", at(400, 300));
 
     expect(invokeMock).not.toHaveBeenCalled();
   });
@@ -606,9 +618,9 @@ describe("createImagePreview dismissal and memo edge cases", () => {
     );
     const preview = createImagePreview();
 
-    await preview.show("/tmp/b.png", { x: 20, y: 10 }); // fails, now memoized
-    const a = preview.show("/tmp/a.png", { x: 10, y: 10 }); // read starts
-    await preview.show("/tmp/b.png", { x: 300, y: 300 }); // bails on the memo
+    await preview.show("/tmp/b.png", at(20, 10)); // fails, now memoized
+    const a = preview.show("/tmp/a.png", at(10, 10)); // read starts
+    await preview.show("/tmp/b.png", at(300, 300)); // bails on the memo
     releaseA(PNG_B64);
     await a;
 
