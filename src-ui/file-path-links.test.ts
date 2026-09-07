@@ -18,11 +18,14 @@ interface FakeLink {
   range: { start: { x: number; y: number }; end: { x: number; y: number } };
   text: string;
   activate: (event: MouseEvent, text: string) => void;
+  hover?: (event: MouseEvent, text: string) => void;
+  leave?: (event: MouseEvent, text: string) => void;
 }
 
 /** Minimal xterm stand-in: one buffer line, captures the link provider. */
 function fakeTerm(lineText: string) {
   let provider: { provideLinks(y: number, cb: (links: FakeLink[] | undefined) => void): void } | null = null;
+  let scrolled: (() => void) | null = null;
   const term = {
     cols: 80,
     buffer: {
@@ -35,8 +38,12 @@ function fakeTerm(lineText: string) {
       provider = p;
       return { dispose() {} };
     },
+    onScroll: (cb: () => void) => {
+      scrolled = cb;
+      return { dispose() {} };
+    },
   };
-  return { term, getProvider: () => provider! };
+  return { term, getProvider: () => provider!, scroll: () => scrolled?.() };
 }
 
 /** Drive the (async) provider for line 1 and resolve with its links. */
@@ -71,6 +78,7 @@ function fakeWrappedTerm(rows: { text: string; isWrapped: boolean }[], cols: num
       provider = p;
       return { dispose() {} };
     },
+    onScroll: () => ({ dispose() {} }),
   };
   return { term, getProvider: () => provider! };
 }
@@ -214,5 +222,91 @@ describe("attachFilePathLinks across wrapped rows", () => {
     await provideAt(getProvider, 1);
     const asked = invokeMock.mock.calls.map((c) => (c[1] as { raw: string }).raw);
     expect(asked).not.toContain(PATH);
+  });
+});
+
+describe("attachFilePathLinks image hover preview", () => {
+  const shot = "/tmp/shot.png";
+
+  function withPreview(lineText: string) {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === shot ? shot : null,
+    );
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, getProvider } = fakeTerm(lineText);
+    attachFilePathLinks(term as never, () => null, preview);
+    return { preview, getProvider };
+  }
+
+  it("previews an image path at the pointer on hover", async () => {
+    const { preview, getProvider } = withPreview("wrote /tmp/shot.png");
+    const links = await provide(getProvider);
+
+    links![0].hover!({ clientX: 120, clientY: 340 } as MouseEvent, shot);
+
+    expect(preview.show).toHaveBeenCalledWith(shot, { x: 120, y: 340 });
+  });
+
+  it("takes the preview down when the pointer leaves", async () => {
+    const { preview, getProvider } = withPreview("wrote /tmp/shot.png");
+    const links = await provide(getProvider);
+
+    links![0].leave!({} as MouseEvent, shot);
+
+    expect(preview.hide).toHaveBeenCalled();
+  });
+
+  it("leaves non-image paths without a preview", async () => {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === "/tmp/notes.md" ? "/tmp/notes.md" : null,
+    );
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, getProvider } = fakeTerm("see /tmp/notes.md");
+    attachFilePathLinks(term as never, () => null, preview);
+
+    const links = await provide(getProvider);
+    expect(links).toHaveLength(1);
+    expect(links![0].hover).toBeUndefined();
+  });
+
+  it("hides the preview when the path is opened", async () => {
+    // Otherwise the popover outlives the click and hangs over the terminal
+    // while Preview opens on top.
+    const { preview, getProvider } = withPreview("wrote /tmp/shot.png");
+    const links = await provide(getProvider);
+
+    links![0].activate({ metaKey: true, shiftKey: false } as MouseEvent, shot);
+
+    expect(preview.hide).toHaveBeenCalled();
+  });
+
+  it("works with no preview wired at all", async () => {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === shot ? shot : null,
+    );
+    const { term, getProvider } = fakeTerm("wrote /tmp/shot.png");
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provide(getProvider);
+    expect(links).toHaveLength(1);
+    expect(() => links![0].hover?.({} as MouseEvent, shot)).not.toThrow();
+  });
+
+  it("takes the preview down when the buffer scrolls under the pointer", async () => {
+    // xterm fires `leave` on mouse-out and on a position change, but not when
+    // the wheel moves the buffer under a stationary pointer, which would leave
+    // a thumbnail hanging over unrelated output.
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === shot ? shot : null,
+    );
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, getProvider, scroll } = fakeTerm("wrote /tmp/shot.png");
+    attachFilePathLinks(term as never, () => null, preview);
+    const links = await provide(getProvider);
+    links![0].hover!({ clientX: 1, clientY: 1 } as MouseEvent, shot);
+
+    scroll();
+
+    expect(preview.hide).toHaveBeenCalled();
   });
 });

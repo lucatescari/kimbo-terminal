@@ -24,6 +24,7 @@ import { parseOsc7Cwd } from "./osc7";
 export { parseOsc7Cwd } from "./osc7";
 import { attachOsc8Links } from "./osc8";
 import { attachFilePathLinks } from "./file-path-links";
+import { createImagePreview } from "./image-preview";
 import { attachOsc1337Renderer } from "./osc1337-renderer";
 import { Osc1337CursorAdvancer } from "./osc1337-preprocess";
 import { stripAnsiBlackBg } from "./ansi-bg-transparent";
@@ -343,9 +344,13 @@ export async function createTerminalSession(
   });
 
   // Plain-text file paths (incl. relative ones printed by Claude Code et al.):
-  // Cmd+click reveals the file in Finder. getCwd is read lazily so the latest
-  // OSC 7 cwd is used to resolve relative paths at hover time.
-  attachFilePathLinks(term, () => session.cwd);
+  // Cmd+click opens the file, Cmd+Shift+click reveals it in Finder. getCwd is
+  // read lazily so the latest OSC 7 cwd is used to resolve relative paths at
+  // hover time. Hovering an image path shows a thumbnail at the pointer; the
+  // popover is a sibling of the terminal rather than a cell decoration, so it
+  // works inside full-screen TUIs too (see image-preview.ts).
+  const imagePreview = createImagePreview();
+  attachFilePathLinks(term, () => session.cwd, imagePreview);
 
   // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
   // delegated to a dedicated module so terminal.ts stays focused on wiring.
@@ -464,6 +469,7 @@ export async function createTerminalSession(
       closePty(ptyId).catch((e) => console.warn("closePty failed:", e));
 
       try { disposeInlineImages(); } catch (e) { console.warn("disposeInlineImages:", e); }
+      try { imagePreview.dispose(); } catch (e) { console.warn("imagePreview.dispose:", e); }
       try { window.removeEventListener("focus", restoreWebglAfterContextLoss); } catch (e) { console.warn("window remove focus listener:", e); }
       try { document.removeEventListener("visibilitychange", restoreWebglAfterContextLoss); } catch (e) { console.warn("document remove visibilitychange listener:", e); }
       try { unlistenTauriFocus?.(); } catch (e) { console.warn("unlistenTauriFocus:", e); }

@@ -354,6 +354,7 @@ fn main() {
             commands::kimbo::write_kimbo_shell_scripts,
             commands::keybinds::set_menu_accelerator,
             commands::path::resolve_existing_path,
+            commands::image::read_image_bytes,
             commands::workspace::list_projects,
             commands::update::check_update,
             commands::update::install_update,

@@ -4,6 +4,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { detectFilePaths } from "./file-path-detect";
 import { choosePathAction } from "./file-path-action";
 import { clipLinkRangeForLine } from "./osc8";
+import { isPreviewableImage, type ImagePreview } from "./image-preview";
 
 // Cap on cached path-resolution results. Like osc8.ts's MAX_TRACKED_RANGES,
 // this keeps a long-lived terminal from growing the cache without bound; oldest
@@ -67,7 +68,11 @@ function readLogicalLine(
  *  The link provider and its cache live for the Terminal's lifetime and are
  *  released by term.dispose() — no separate teardown needed (same as the OSC 8
  *  provider in osc8.ts). */
-export function attachFilePathLinks(term: Terminal, getCwd: () => string | null): void {
+export function attachFilePathLinks(
+  term: Terminal,
+  getCwd: () => string | null,
+  preview?: Pick<ImagePreview, "show" | "hide">,
+): void {
   // Map of "<cwd>\0<raw>" -> resolved absolute path, or null when the path does
   // not exist. Caching avoids a backend round-trip on every re-hover.
   const cache = new Map<string, string | null>();
@@ -89,6 +94,12 @@ export function attachFilePathLinks(term: Terminal, getCwd: () => string | null)
     cache.set(key, resolved);
     return resolved;
   }
+
+  // xterm fires a link's `leave` on mouse-out and when the hovered cell
+  // changes, but not when the wheel scrolls the buffer under a pointer that
+  // has not moved. Without this the thumbnail would hang over whatever output
+  // scrolled into its place.
+  if (preview) term.onScroll(() => preview.hide());
 
   term.registerLinkProvider({
     async provideLinks(bufferLineNumber, callback) {
@@ -131,8 +142,25 @@ export function attachFilePathLinks(term: Terminal, getCwd: () => string | null)
           // Gate on Cmd to match Kimbo's URL/OSC 8 link behavior and to avoid
           // hijacking normal text selection. Cmd opens in the default app;
           // Cmd+Shift reveals in Finder.
+          // Hovering an image shows a thumbnail at the pointer. Only images
+          // get the handlers, so hovering ordinary paths costs nothing.
+          ...(preview && isPreviewableImage(resolved)
+            ? {
+                hover: (event: MouseEvent) => {
+                  void preview.show(resolved, {
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                },
+                leave: () => preview.hide(),
+              }
+            : {}),
           activate: (event: MouseEvent) => {
-            switch (choosePathAction(event)) {
+            const action = choosePathAction(event);
+            // Take any thumbnail down first, so it does not hang over the
+            // terminal while Preview or Finder comes up on top of it.
+            if (action !== "none") preview?.hide();
+            switch (action) {
               case "open":
                 openPath(resolved).catch((e) =>
                   console.error("openPath failed:", e),
