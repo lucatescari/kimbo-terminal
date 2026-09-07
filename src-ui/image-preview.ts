@@ -73,10 +73,14 @@ export interface ImagePreview {
 export function createImagePreview(): ImagePreview {
   let shown: { el: HTMLElement; url: string; path: string } | null = null;
   let pendingHide: ReturnType<typeof setTimeout> | null = null;
-  // Bumped by every show and every hide. A fetch whose generation is stale
-  // lost its race: the pointer has since moved to another link or left the
-  // terminal, and its image must not appear.
-  let generation = 0;
+  let disposed = false;
+  /** The path that should be on screen right now, or null for none. A fetch
+   *  renders only if this still names its path: anything else means the
+   *  pointer has moved on, the keyboard was used, or the pane is gone. */
+  let wanted: string | null = null;
+  /** The fetch already running, so a repaint storm asking for the same path
+   *  over and over joins it instead of starting another. */
+  let inFlight: { path: string; done: Promise<void> } | null = null;
 
   const cancelPendingHide = (): void => {
     if (pendingHide === null) return;
@@ -92,9 +96,9 @@ export function createImagePreview(): ImagePreview {
     shown = null;
   };
 
-  /** Gone now: the keyboard was used, or the pane is going away. */
+  /** Gone now: the keyboard was used, focus left, or the pane is going away. */
   const hideNow = (): void => {
-    generation++;
+    wanted = null;
     teardown();
   };
 
@@ -112,11 +116,17 @@ export function createImagePreview(): ImagePreview {
   /** Gone shortly, unless the same path comes straight back. See
    *  HIDE_GRACE_MS for why the delay is load-bearing. */
   const hide = (): void => {
-    generation++;
+    wanted = null;
     if (!shown) return;
     cancelPendingHide();
     pendingHide = setTimeout(teardown, HIDE_GRACE_MS);
   };
+
+  /** Cmd+click opens Preview, which takes focus while the pointer has not
+   *  moved: xterm re-asks for the link on the next repaint and the thumbnail
+   *  would come straight back over the terminal. Losing focus says it should
+   *  not. Registered once, for the life of the preview. */
+  window.addEventListener("blur", hideNow);
 
   const place = (el: HTMLElement, anchor: { x: number; y: number }): void => {
     // The image is decoded before the popover is inserted, so these are the
@@ -135,36 +145,19 @@ export function createImagePreview(): ImagePreview {
     el.style.top = `${Math.max(MARGIN, top)}px`;
   };
 
-  const show = async (
+  /** Fetch, decode and insert. Split out so `show` can dedupe callers onto a
+   *  single run of it. Bails at every await whose result is no longer wanted. */
+  const load = async (
     path: string,
     anchor: { x: number; y: number },
   ): Promise<void> => {
-    // Any keystroke dismisses the thumbnail. The pointer can rest on a link
-    // while the keyboard does something else: switching tab with Cmd+2 moves
-    // no mouse, so xterm never fires the link's `leave` and the thumbnail
-    // would hang over whatever the keystroke brought up. Registered here
-    // rather than at creation so a preview that never showed anything cannot
-    // leave a listener behind; addEventListener is a no-op for a handler
-    // already registered.
-    document.addEventListener("keydown", onKeyDown);
-
-    const mine = ++generation;
-
-    // Already up for this very path: xterm is re-asking after a repaint, so
-    // keep the element (and its running animation), just follow the pointer.
-    if (shown?.path === path) {
-      cancelPendingHide();
-      place(shown.el, anchor);
-      return;
-    }
-
     let base64: string | null = null;
     try {
       base64 = await invoke<string | null>("read_image_bytes", { path });
     } catch {
       base64 = null;
     }
-    if (mine !== generation) return; // superseded by a later hover or a hide
+    if (wanted !== path) return;
 
     const bytes = base64 ? decodeBase64Bytes(base64, MAX_BYTES) : null;
     const format = bytes ? sniffBitmapFormat(bytes) : null;
@@ -195,7 +188,7 @@ export function createImagePreview(): ImagePreview {
       teardown();
       return;
     }
-    if (mine !== generation) {
+    if (wanted !== path) {
       URL.revokeObjectURL(url);
       return;
     }
@@ -219,11 +212,49 @@ export function createImagePreview(): ImagePreview {
     place(el, anchor);
   };
 
+  const show = async (
+    path: string,
+    anchor: { x: number; y: number },
+  ): Promise<void> => {
+    if (disposed) return;
+    wanted = path;
+
+    // Any keystroke dismisses the thumbnail. The pointer can rest on a link
+    // while the keyboard does something else: switching tab with Cmd+2 moves
+    // no mouse, so xterm never fires the link's `leave` and the thumbnail
+    // would hang over whatever the keystroke brought up. Registered here
+    // rather than at creation so a preview that never showed anything cannot
+    // leave a listener behind; addEventListener is a no-op for a handler
+    // already registered.
+    document.addEventListener("keydown", onKeyDown);
+
+    // Already up for this very path: xterm is re-asking after a repaint, so
+    // keep the element (and its running animation), just follow the pointer.
+    if (shown?.path === path) {
+      cancelPendingHide();
+      place(shown.el, anchor);
+      return;
+    }
+
+    // Already being fetched. Nothing is shown yet, so without this the
+    // repaint storm that re-asks every frame would start a fresh read of the
+    // same file every frame and discard all but the last.
+    if (inFlight?.path === path) return inFlight.done;
+
+    const done = load(path, anchor).finally(() => {
+      if (inFlight?.path === path) inFlight = null;
+    });
+    inFlight = { path, done };
+    return done;
+  };
+
   return {
     show,
     hide,
     dispose(): void {
+      disposed = true;
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("blur", hideNow);
       hideNow();
     },
   };

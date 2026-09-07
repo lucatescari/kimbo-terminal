@@ -535,3 +535,64 @@ describe("attachFilePathLinks when a shorter prefix is also a real path", () => 
     expect(links!.map((l) => l.text)).toEqual([DIR]);
   });
 });
+
+describe("attachFilePathLinks link precedence and lookup cost", () => {
+  const ROWS = [
+    { text: "  \u203a [image]/tmp/aaa/Doc", isWrapped: false },
+    { text: "        uments/x.png", isWrapped: false },
+  ];
+  const JOINED = "/tmp/aaa/Documents/x.png";
+
+  it("prefers the joined path over a fragment that also exists in the cwd", async () => {
+    // The continuation row's own token can be a real relative path. xterm uses
+    // the first link it finds for a position and drops the rest, so if the
+    // fragment came first, Cmd+click opened the wrong file.
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) => {
+      if (args.raw === JOINED) return JOINED;
+      if (args.raw === "uments/x.png") return "/cwd/uments/x.png";
+      return null;
+    });
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => "/cwd");
+
+    const links = await provideAt(getProvider, 2);
+    expect(links![0].text).toBe(JOINED);
+  });
+
+  it("looks paths up concurrently, not one round trip after another", async () => {
+    // A first hover on a deep chain tests every prefix. Serially that is a
+    // visible stall before the underline appears.
+    let inFlight = 0;
+    let peak = 0;
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight--;
+      return args.raw === JOINED ? JOINED : null;
+    });
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    await provideAt(getProvider, 1);
+
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it("stops looking once a chain has produced a link", async () => {
+    // Every row of an indent block looks like it could start a chain, so
+    // without an early exit a deep block multiplies the lookups by its height.
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === JOINED ? JOINED : null,
+    );
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    await provideAt(getProvider, 1);
+    const asked = invokeMock.mock.calls.map((c) => (c[1] as { raw: string }).raw);
+
+    // The tag variant "image]/tmp/aaa/Doc" and the real one, each with its one
+    // continuation, plus the plain pass over the row itself.
+    expect(asked.length).toBeLessThanOrEqual(6);
+  });
+});

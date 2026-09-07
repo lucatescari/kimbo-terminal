@@ -340,3 +340,70 @@ describe("createImagePreview and modifier keys", () => {
     expect(popover()).toBeNull();
   });
 });
+
+describe("createImagePreview lifecycle gaps found in review", () => {
+  it("goes away when the window loses focus", async () => {
+    // Cmd+click opens Preview on top. The pointer has not moved, so xterm
+    // re-asks for the link on the next repaint and the thumbnail comes
+    // straight back; losing focus is the signal that it should not.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    window.dispatchEvent(new Event("blur"));
+
+    expect(popover()).toBeNull();
+  });
+
+  it("reads the file once even when asked repeatedly before it lands", async () => {
+    // The same-path shortcut keys off what is already shown, and nothing is
+    // shown until the read completes. A TUI repainting at 60fps therefore
+    // issued a fresh read every frame for the whole load window, each one up
+    // to 10MB base64-encoded across IPC, and threw all but one away.
+    let release: (v: string) => void = () => {};
+    invokeMock.mockImplementation(
+      () => new Promise<string>((res) => (release = res)),
+    );
+    const preview = createImagePreview();
+
+    const shows = [
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+    ];
+    release(PNG_B64);
+    await Promise.all(shows);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(popover()).not.toBeNull();
+    expect(created).toHaveLength(1);
+  });
+
+  it("shows nothing after dispose", async () => {
+    // dispose runs while the pane is being torn down. A show that slipped
+    // through afterwards would insert a popover with no owner left to remove
+    // it, and re-register the keydown listener dispose had just removed.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const added = vi.spyOn(document, "addEventListener");
+    const preview = createImagePreview();
+
+    preview.dispose();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+    expect(added.mock.calls.filter((c) => c[0] === "keydown")).toEqual([]);
+    added.mockRestore();
+  });
+
+  it("leaves no window listener behind on dispose", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const removed = vi.spyOn(window, "removeEventListener");
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+
+    preview.dispose();
+
+    expect(removed.mock.calls.some((c) => c[0] === "blur")).toBe(true);
+    removed.mockRestore();
+  });
+});

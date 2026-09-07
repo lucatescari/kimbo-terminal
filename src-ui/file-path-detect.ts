@@ -56,6 +56,10 @@ export function detectFilePaths(line: string): PathCandidate[] {
     const raw = line.slice(start, end);
     if (raw.includes("://")) continue; // URL — owned by WebLinksAddon / OSC 8
     if (!raw.includes("/")) continue; // single-segment token, not a path
+    // A run of nothing but slashes is not a path anyone meant. "//" in
+    // particular canonicalizes to "/" on macOS, so every "//" in a comment
+    // resolved and became an underlined link to the filesystem root.
+    if (!/[^/]/.test(raw)) continue;
 
     out.push({ raw, startCol: start, endCol: end });
 

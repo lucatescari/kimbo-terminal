@@ -90,4 +90,12 @@ describe("detectFilePaths", () => {
       "/etc/hosts",
     ]);
   });
+
+  it("ignores a token made only of slashes", () => {
+    // "//" resolves: Path::new("//").canonicalize() is "/", so every "//"
+    // in a source comment became an underlined link to the filesystem root.
+    expect(detectFilePaths("// a comment")).toEqual([]);
+    expect(detectFilePaths("///")).toEqual([]);
+    expect(detectFilePaths("a // b")).toEqual([]);
+  });
 });
