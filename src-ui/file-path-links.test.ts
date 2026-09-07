@@ -486,3 +486,52 @@ describe("attachFilePathLinks across a three-row soft wrap", () => {
     expect(links![0].text).toBe(full);
   });
 });
+
+describe("attachFilePathLinks when a shorter prefix is also a real path", () => {
+  // Every "/"-boundary prefix of a real path is a real directory, so a break
+  // that lands on one made the join resolve early: the link opened the
+  // containing folder, the hover showed nothing (a directory is not an image)
+  // and the last row of the path went dead.
+  const ROWS = [
+    { text: "  \u203a [image]/tmp/kimbo/Doc", isWrapped: false },
+    { text: "        uments/screenshots", isWrapped: false },
+    { text: "        /a.png      (28KB)", isWrapped: false },
+  ];
+  const DIR = "/tmp/kimbo/Documents/screenshots";
+  const FILE = "/tmp/kimbo/Documents/screenshots/a.png";
+
+  function backendKnows(...paths: string[]) {
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      paths.includes(args.raw) ? args.raw : null,
+    );
+  }
+
+  it("links the whole file, not the folder that resolves first", async () => {
+    backendKnows(DIR, FILE);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links!.map((l) => l.text)).toEqual([FILE]);
+  });
+
+  it("still links the last row of such a path", async () => {
+    backendKnows(DIR, FILE);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 3);
+    expect(links).toHaveLength(1);
+    expect(links![0].text).toBe(FILE);
+  });
+
+  it("falls back to the folder when that is all there is", async () => {
+    // Nothing longer exists, so the directory is the honest answer.
+    backendKnows(DIR);
+    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    attachFilePathLinks(term as never, () => null);
+
+    const links = await provideAt(getProvider, 1);
+    expect(links!.map((l) => l.text)).toEqual([DIR]);
+  });
+});

@@ -230,26 +230,33 @@ export function attachFilePathLinks(
         // A fragment that exists on its own was printed whole, not broken.
         if (await resolveCached(first.raw, cwd)) continue;
 
+        // Take the LONGEST prefix that resolves, not the first. Every
+        // "/"-boundary prefix of a real path is a real directory, so a break
+        // that lands on one resolves early: stopping there would open the
+        // containing folder, show no thumbnail (a directory is not an image)
+        // and leave the rest of the path unlinked.
         let joined = first.raw;
+        let best: { pieces: number; path: string; resolved: string } | null = null;
         for (let n = 1; n < chain.pieces.length; n++) {
           joined += chain.pieces[n].raw;
           const resolved = await resolveCached(joined, cwd);
-          if (!resolved) continue;
-          // Underline every fragment of the path that lies on this row.
-          for (const piece of chain.pieces.slice(0, n + 1)) {
-            if (from + piece.row !== index) continue;
-            links.push(
-              makeLink(
-                {
-                  start: { x: piece.startCol + 1, y: bufferLineNumber },
-                  end: { x: piece.endCol, y: bufferLineNumber },
-                },
-                joined,
-                resolved,
-              ),
-            );
-          }
-          break;
+          if (resolved) best = { pieces: n + 1, path: joined, resolved };
+        }
+        if (!best) continue;
+
+        // Underline every fragment of the path that lies on this row.
+        for (const piece of chain.pieces.slice(0, best.pieces)) {
+          if (from + piece.row !== index) continue;
+          links.push(
+            makeLink(
+              {
+                start: { x: piece.startCol + 1, y: bufferLineNumber },
+                end: { x: piece.endCol, y: bufferLineNumber },
+              },
+              best.path,
+              best.resolved,
+            ),
+          );
         }
       }
 

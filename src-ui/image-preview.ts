@@ -98,6 +98,17 @@ export function createImagePreview(): ImagePreview {
     teardown();
   };
 
+  /** Pressing a modifier is not "using the keyboard": the caption asks for
+   *  Cmd+click, and Cmd arrives as a keydown of its own, so dismissing on it
+   *  took the thumbnail away exactly when the reader reached for it. A
+   *  modifier combined with a real key still dismisses, which is what makes
+   *  Cmd+2 (switch tab) work. */
+  const MODIFIER_KEYS = new Set(["Meta", "Shift", "Alt", "Control", "CapsLock"]);
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (MODIFIER_KEYS.has(event.key)) return;
+    hideNow();
+  };
+
   /** Gone shortly, unless the same path comes straight back. See
    *  HIDE_GRACE_MS for why the delay is load-bearing. */
   const hide = (): void => {
@@ -135,7 +146,7 @@ export function createImagePreview(): ImagePreview {
     // rather than at creation so a preview that never showed anything cannot
     // leave a listener behind; addEventListener is a no-op for a handler
     // already registered.
-    document.addEventListener("keydown", hideNow);
+    document.addEventListener("keydown", onKeyDown);
 
     const mine = ++generation;
 
@@ -212,7 +223,7 @@ export function createImagePreview(): ImagePreview {
     show,
     hide,
     dispose(): void {
-      document.removeEventListener("keydown", hideNow);
+      document.removeEventListener("keydown", onKeyDown);
       hideNow();
     },
   };

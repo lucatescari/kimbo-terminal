@@ -309,3 +309,34 @@ describe("createImagePreview while xterm re-asks for the hovered link", () => {
     vi.useRealTimers();
   });
 });
+
+describe("createImagePreview and modifier keys", () => {
+  it("survives a bare Cmd press, which is how you open the file", async () => {
+    // The caption tells you to Cmd+click. Pressing Cmd is a keydown of its
+    // own, so dismissing on every key made the thumbnail vanish exactly when
+    // you reached for it.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    for (const key of ["Meta", "Shift", "Alt", "Control"]) {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key }));
+    }
+
+    expect(popover()).not.toBeNull();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still goes away on a key that does something", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    // Cmd+2 switches tab, which moves no mouse and so fires no `leave`.
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "2", metaKey: true }),
+    );
+
+    expect(popover()).toBeNull();
+  });
+});
