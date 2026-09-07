@@ -21,6 +21,16 @@ const LEADING = new Set(["(", "[", "{", "<", "'", '"', "`"]);
 const TRAILING = new Set([")", "]", "}", ">", "'", '"', "`", ",", ";", ".", ":"]);
 const LOCATION_SUFFIX = /:\d+(:\d+)?$/; // :line or :line:col
 
+/** Whether a token names something, rather than being only separators. A run
+ *  of slashes and dots canonicalizes to a directory that always exists ("//"
+ *  and "/./" both become "/"), so without this every "//" in a comment and
+ *  every "s/./x/" underlined the filesystem root. Both places a candidate is
+ *  emitted have to check, which is why this is a named helper: the first
+ *  version guarded only the outer token and "arr[i]//" still produced one. */
+function isNameable(raw: string): boolean {
+  return /[^/.]/.test(raw);
+}
+
 /** Scan a line of terminal text and return every path-like token, with the
  *  exact column span of the path portion (location suffix excluded). */
 export function detectFilePaths(line: string): PathCandidate[] {
@@ -56,6 +66,7 @@ export function detectFilePaths(line: string): PathCandidate[] {
     const raw = line.slice(start, end);
     if (raw.includes("://")) continue; // URL — owned by WebLinksAddon / OSC 8
     if (!raw.includes("/")) continue; // single-segment token, not a path
+    if (!isNameable(raw)) continue;
 
     out.push({ raw, startCol: start, endCol: end });
 
@@ -67,11 +78,14 @@ export function detectFilePaths(line: string): PathCandidate[] {
     const firstSlash = raw.indexOf("/");
     const tagEnd = raw.lastIndexOf("]", firstSlash);
     if (tagEnd > 0 && end - (start + tagEnd + 1) >= 2) {
-      out.push({
-        raw: raw.slice(tagEnd + 1),
-        startCol: start + tagEnd + 1,
-        endCol: end,
-      });
+      const inner = raw.slice(tagEnd + 1);
+      if (isNameable(inner)) {
+        out.push({
+          raw: inner,
+          startCol: start + tagEnd + 1,
+          endCol: end,
+        });
+      }
     }
   }
   return out;

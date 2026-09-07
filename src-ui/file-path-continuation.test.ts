@@ -86,16 +86,33 @@ describe("detectContinuationChains", () => {
     expect(detectContinuationChains(rows, 2)).toEqual([]);
   });
 
-  it("stops chaining after four rows", () => {
+  it("chains a path broken across eight rows", () => {
+    // A real path in a narrow split pane needs more than a couple of breaks:
+    // Claude Code's scratchpad paths are ~145 characters, which is seven rows
+    // at 25 usable columns. The cap fails all-or-nothing (every prefix of a
+    // too-long chain is truncated, so nothing resolves), so it has to be high
+    // enough to cover a genuine path rather than merely bound the work.
     const rows = [
       "/tmp/a",
-      "   /b",
-      "   /c",
-      "   /d",
-      "   /e",
+      "   /bb",
+      "   /cc",
+      "   /dd",
+      "   /ee",
+      "   /ff",
+      "   /gg",
+      "   /hh.png",
     ];
+    const chain = detectContinuationChains(rows, 7)[0];
+    expect(chain.pieces).toHaveLength(8);
+    expect(chain.pieces.map((p) => p.raw).join("")).toBe(
+      "/tmp/a/bb/cc/dd/ee/ff/gg/hh.png",
+    );
+  });
+
+  it("still stops somewhere, so a hover cannot cost unbounded work", () => {
+    const rows = ["/tmp/a", ...Array.from({ length: 20 }, (_, i) => `   /${i}`)];
     const chain = detectContinuationChains(rows, 0)[0];
-    expect(chain.pieces).toHaveLength(4);
+    expect(chain.pieces.length).toBeLessThanOrEqual(8);
   });
 
   it("chains a fragment that a TUI padded with trailing spaces", () => {

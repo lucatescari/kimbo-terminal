@@ -18,10 +18,22 @@ import { detectFilePaths } from "./file-path-detect";
  *  resolve on its own and the joined path does. That is what stops an
  *  accidental pairing of unrelated lines from ever being underlined. */
 
-/** Rows in one chain, counting the row that starts it. Three continuations is
- *  enough for a long path in a narrow split pane; the cap bounds both the
- *  false-join surface and the number of existence checks a hover can cost. */
-const MAX_CHAIN_ROWS = 4;
+/** Rows in one chain, counting the row that starts it.
+ *
+ *  This cap fails all-or-nothing rather than degrading: every prefix of a
+ *  chain that was cut short is a truncated path, so nothing resolves and no
+ *  part of the path links at all. It therefore has to be high enough for a
+ *  path someone would actually print. Claude Code's own scratchpad paths run
+ *  to about 145 characters, which is seven rows at the ~25 usable columns of
+ *  a narrow split pane. Eight covers that while still bounding the work a
+ *  hover can cost, and the prefix checks run concurrently (see
+ *  file-path-links.ts).
+ *
+ *  A path containing a space is out of scope either way, here as in
+ *  file-path-detect.ts: each continuation row contributes one run of
+ *  non-whitespace, so a directory like "Application Support" loses its second
+ *  word and the join never resolves. */
+const MAX_CHAIN_ROWS = 8;
 
 /** Leading whitespace followed by one run of non-whitespace. The indent is
  *  what marks a row as a continuation rather than a fresh line of output. */

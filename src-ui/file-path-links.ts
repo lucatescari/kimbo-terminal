@@ -22,10 +22,9 @@ const MAX_CACHE = 5_000;
 const MAX_WRAP_ROWS = 16;
 
 /** How far above and below the hovered row to look for a path a TUI broke
- *  across its own indented wrap. Matches the chain cap in
- *  file-path-continuation.ts: three continuations past the row that starts it,
- *  which covers a long path in a narrow split pane. */
-const CHAIN_SPAN = 3;
+ *  across its own indented wrap. Matches MAX_CHAIN_ROWS in
+ *  file-path-continuation.ts, less the row that starts the chain. */
+const CHAIN_SPAN = 7;
 
 /** Join the rows of the wrapped logical line that `bufferLineNumber` sits in,
  *  and report the absolute 0-based index of its first row.
@@ -168,45 +167,26 @@ export function attachFilePathLinks(
       const cwd = getCwd();
       const cols = term.cols;
       const index = bufferLineNumber - 1;
-      const links = [];
+      const links: ReturnType<typeof makeLink>[] = [];
 
-      // bufferLineNumber is the 1-based absolute buffer line (same coordinate
-      // as IBufferCellPosition.y). Detection runs over the whole wrapped
-      // logical line, not just this row, so a path long enough to wrap is
-      // matched in one piece; each resolved candidate is then clipped back to
-      // the row being asked about.
-      const logical = readLogicalLine(term, bufferLineNumber);
-      if (logical) {
-        for (const c of detectFilePaths(logical.text)) {
-          const resolved = await resolveCached(c.raw, cwd);
-          if (!resolved) continue; // path doesn't exist — no underline
-          // Offsets into the stitched text map onto cells by whole rows of
-          // term.cols. clipLinkRangeForLine (shared with the OSC 8 provider)
-          // turns the resulting multi-row span into this row's IBufferRange,
-          // which is 1-based and inclusive of both ends; a candidate's endCol
-          // is the exclusive 0-based end, so the last cell is endCol - 1.
-          const lastCell = c.endCol - 1;
-          const range = clipLinkRangeForLine(
-            {
-              startY: logical.startY + Math.floor(c.startCol / cols),
-              startX: c.startCol % cols,
-              endY: logical.startY + Math.floor(lastCell / cols),
-              endX: (lastCell % cols) + 1,
-            },
-            bufferLineNumber,
-            cols,
-          );
-          if (!range) continue;
-          links.push(makeLink(range, c.raw, resolved));
-        }
-      }
+      // Whether a range on this row is already spoken for. xterm uses the
+      // first link it finds for a position and drops the rest, so a link only
+      // gets added when nothing more specific already covers those cells.
+      const covered = (startX: number, endX: number): boolean =>
+        links.some((l) => startX <= l.range.end.x && endX >= l.range.start.x);
 
-      // A path a TUI broke across its own hanging-indent wrap. None of those
-      // rows carries xterm's wrapped flag, so the pass above sees a first row
-      // whose path does not exist and continuation rows with no slash in them.
-      // Look at a window of plain rows around this one and let the disk settle
-      // it: a chain is linked only when its first fragment does not resolve on
-      // its own and some prefix of the joined fragments does.
+      // --- Paths a TUI broke across its own hanging-indent wrap -------------
+      // None of those rows carries xterm's wrapped flag, so the plain pass
+      // below sees a first row whose path does not exist and continuation
+      // rows with no slash in them. Look at a window of plain rows around
+      // this one and let the disk settle it: a chain is linked only when its
+      // first fragment does not resolve on its own and some prefix of the
+      // joined fragments does.
+      //
+      // This runs BEFORE the plain pass because a continuation row's own
+      // token can itself be a real relative path ("uments/x.png" next to a
+      // cwd that has one). The joined absolute path is what the reader meant,
+      // so it has to be the link xterm finds first.
       const isHardWrapped = (y: number): boolean =>
         term.buffer.active.getLine(y)?.isWrapped === true;
 
@@ -226,21 +206,34 @@ export function attachFilePathLinks(
       }
 
       for (const chain of detectContinuationChains(texts, index - from)) {
-        const first = chain.pieces[0];
         // A fragment that exists on its own was printed whole, not broken.
-        if (await resolveCached(first.raw, cwd)) continue;
+        // Asked first and alone, because a path followed by ordinary indented
+        // output is the common shape: batching it with the prefixes below
+        // would spend a lookup per continuation row on strings that cannot
+        // exist, and park each one in the resolution cache.
+        if (await resolveCached(chain.pieces[0].raw, cwd)) continue;
 
-        // Take the LONGEST prefix that resolves, not the first. Every
+        // The prefixes are independent questions for the disk, so ask them
+        // together: a deep chain asked one round trip after another is a
+        // visible stall before the underline appears.
+        const prefixes: string[] = [chain.pieces[0].raw];
+        for (let n = 1; n < chain.pieces.length; n++) {
+          prefixes.push(prefixes[n - 1] + chain.pieces[n].raw);
+        }
+        const resolutions = await Promise.all(
+          prefixes.slice(1).map((path) => resolveCached(path, cwd)),
+        );
+        resolutions.unshift(null); // index 0 is the fragment, already known absent
+
+        // Take the LONGEST prefix that resolves, not the shortest. Every
         // "/"-boundary prefix of a real path is a real directory, so a break
         // that lands on one resolves early: stopping there would open the
         // containing folder, show no thumbnail (a directory is not an image)
         // and leave the rest of the path unlinked.
-        let joined = first.raw;
         let best: { pieces: number; path: string; resolved: string } | null = null;
-        for (let n = 1; n < chain.pieces.length; n++) {
-          joined += chain.pieces[n].raw;
-          const resolved = await resolveCached(joined, cwd);
-          if (resolved) best = { pieces: n + 1, path: joined, resolved };
+        for (let n = 1; n < prefixes.length; n++) {
+          const resolved = resolutions[n];
+          if (resolved) best = { pieces: n + 1, path: prefixes[n], resolved };
         }
         if (!best) continue;
 
@@ -257,6 +250,47 @@ export function attachFilePathLinks(
               best.resolved,
             ),
           );
+        }
+        // Every row of an indent block looks like it could start a chain of
+        // its own, so without stopping here a deep block would multiply the
+        // lookups by its height for no new links.
+        if (links.length > 0) break;
+      }
+
+      // --- Plain paths, including ones xterm wrapped itself ----------------
+      // bufferLineNumber is the 1-based absolute buffer line (same coordinate
+      // as IBufferCellPosition.y). Detection runs over the whole wrapped
+      // logical line, not just this row, so a path long enough to wrap is
+      // matched in one piece; each resolved candidate is then clipped back to
+      // the row being asked about.
+      const logical = readLogicalLine(term, bufferLineNumber);
+      if (logical) {
+        const candidates = detectFilePaths(logical.text);
+        const resolutions = await Promise.all(
+          candidates.map((c) => resolveCached(c.raw, cwd)),
+        );
+        for (const [i, c] of candidates.entries()) {
+          const resolved = resolutions[i];
+          if (!resolved) continue; // path doesn't exist — no underline
+          // Offsets into the stitched text map onto cells by whole rows of
+          // term.cols. clipLinkRangeForLine (shared with the OSC 8 provider)
+          // turns the resulting multi-row span into this row's IBufferRange,
+          // which is 1-based and inclusive of both ends; a candidate's endCol
+          // is the exclusive 0-based end, so the last cell is endCol - 1.
+          const lastCell = c.endCol - 1;
+          const range = clipLinkRangeForLine(
+            {
+              startY: logical.startY + Math.floor(c.startCol / cols),
+              startX: c.startCol % cols,
+              endY: logical.startY + Math.floor(lastCell / cols),
+              endX: (lastCell % cols) + 1,
+            },
+            bufferLineNumber,
+            cols,
+          );
+          if (!range) continue;
+          if (covered(range.start.x, range.end.x)) continue;
+          links.push(makeLink(range, c.raw, resolved));
         }
       }
 

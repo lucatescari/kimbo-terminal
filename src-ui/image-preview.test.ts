@@ -340,3 +340,279 @@ describe("createImagePreview and modifier keys", () => {
     expect(popover()).toBeNull();
   });
 });
+
+describe("createImagePreview lifecycle gaps found in review", () => {
+  it("goes away when the window loses focus", async () => {
+    // Cmd+click opens Preview on top. The pointer has not moved, so xterm
+    // re-asks for the link on the next repaint and the thumbnail comes
+    // straight back; losing focus is the signal that it should not.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    window.dispatchEvent(new Event("blur"));
+
+    expect(popover()).toBeNull();
+  });
+
+  it("reads the file once even when asked repeatedly before it lands", async () => {
+    // The same-path shortcut keys off what is already shown, and nothing is
+    // shown until the read completes. A TUI repainting at 60fps therefore
+    // issued a fresh read every frame for the whole load window, each one up
+    // to 10MB base64-encoded across IPC, and threw all but one away.
+    let release: (v: string) => void = () => {};
+    invokeMock.mockImplementation(
+      () => new Promise<string>((res) => (release = res)),
+    );
+    const preview = createImagePreview();
+
+    const shows = [
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+      preview.show("/tmp/shot.png", { x: 10, y: 10 }),
+    ];
+    release(PNG_B64);
+    await Promise.all(shows);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(popover()).not.toBeNull();
+    expect(created).toHaveLength(1);
+  });
+
+  it("shows nothing after dispose", async () => {
+    // dispose runs while the pane is being torn down. A show that slipped
+    // through afterwards would insert a popover with no owner left to remove
+    // it, and re-register the keydown listener dispose had just removed.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const added = vi.spyOn(document, "addEventListener");
+    const preview = createImagePreview();
+
+    preview.dispose();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+    expect(added.mock.calls.filter((c) => c[0] === "keydown")).toEqual([]);
+    added.mockRestore();
+  });
+
+  it("leaves no window listener behind on dispose", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const removed = vi.spyOn(window, "removeEventListener");
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 0, y: 0 });
+
+    preview.dispose();
+
+    expect(removed.mock.calls.some((c) => c[0] === "blur")).toBe(true);
+    removed.mockRestore();
+  });
+});
+
+describe("createImagePreview when the pointer crosses several paths", () => {
+  /** A backend whose reads resolve only when told to, per path. */
+  function heldBackend() {
+    const release: Record<string, (v: string) => void> = {};
+    invokeMock.mockImplementation(
+      (_cmd: string, args: { path: string }) =>
+        new Promise<string>((res) => (release[args.path] = res)),
+    );
+    return release;
+  }
+
+  it("does not start a second read when the pointer comes back mid-flight", async () => {
+    // A then B then back to A, all while A's read is still out. Deduping only
+    // against the one fetch being tracked meant B displaced A, so returning to
+    // A started a second read of it, and both renders landed: the second tore
+    // the first down and rebuilt it, restarting the entrance animation. That
+    // is the strobe the whole design exists to avoid.
+    const release = heldBackend();
+    const preview = createImagePreview();
+
+    const a1 = preview.show("/tmp/a.png", { x: 10, y: 10 });
+    const b = preview.show("/tmp/b.png", { x: 20, y: 10 });
+    const a2 = preview.show("/tmp/a.png", { x: 30, y: 10 });
+    release["/tmp/a.png"]?.(PNG_B64);
+    release["/tmp/b.png"]?.(PNG_B64);
+    await Promise.all([a1, b, a2]);
+
+    const readsOfA = invokeMock.mock.calls.filter(
+      (c) => (c[1] as { path: string }).path === "/tmp/a.png",
+    );
+    expect(readsOfA).toHaveLength(1);
+    expect(created).toHaveLength(1); // one popover built, not two
+  });
+
+  it("appears at the pointer's latest position, not where the read started", async () => {
+    // The pointer slides along a long underlined path while the read is out.
+    // Joining the in-flight read must not also inherit its stale anchor.
+    const release = heldBackend();
+    const preview = createImagePreview();
+
+    const first = preview.show("/tmp/a.png", { x: 100, y: 400 });
+    const second = preview.show("/tmp/a.png", { x: 640, y: 400 });
+    release["/tmp/a.png"]?.(PNG_B64);
+    await Promise.all([first, second]);
+
+    // Anchored at 640 the popover is clamped to the window; at the stale 100
+    // it would sit at 112px.
+    expect(popover()!.style.left).not.toBe("112px");
+    expect(Number.parseFloat(popover()!.style.left)).toBeGreaterThan(600);
+  });
+});
+
+describe("createImagePreview failure and dismissal handling", () => {
+  /** Take manual control of image decoding for one test. Returns the pending
+   *  decodes in call order so they can be settled individually. */
+  function manualDecode() {
+    const calls: Array<{ resolve: () => void; reject: () => void }> = [];
+    HTMLImageElement.prototype.decode = vi.fn(
+      () =>
+        new Promise<void>((res, rej) => {
+          calls.push({ resolve: () => res(), reject: () => rej(new Error("bad")) });
+        }),
+    ) as unknown as HTMLImageElement["decode"];
+    return calls;
+  }
+
+  it("a rejected decode does not remove the thumbnail the pointer is on", async () => {
+    // A truncated file passes the magic-byte sniff and only fails at decode.
+    // If that late failure tears down whatever is on screen, it takes another
+    // path's thumbnail with it and nothing is left to put it back.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const decodes = manualDecode();
+    const preview = createImagePreview();
+
+    const bad = preview.show("/tmp/corrupt.png", { x: 10, y: 10 });
+    await Promise.resolve();
+    const good = preview.show("/tmp/good.png", { x: 20, y: 10 });
+    await Promise.resolve();
+    decodes[1]?.resolve(); // the good one lands first
+    await good;
+    decodes[0]?.reject(); // the abandoned one fails afterwards
+    await bad;
+
+    expect(popover()).not.toBeNull();
+    expect(popover()!.textContent).toContain("good.png");
+  });
+
+  it("does not read a file again and again once it has failed", async () => {
+    // xterm re-asks for the hovered link on every repaint. A file that cannot
+    // be previewed (too large, deleted, mislabelled) leaves nothing shown and
+    // nothing in flight, so every frame started the read afresh.
+    invokeMock.mockResolvedValue(null);
+    const preview = createImagePreview();
+
+    for (let i = 0; i < 10; i++) {
+      preview.hide();
+      await preview.show("/tmp/gone.png", { x: 10, y: 10 });
+    }
+
+    expect(invokeMock.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it("stays dismissed after the window loses focus, until the pointer moves", async () => {
+    // The pointer has not moved, so xterm keeps re-asking on every repaint.
+    // A dismissal that only lasts one frame is no dismissal at all, which is
+    // what made the blur handler useless against Cmd+click opening Preview.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    window.dispatchEvent(new Event("blur"));
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+
+    // Moving the pointer is a fresh intent, so it comes back.
+    await preview.show("/tmp/shot.png", { x: 400, y: 300 });
+    expect(popover()).not.toBeNull();
+  });
+
+  it("stays dismissed after a keystroke, until the pointer moves", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    preview.hide();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+  });
+});
+
+describe("createImagePreview dismissal and memo edge cases", () => {
+  it("stays dismissed when the hide came before the blur", async () => {
+    // This is the Cmd+click path exactly: the link's activate() calls hide()
+    // and only then does Preview.app take focus. Recording the dismissal from
+    // what is currently wanted found nothing, because hide() had already
+    // cleared it, so the next repaint put the thumbnail straight back.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    preview.hide(); // activate()
+    window.dispatchEvent(new Event("blur")); // Preview.app takes focus
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 }); // next repaint
+
+    expect(popover()).toBeNull();
+  });
+
+  it("stays dismissed when a keystroke lands after the hide", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    preview.hide();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+  });
+
+  it("remembers a failure even when the pointer moved on before it landed", async () => {
+    // A read that comes back empty is a fact about the file, whichever path
+    // the pointer is on by then. Classifying it as merely overtaken threw the
+    // fact away, so the next hover read the same doomed file again.
+    let releaseA: (v: string | null) => void = () => {};
+    invokeMock.mockImplementation((_cmd: string, args: { path: string }) =>
+      args.path === "/tmp/a.png"
+        ? new Promise((res) => (releaseA = res))
+        : Promise.resolve(PNG_B64),
+    );
+    const preview = createImagePreview();
+
+    const a = preview.show("/tmp/a.png", { x: 10, y: 10 });
+    await preview.show("/tmp/b.png", { x: 20, y: 10 });
+    releaseA(null); // a cannot be previewed
+    await a;
+    invokeMock.mockClear();
+
+    await preview.show("/tmp/a.png", { x: 400, y: 300 });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render an older path over the one the pointer is on", async () => {
+    // show() bailed on a dismissed or failed path before recording what is
+    // wanted, so the previous path stayed "wanted" and its read rendered over
+    // the top when it landed.
+    let releaseA: (v: string) => void = () => {};
+    invokeMock.mockImplementation((_cmd: string, args: { path: string }) =>
+      args.path === "/tmp/a.png"
+        ? new Promise<string>((res) => (releaseA = res))
+        : Promise.resolve(null),
+    );
+    const preview = createImagePreview();
+
+    await preview.show("/tmp/b.png", { x: 20, y: 10 }); // fails, now memoized
+    const a = preview.show("/tmp/a.png", { x: 10, y: 10 }); // read starts
+    await preview.show("/tmp/b.png", { x: 300, y: 300 }); // bails on the memo
+    releaseA(PNG_B64);
+    await a;
+
+    expect(popover()).toBeNull();
+  });
+
+});
