@@ -22,14 +22,36 @@ interface FakeLink {
   leave?: (event: MouseEvent, text: string) => void;
 }
 
+/** A stand-in for xterm's screen element with a measurable box. Cells come out
+ *  exactly 10px square, so a link's expected rect is easy to state. jsdom
+ *  reports zeros for every real element, which would make the provider skip
+ *  the preview entirely and quietly pass any assertion about it. */
+function fakeScreen(cols: number, rows: number) {
+  return {
+    querySelector: () => ({
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: cols * CELL,
+        height: rows * CELL,
+      }),
+    }),
+  };
+}
+const CELL = 10;
+const ROWS = 24;
+
 /** Minimal xterm stand-in: one buffer line, captures the link provider. */
 function fakeTerm(lineText: string) {
   let provider: { provideLinks(y: number, cb: (links: FakeLink[] | undefined) => void): void } | null = null;
   const scrollListeners: Array<() => void> = [];
   const term = {
     cols: 80,
+    rows: ROWS,
+    element: fakeScreen(80, ROWS),
     buffer: {
       active: {
+        viewportY: 0,
         getLine: (i: number) =>
           i === 0 ? { translateToString: () => lineText } : null,
       },
@@ -67,8 +89,11 @@ function fakeWrappedTerm(rows: { text: string; isWrapped: boolean }[], cols: num
   let provider: { provideLinks(y: number, cb: (links: FakeLink[] | undefined) => void): void } | null = null;
   const term = {
     cols,
+    rows: ROWS,
+    element: fakeScreen(cols, ROWS),
     buffer: {
       active: {
+        viewportY: 0,
         getLine: (i: number) => {
           const row = rows[i];
           if (!row) return null;
@@ -248,13 +273,45 @@ describe("attachFilePathLinks image hover preview", () => {
     return { preview, getProvider };
   }
 
-  it("previews an image path at the pointer on hover", async () => {
+  it("previews an image path over the link on hover", async () => {
+    // "/tmp/shot.png" occupies columns 6 to 18 of the first row, so at 10px
+    // cells the thumbnail is placed against 60..190 on the first row, and the
+    // pointer is passed along separately.
     const { preview, getProvider } = withPreview("wrote /tmp/shot.png");
     const links = await provide(getProvider);
 
     links![0].hover!({ clientX: 120, clientY: 340 } as MouseEvent, shot);
 
-    expect(preview.show).toHaveBeenCalledWith(shot, { x: 120, y: 340 });
+    expect(preview.show).toHaveBeenCalledWith(shot, {
+      rect: { left: 60, right: 190, top: 0, bottom: 10 },
+      pointer: { x: 120, y: 340 },
+    });
+  });
+
+  it("places the thumbnail against the row that was hovered", async () => {
+    // A second row's link must not be placed against the first row's box.
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === shot ? shot : null,
+    );
+    const preview = { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() };
+    const { term, getProvider } = fakeWrappedTerm(
+      [
+        { text: "first line", isWrapped: false },
+        { text: "wrote /tmp/shot.png", isWrapped: false },
+      ],
+      40,
+    );
+    attachFilePathLinks(term as never, () => null, preview);
+
+    const links = await provideAt(getProvider, 2);
+    links![0].hover!({ clientX: 1, clientY: 1 } as MouseEvent, shot);
+
+    expect(preview.show).toHaveBeenCalledWith(
+      shot,
+      expect.objectContaining({
+        rect: { left: 60, right: 190, top: 10, bottom: 20 },
+      }),
+    );
   });
 
   it("takes the preview down when the pointer leaves", async () => {
@@ -412,7 +469,10 @@ describe("attachFilePathLinks across a hanging-indent soft wrap", () => {
     const links = await provideAt(getProvider, 2);
     links![0].hover!({ clientX: 5, clientY: 6 } as MouseEvent, FULL);
 
-    expect(preview.show).toHaveBeenCalledWith(FULL, { x: 5, y: 6 });
+    expect(preview.show).toHaveBeenCalledWith(
+      FULL,
+      expect.objectContaining({ pointer: { x: 5, y: 6 } }),
+    );
   });
 });
 

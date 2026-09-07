@@ -14,6 +14,14 @@ import { createImagePreview } from "./image-preview";
 // that ends up hanging off the bottom or the right of the window. This needs
 // a real browser.
 
+/** A hover target standing in for a link box at the given point. */
+function at(x: number, y: number) {
+  return {
+    rect: { left: x, right: x + 40, top: y, bottom: y + 10 },
+    pointer: { x, y },
+  };
+}
+
 /** A PNG large enough that the thumbnail hits its 360px ceiling. */
 function largePngBase64(): string {
   const canvas = document.createElement("canvas");
@@ -52,10 +60,7 @@ describe("image preview placement in a real viewport", () => {
     invokeMock.mockResolvedValue(largePngBase64());
     const preview = createImagePreview();
 
-    await preview.show("/tmp/shot.png", {
-      x: window.innerWidth - 4,
-      y: window.innerHeight - 4,
-    });
+    await preview.show("/tmp/shot.png", at(window.innerWidth - 4, window.innerHeight - 4));
     const rect = (await settled()).getBoundingClientRect();
 
     expect(rect.width).toBeGreaterThan(100); // the image really did lay out
@@ -72,7 +77,7 @@ describe("image preview placement in a real viewport", () => {
     const preview = createImagePreview();
 
     const y = window.innerHeight - 40;
-    await preview.show("/tmp/shot.png", { x: 20, y });
+    await preview.show("/tmp/shot.png", at(20, y));
     const rect = (await settled()).getBoundingClientRect();
 
     expect(rect.bottom).toBeLessThanOrEqual(y);
@@ -121,7 +126,7 @@ describe("image preview against the app's own layout", () => {
   async function showAt(y: number): Promise<void> {
     const preview = createImagePreview();
     shown.push(preview);
-    await preview.show("/tmp/shot.png", { x: 40, y });
+    await preview.show("/tmp/shot.png", at(40, y));
   }
 });
 
@@ -137,7 +142,7 @@ describe("image preview placement is right the first time", () => {
     const preview = createImagePreview();
     shown.push(preview);
 
-    await preview.show("/tmp/shot.png", { x: 40, y: window.innerHeight - 40 });
+    await preview.show("/tmp/shot.png", at(40, window.innerHeight - 40));
     const rect = document
       .querySelector(".image-preview")!
       .getBoundingClientRect();
@@ -153,11 +158,55 @@ describe("image preview placement is right the first time", () => {
     shown.push(preview);
 
     const y = window.innerHeight - 40;
-    await preview.show("/tmp/shot.png", { x: 40, y });
+    await preview.show("/tmp/shot.png", at(40, y));
     const rect = document
       .querySelector(".image-preview")!
       .getBoundingClientRect();
 
     expect(rect.bottom).toBeLessThanOrEqual(y);
+  });
+});
+
+describe("image preview is centred on the link", () => {
+  // xterm re-acquires the hovered link on every repaint and reports the
+  // pointer's latest position, so a thumbnail placed from the pointer hopped
+  // across the screen as output streamed. Placed from the link's own box it
+  // holds still while the pointer travels along it.
+  it("centres horizontally on the link and sits above it", async () => {
+    invokeMock.mockResolvedValue(largePngBase64());
+    const preview = createImagePreview();
+    shown.push(preview);
+
+    const link = { left: 60, right: 260, top: 500, bottom: 512 };
+    await preview.show("/tmp/shot.png", { rect: link, pointer: { x: 200, y: 505 } });
+    const rect = (await settled()).getBoundingClientRect();
+
+    const linkCentre = (link.left + link.right) / 2;
+    // Centred on the link, unless the window edge got in the way.
+    if (rect.left > 8 && rect.right < window.innerWidth - 8) {
+      expect((rect.left + rect.right) / 2).toBeCloseTo(linkCentre, 0);
+    }
+    // Above the link, not over it.
+    expect(rect.bottom).toBeLessThanOrEqual(link.top);
+  });
+
+  it("does not move when the pointer travels along the same link", async () => {
+    invokeMock.mockResolvedValue(largePngBase64());
+    const preview = createImagePreview();
+    shown.push(preview);
+
+    const link = { left: 40, right: 300, top: 500, bottom: 512 };
+    await preview.show("/tmp/shot.png", { rect: link, pointer: { x: 50, y: 505 } });
+    const before = (await settled()).getBoundingClientRect();
+
+    // Same link, pointer now at its far end: exactly the sequence that used
+    // to make the thumbnail jump.
+    await preview.show("/tmp/shot.png", { rect: link, pointer: { x: 295, y: 505 } });
+    const after = document
+      .querySelector(".image-preview")!
+      .getBoundingClientRect();
+
+    expect(after.left).toBeCloseTo(before.left, 5);
+    expect(after.top).toBeCloseTo(before.top, 5);
   });
 });

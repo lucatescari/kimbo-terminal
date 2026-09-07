@@ -6,6 +6,7 @@ import { choosePathAction } from "./file-path-action";
 import { clipLinkRangeForLine } from "./osc8";
 import { detectContinuationChains } from "./file-path-continuation";
 import { isPreviewableImage, type ImagePreview } from "./image-preview";
+import { cellRunToRect, type Rect } from "./cell-rect";
 
 // Cap on cached path-resolution results. Like osc8.ts's MAX_TRACKED_RANGES,
 // this keeps a long-lived terminal from growing the cache without bound; oldest
@@ -105,6 +106,30 @@ export function attachFilePathLinks(
    *  the row being asked about. Shared by the three ways a path can be found:
    *  plain on one row, stitched across rows xterm wrapped, or joined across a
    *  TUI's own hanging-indent wrap. */
+  /** The hovered link's box in viewport pixels, or null when the terminal is
+   *  not laid out. Computed at hover time rather than when the link is made,
+   *  because the viewport scrolls underneath it. */
+  function linkRect(range: {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+  }): Rect | null {
+    const screen = term.element?.querySelector(".xterm-screen");
+    if (!screen) return null;
+    const box = screen.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    return cellRunToRect(
+      { left: box.left, top: box.top, width: box.width, height: box.height },
+      term.cols,
+      term.rows,
+      {
+        // xterm ranges are 1-based and inclusive at both ends.
+        startX: range.start.x - 1,
+        endX: range.end.x - 1,
+        row: range.start.y - 1 - term.buffer.active.viewportY,
+      },
+    );
+  }
+
   function makeLink(
     range: { start: { x: number; y: number }; end: { x: number; y: number } },
     text: string,
@@ -113,14 +138,16 @@ export function attachFilePathLinks(
     return {
       range,
       text,
-      // Hovering an image shows a thumbnail at the pointer. Only images get
+      // Hovering an image shows a thumbnail over the link. Only images get
       // the handlers, so hovering ordinary paths costs nothing.
       ...(preview && isPreviewableImage(resolved)
         ? {
             hover: (event: MouseEvent) => {
+              const rect = linkRect(range);
+              if (!rect) return;
               void preview.show(resolved, {
-                x: event.clientX,
-                y: event.clientY,
+                rect,
+                pointer: { x: event.clientX, y: event.clientY },
               });
             },
             leave: () => preview.hide(),

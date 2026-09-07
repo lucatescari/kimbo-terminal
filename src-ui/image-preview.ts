@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { decodeBase64Bytes, sniffBitmapFormat } from "./osc1337";
+import type { Rect } from "./cell-rect";
 
 /** Hover preview for image files named in terminal output.
  *
@@ -76,10 +77,21 @@ export interface Anchor {
   y: number;
 }
 
+/** What a hover is about. The thumbnail is placed against `rect`, the hovered
+ *  link's own box, so it holds still: xterm re-acquires the link on every
+ *  repaint and reports the pointer's latest position, so anything placed from
+ *  the pointer hops across the screen while output streams. `pointer` is kept
+ *  for one purpose only, telling a genuine re-hover from xterm asking again
+ *  after a repaint, which is what lets a dismissal last longer than a frame. */
+export interface PreviewTarget {
+  rect: Rect;
+  pointer: Anchor;
+}
+
 export interface ImagePreview {
   /** Fetch and show `path` near a viewport point. Resolves once the popover is
    *  up, or once the attempt has been abandoned. Never rejects. */
-  show(path: string, anchor: Anchor): Promise<void>;
+  show(path: string, target: PreviewTarget): Promise<void>;
   /** Take the popover down and cancel any fetch still in flight. */
   hide(): void;
   /** Tear down for good. Safe to call more than once. */
@@ -97,19 +109,19 @@ export function createImagePreview(): ImagePreview {
   /** The path the pointer is on and where, or null for none. A completed read
    *  renders only if this still names its path. Written only by show, hide,
    *  hideNow and dispose. */
-  let desired: { path: string; anchor: Anchor } | null = null;
+  let desired: { path: string; target: PreviewTarget } | null = null;
   /** The last thing show was asked for, kept even after hide clears `desired`.
    *  A dismissal needs it: the link's activate() hides the thumbnail and only
    *  then does Preview.app take focus, so by the time the blur arrives there
    *  is nothing left in `desired` to record, and the dismissal was lost. */
-  let lastRequest: { path: string; anchor: Anchor } | null = null;
+  let lastRequest: { path: string; target: PreviewTarget } | null = null;
   /** What IS on screen. Written only by clear and render. */
   let displayed: { path: string; el: HTMLElement; url: string } | null = null;
   /** What was taken away by the keyboard or by losing focus, and where the
    *  pointer was at the time. xterm re-asks for the hovered link on every
    *  repaint without the pointer moving, so a dismissal that does not outlive
    *  the frame is not a dismissal at all. */
-  let dismissed: { path: string; anchor: Anchor } | null = null;
+  let dismissed: { path: string; pointer: Anchor } | null = null;
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   /** Loads in flight, keyed by path, so a repaint storm joins the read already
@@ -138,11 +150,11 @@ export function createImagePreview(): ImagePreview {
   };
 
   /** The other one. */
-  const render = (path: string, el: HTMLElement, url: string, anchor: Anchor): void => {
+  const render = (path: string, el: HTMLElement, url: string, rect: Rect): void => {
     clear();
     document.body.appendChild(el);
     displayed = { path, el, url };
-    place(el, anchor);
+    place(el, rect);
   };
 
   const rememberFailure = (path: string): void => {
@@ -163,17 +175,17 @@ export function createImagePreview(): ImagePreview {
     return false;
   };
 
-  const stillDismissed = (path: string, anchor: Anchor): boolean =>
+  const stillDismissed = (path: string, pointer: Anchor): boolean =>
     dismissed !== null &&
     dismissed.path === path &&
-    Math.abs(dismissed.anchor.x - anchor.x) <= MOVED_PX &&
-    Math.abs(dismissed.anchor.y - anchor.y) <= MOVED_PX;
+    Math.abs(dismissed.pointer.x - pointer.x) <= MOVED_PX &&
+    Math.abs(dismissed.pointer.y - pointer.y) <= MOVED_PX;
 
   /** Gone now: the keyboard was used, focus left, or the pane is going away.
    *  Stays gone until the pointer moves or lands on something else. */
   const hideNow = (): void => {
-    const target = desired ?? lastRequest;
-    if (target) dismissed = { path: target.path, anchor: target.anchor };
+    const last = desired ?? lastRequest;
+    if (last) dismissed = { path: last.path, pointer: last.target.pointer };
     desired = null;
     clear();
   };
@@ -203,19 +215,22 @@ export function createImagePreview(): ImagePreview {
    *  outlives the frame it does not come straight back on the next repaint. */
   window.addEventListener("blur", hideNow);
 
-  const place = (el: HTMLElement, anchor: Anchor): void => {
+  const place = (el: HTMLElement, rect: Rect): void => {
     // The image is decoded before the popover is inserted, so these are the
     // real dimensions. The fallback covers a host with no layout at all.
     const width = el.offsetWidth || MAX_EDGE;
     const height = el.offsetHeight || MAX_EDGE;
-    const left = Math.min(anchor.x + GAP, window.innerWidth - width - MARGIN);
-    // Prefer above the pointer so the popover does not sit on the line being
-    // read; drop below when there is no room up there.
-    const above = anchor.y - GAP - height;
+    // Centred on the link, so it reads as belonging to it and does not move
+    // while the pointer travels along it.
+    const centre = (rect.left + rect.right) / 2;
+    const left = Math.min(centre - width / 2, window.innerWidth - width - MARGIN);
+    // Prefer above the link so it does not cover the line being read; drop
+    // below when there is no room up there.
+    const above = rect.top - GAP - height;
     const top =
       above >= MARGIN
         ? above
-        : Math.min(anchor.y + GAP * 2, window.innerHeight - height - MARGIN);
+        : Math.min(rect.bottom + GAP, window.innerHeight - height - MARGIN);
     el.style.left = `${Math.max(MARGIN, left)}px`;
     el.style.top = `${Math.max(MARGIN, top)}px`;
   };
@@ -304,20 +319,20 @@ export function createImagePreview(): ImagePreview {
       URL.revokeObjectURL(built.url);
       return;
     }
-    render(path, built.el, built.url, desired.anchor);
+    render(path, built.el, built.url, desired.target.rect);
   };
 
-  const show = async (path: string, anchor: Anchor): Promise<void> => {
+  const show = async (path: string, target: PreviewTarget): Promise<void> => {
     if (disposed) return;
 
-    // Record where the pointer is BEFORE any early return. Bailing out first
-    // left `desired` naming the previous path, so a read still running for it
+    // Record what is hovered BEFORE any early return. Bailing out first left
+    // `desired` naming the previous path, so a read still running for it
     // passed the gate and rendered over the one the pointer had moved to.
-    lastRequest = { path, anchor };
-    desired = { path, anchor };
+    lastRequest = { path, target };
+    desired = { path, target };
 
     // A dismissal holds until the pointer moves or moves on.
-    if (stillDismissed(path, anchor)) return;
+    if (stillDismissed(path, target.pointer)) return;
     dismissed = null;
     if (recentlyFailed(path)) return;
 
@@ -334,7 +349,9 @@ export function createImagePreview(): ImagePreview {
     // keep the element (and its running animation), just follow the pointer.
     if (displayed?.path === path) {
       cancelHideTimer();
-      place(displayed.el, anchor);
+      // Re-place in case the row scrolled or the window resized under it; the
+      // rect is the link's, so a pointer moving along the link changes nothing.
+      place(displayed.el, target.rect);
       return;
     }
 
