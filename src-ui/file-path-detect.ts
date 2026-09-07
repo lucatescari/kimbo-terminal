@@ -58,6 +58,21 @@ export function detectFilePaths(line: string): PathCandidate[] {
     if (!raw.includes("/")) continue; // single-segment token, not a path
 
     out.push({ raw, startCol: start, endCol: end });
+
+    // A tag glued to the front of a path survives the leading-punctuation
+    // strip as e.g. "image]/abs/shot.png" (Claude Code prints image
+    // attachments as "[image]<path>" with no separating space), and that never
+    // resolves on disk. Emit the inner path as an extra candidate too; the
+    // downstream existence check drops whichever of the two is not real.
+    const firstSlash = raw.indexOf("/");
+    const tagEnd = raw.lastIndexOf("]", firstSlash);
+    if (tagEnd > 0 && end - (start + tagEnd + 1) >= 2) {
+      out.push({
+        raw: raw.slice(tagEnd + 1),
+        startCol: start + tagEnd + 1,
+        endCol: end,
+      });
+    }
   }
   return out;
 }
