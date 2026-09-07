@@ -541,3 +541,78 @@ describe("createImagePreview failure and dismissal handling", () => {
     expect(popover()).toBeNull();
   });
 });
+
+describe("createImagePreview dismissal and memo edge cases", () => {
+  it("stays dismissed when the hide came before the blur", async () => {
+    // This is the Cmd+click path exactly: the link's activate() calls hide()
+    // and only then does Preview.app take focus. Recording the dismissal from
+    // what is currently wanted found nothing, because hide() had already
+    // cleared it, so the next repaint put the thumbnail straight back.
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    preview.hide(); // activate()
+    window.dispatchEvent(new Event("blur")); // Preview.app takes focus
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 }); // next repaint
+
+    expect(popover()).toBeNull();
+  });
+
+  it("stays dismissed when a keystroke lands after the hide", async () => {
+    invokeMock.mockResolvedValue(PNG_B64);
+    const preview = createImagePreview();
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    preview.hide();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    await preview.show("/tmp/shot.png", { x: 10, y: 10 });
+
+    expect(popover()).toBeNull();
+  });
+
+  it("remembers a failure even when the pointer moved on before it landed", async () => {
+    // A read that comes back empty is a fact about the file, whichever path
+    // the pointer is on by then. Classifying it as merely overtaken threw the
+    // fact away, so the next hover read the same doomed file again.
+    let releaseA: (v: string | null) => void = () => {};
+    invokeMock.mockImplementation((_cmd: string, args: { path: string }) =>
+      args.path === "/tmp/a.png"
+        ? new Promise((res) => (releaseA = res))
+        : Promise.resolve(PNG_B64),
+    );
+    const preview = createImagePreview();
+
+    const a = preview.show("/tmp/a.png", { x: 10, y: 10 });
+    await preview.show("/tmp/b.png", { x: 20, y: 10 });
+    releaseA(null); // a cannot be previewed
+    await a;
+    invokeMock.mockClear();
+
+    await preview.show("/tmp/a.png", { x: 400, y: 300 });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render an older path over the one the pointer is on", async () => {
+    // show() bailed on a dismissed or failed path before recording what is
+    // wanted, so the previous path stayed "wanted" and its read rendered over
+    // the top when it landed.
+    let releaseA: (v: string) => void = () => {};
+    invokeMock.mockImplementation((_cmd: string, args: { path: string }) =>
+      args.path === "/tmp/a.png"
+        ? new Promise<string>((res) => (releaseA = res))
+        : Promise.resolve(null),
+    );
+    const preview = createImagePreview();
+
+    await preview.show("/tmp/b.png", { x: 20, y: 10 }); // fails, now memoized
+    const a = preview.show("/tmp/a.png", { x: 10, y: 10 }); // read starts
+    await preview.show("/tmp/b.png", { x: 300, y: 300 }); // bails on the memo
+    releaseA(PNG_B64);
+    await a;
+
+    expect(popover()).toBeNull();
+  });
+
+});

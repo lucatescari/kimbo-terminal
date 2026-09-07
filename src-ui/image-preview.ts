@@ -94,8 +94,15 @@ export function createImagePreview(): ImagePreview {
   // goes through `clear` and `render`, which are called from exactly one gate
   // after all awaits have settled.
 
-  /** What should be on screen. Written only by show, hide, hideNow, dispose. */
+  /** The path the pointer is on and where, or null for none. A completed read
+   *  renders only if this still names its path. Written only by show, hide,
+   *  hideNow and dispose. */
   let desired: { path: string; anchor: Anchor } | null = null;
+  /** The last thing show was asked for, kept even after hide clears `desired`.
+   *  A dismissal needs it: the link's activate() hides the thumbnail and only
+   *  then does Preview.app take focus, so by the time the blur arrives there
+   *  is nothing left in `desired` to record, and the dismissal was lost. */
+  let lastRequest: { path: string; anchor: Anchor } | null = null;
   /** What IS on screen. Written only by clear and render. */
   let displayed: { path: string; el: HTMLElement; url: string } | null = null;
   /** What was taken away by the keyboard or by losing focus, and where the
@@ -165,7 +172,8 @@ export function createImagePreview(): ImagePreview {
   /** Gone now: the keyboard was used, focus left, or the pane is going away.
    *  Stays gone until the pointer moves or lands on something else. */
   const hideNow = (): void => {
-    if (desired) dismissed = { path: desired.path, anchor: desired.anchor };
+    const target = desired ?? lastRequest;
+    if (target) dismissed = { path: target.path, anchor: target.anchor };
     desired = null;
     clear();
   };
@@ -228,13 +236,18 @@ export function createImagePreview(): ImagePreview {
     } catch {
       return "failed";
     }
-    // Overtaken while the file was being read: not a failure, and worth
-    // stopping before decoding a bitmap nobody is going to look at.
-    if (!stillWanted()) return "abandoned";
 
+    // Classify what came back BEFORE giving up on it. A read that returned
+    // nothing usable is a fact about the file whichever path the pointer is on
+    // by now, and calling it merely "overtaken" threw that fact away, so the
+    // next hover read the same doomed file again.
     const bytes = base64 ? decodeBase64Bytes(base64, MAX_BYTES) : null;
     const format = bytes ? sniffBitmapFormat(bytes) : null;
     if (!bytes || !format) return "failed";
+
+    // Overtaken while the file was being read: worth stopping before decoding
+    // a bitmap nobody is going to look at.
+    if (!stillWanted()) return "abandoned";
 
     // `bytes as BlobPart` matches osc1337-renderer.ts: TypeScript types a
     // Uint8Array over ArrayBufferLike, which no longer satisfies BlobPart.
@@ -296,12 +309,17 @@ export function createImagePreview(): ImagePreview {
 
   const show = async (path: string, anchor: Anchor): Promise<void> => {
     if (disposed) return;
+
+    // Record where the pointer is BEFORE any early return. Bailing out first
+    // left `desired` naming the previous path, so a read still running for it
+    // passed the gate and rendered over the one the pointer had moved to.
+    lastRequest = { path, anchor };
+    desired = { path, anchor };
+
     // A dismissal holds until the pointer moves or moves on.
     if (stillDismissed(path, anchor)) return;
     dismissed = null;
     if (recentlyFailed(path)) return;
-
-    desired = { path, anchor };
 
     // Any keystroke dismisses the thumbnail. The pointer can rest on a link
     // while the keyboard does something else: switching tab with Cmd+2 moves
@@ -344,6 +362,7 @@ export function createImagePreview(): ImagePreview {
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", hideNow);
       desired = null;
+      lastRequest = null;
       clear();
     },
   };
