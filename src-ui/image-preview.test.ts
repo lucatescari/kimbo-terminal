@@ -407,3 +407,55 @@ describe("createImagePreview lifecycle gaps found in review", () => {
     removed.mockRestore();
   });
 });
+
+describe("createImagePreview when the pointer crosses several paths", () => {
+  /** A backend whose reads resolve only when told to, per path. */
+  function heldBackend() {
+    const release: Record<string, (v: string) => void> = {};
+    invokeMock.mockImplementation(
+      (_cmd: string, args: { path: string }) =>
+        new Promise<string>((res) => (release[args.path] = res)),
+    );
+    return release;
+  }
+
+  it("does not start a second read when the pointer comes back mid-flight", async () => {
+    // A then B then back to A, all while A's read is still out. Deduping only
+    // against the one fetch being tracked meant B displaced A, so returning to
+    // A started a second read of it, and both renders landed: the second tore
+    // the first down and rebuilt it, restarting the entrance animation. That
+    // is the strobe the whole design exists to avoid.
+    const release = heldBackend();
+    const preview = createImagePreview();
+
+    const a1 = preview.show("/tmp/a.png", { x: 10, y: 10 });
+    const b = preview.show("/tmp/b.png", { x: 20, y: 10 });
+    const a2 = preview.show("/tmp/a.png", { x: 30, y: 10 });
+    release["/tmp/a.png"]?.(PNG_B64);
+    release["/tmp/b.png"]?.(PNG_B64);
+    await Promise.all([a1, b, a2]);
+
+    const readsOfA = invokeMock.mock.calls.filter(
+      (c) => (c[1] as { path: string }).path === "/tmp/a.png",
+    );
+    expect(readsOfA).toHaveLength(1);
+    expect(created).toHaveLength(1); // one popover built, not two
+  });
+
+  it("appears at the pointer's latest position, not where the read started", async () => {
+    // The pointer slides along a long underlined path while the read is out.
+    // Joining the in-flight read must not also inherit its stale anchor.
+    const release = heldBackend();
+    const preview = createImagePreview();
+
+    const first = preview.show("/tmp/a.png", { x: 100, y: 400 });
+    const second = preview.show("/tmp/a.png", { x: 640, y: 400 });
+    release["/tmp/a.png"]?.(PNG_B64);
+    await Promise.all([first, second]);
+
+    // Anchored at 640 the popover is clamped to the window; at the stale 100
+    // it would sit at 112px.
+    expect(popover()!.style.left).not.toBe("112px");
+    expect(Number.parseFloat(popover()!.style.left)).toBeGreaterThan(600);
+  });
+});

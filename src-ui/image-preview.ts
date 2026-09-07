@@ -78,9 +78,17 @@ export function createImagePreview(): ImagePreview {
    *  renders only if this still names its path: anything else means the
    *  pointer has moved on, the keyboard was used, or the pane is gone. */
   let wanted: string | null = null;
-  /** The fetch already running, so a repaint storm asking for the same path
-   *  over and over joins it instead of starting another. */
-  let inFlight: { path: string; done: Promise<void> } | null = null;
+  /** Where to put it. Read at insertion time rather than captured when the
+   *  fetch started, so a pointer that kept moving during the read (or a
+   *  caller that joined one already running) still gets the popover next to
+   *  where it actually is. */
+  let wantedAnchor: { x: number; y: number } = { x: 0, y: 0 };
+  /** Fetches currently running, keyed by path, so a repaint storm joins the
+   *  read already out instead of starting another. Keyed rather than a single
+   *  slot because the pointer can cross a second path and come back while the
+   *  first is still in flight; a single slot lost track of the first and
+   *  started it again, and both renders then landed. */
+  const inFlight = new Map<string, Promise<void>>();
 
   const cancelPendingHide = (): void => {
     if (pendingHide === null) return;
@@ -147,10 +155,7 @@ export function createImagePreview(): ImagePreview {
 
   /** Fetch, decode and insert. Split out so `show` can dedupe callers onto a
    *  single run of it. Bails at every await whose result is no longer wanted. */
-  const load = async (
-    path: string,
-    anchor: { x: number; y: number },
-  ): Promise<void> => {
+  const load = async (path: string): Promise<void> => {
     let base64: string | null = null;
     try {
       base64 = await invoke<string | null>("read_image_bytes", { path });
@@ -209,7 +214,7 @@ export function createImagePreview(): ImagePreview {
 
     document.body.appendChild(el);
     shown = { el, url, path };
-    place(el, anchor);
+    place(el, wantedAnchor);
   };
 
   const show = async (
@@ -218,6 +223,7 @@ export function createImagePreview(): ImagePreview {
   ): Promise<void> => {
     if (disposed) return;
     wanted = path;
+    wantedAnchor = anchor;
 
     // Any keystroke dismisses the thumbnail. The pointer can rest on a link
     // while the keyboard does something else: switching tab with Cmd+2 moves
@@ -238,13 +244,18 @@ export function createImagePreview(): ImagePreview {
 
     // Already being fetched. Nothing is shown yet, so without this the
     // repaint storm that re-asks every frame would start a fresh read of the
-    // same file every frame and discard all but the last.
-    if (inFlight?.path === path) return inFlight.done;
+    // same file every frame and discard all but the last. The newest anchor
+    // is already recorded above, so joining the read does not inherit a stale
+    // pointer position.
+    const running = inFlight.get(path);
+    if (running) return running;
 
-    const done = load(path, anchor).finally(() => {
-      if (inFlight?.path === path) inFlight = null;
+    const done = load(path).finally(() => {
+      // Compare identity, not just the key: a stale run must not delete the
+      // entry belonging to a newer one for the same path.
+      if (inFlight.get(path) === done) inFlight.delete(path);
     });
-    inFlight = { path, done };
+    inFlight.set(path, done);
     return done;
   };
 

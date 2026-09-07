@@ -206,20 +206,24 @@ export function attachFilePathLinks(
       }
 
       for (const chain of detectContinuationChains(texts, index - from)) {
-        // Every prefix of the chain, plus the first fragment on its own. They
-        // are independent questions for the disk, so ask them all at once: a
-        // deep chain asked serially is a visible stall before the underline
-        // appears, and all but one of the answers is "no".
+        // A fragment that exists on its own was printed whole, not broken.
+        // Asked first and alone, because a path followed by ordinary indented
+        // output is the common shape: batching it with the prefixes below
+        // would spend a lookup per continuation row on strings that cannot
+        // exist, and park each one in the resolution cache.
+        if (await resolveCached(chain.pieces[0].raw, cwd)) continue;
+
+        // The prefixes are independent questions for the disk, so ask them
+        // together: a deep chain asked one round trip after another is a
+        // visible stall before the underline appears.
         const prefixes: string[] = [chain.pieces[0].raw];
         for (let n = 1; n < chain.pieces.length; n++) {
           prefixes.push(prefixes[n - 1] + chain.pieces[n].raw);
         }
         const resolutions = await Promise.all(
-          prefixes.map((path) => resolveCached(path, cwd)),
+          prefixes.slice(1).map((path) => resolveCached(path, cwd)),
         );
-
-        // A fragment that exists on its own was printed whole, not broken.
-        if (resolutions[0]) continue;
+        resolutions.unshift(null); // index 0 is the fragment, already known absent
 
         // Take the LONGEST prefix that resolves, not the shortest. Every
         // "/"-boundary prefix of a real path is a real directory, so a break

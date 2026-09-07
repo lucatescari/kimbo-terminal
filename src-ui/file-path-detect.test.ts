@@ -91,6 +91,26 @@ describe("detectFilePaths", () => {
     ]);
   });
 
+  it("ignores a slash run reached through a bracket, as in array[i]//", () => {
+    // The tag-stripping branch pushes a second candidate and skipped the
+    // guard, so "//" still resolved and still underlined the filesystem root,
+    // just via the sibling path. Any C/Go/JS/Rust source with an index right
+    // before a comment hits this.
+    // The whole token stays a candidate (it names something, so the disk
+    // decides); what must never appear is the bare separator run.
+    expect(detectFilePaths("arr[i]// increment").map((c) => c.raw)).not.toContain("//");
+    expect(detectFilePaths("matrix[0][1]// note").map((c) => c.raw)).not.toContain("//");
+  });
+
+  it("ignores tokens that are only slashes and dots", () => {
+    // "/./" canonicalizes to "/", so a separator-only run linked the root.
+    for (const line of ["s/./x/ is sed", "./", "// c", "arr[i]//"]) {
+      for (const c of detectFilePaths(line)) {
+        expect(c.raw).toMatch(/[^/.]/);
+      }
+    }
+  });
+
   it("ignores a token made only of slashes", () => {
     // "//" resolves: Path::new("//").canonicalize() is "/", so every "//"
     // in a source comment became an underlined link to the filesystem root.

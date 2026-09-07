@@ -88,10 +88,10 @@ describe("detectContinuationChains", () => {
 
   it("chains a path broken across eight rows", () => {
     // A real path in a narrow split pane needs more than a couple of breaks:
-    // ~/Library/Application Support/Kimbo/screenshots/<name>.png at 25 usable
-    // columns is six or seven rows. The cap fails all-or-nothing (every prefix
-    // of a too-long chain is truncated, so nothing resolves), so it has to be
-    // high enough to cover a genuine path rather than merely bound the work.
+    // Claude Code's scratchpad paths are ~145 characters, which is seven rows
+    // at 25 usable columns. The cap fails all-or-nothing (every prefix of a
+    // too-long chain is truncated, so nothing resolves), so it has to be high
+    // enough to cover a genuine path rather than merely bound the work.
     const rows = [
       "/tmp/a",
       "   /bb",

@@ -10,7 +10,11 @@ use std::path::PathBuf;
 ///   tracked via OSC 7) when one is supplied.
 /// - The result is canonicalized; since `canonicalize` errors on a missing
 ///   path, a returned `Some` implies the path exists.
-#[tauri::command]
+/// `(async)` matters: the link provider asks about every path-like token on a
+/// hovered row, and a row inside an indented block can raise that into the
+/// dozens on a first hover. A plain sync command would run every one of those
+/// `canonicalize` syscalls on the macOS UI thread.
+#[tauri::command(async)]
 pub fn resolve_existing_path(raw: String, cwd: Option<String>) -> Option<String> {
     let expanded = expand_tilde(&raw);
 

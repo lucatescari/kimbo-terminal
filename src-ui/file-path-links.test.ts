@@ -559,9 +559,17 @@ describe("attachFilePathLinks link precedence and lookup cost", () => {
     expect(links![0].text).toBe(JOINED);
   });
 
-  it("looks paths up concurrently, not one round trip after another", async () => {
-    // A first hover on a deep chain tests every prefix. Serially that is a
-    // visible stall before the underline appears.
+  it("looks the prefixes of a deep chain up concurrently", async () => {
+    // A first hover on a deep chain tests every prefix. One round trip after
+    // another is a visible stall before the underline appears. The fragment
+    // itself is still asked alone first, so this needs a chain deep enough to
+    // have more than one prefix beyond it.
+    const deep = [
+      { text: "  \u203a [image]/tmp/aaa/Doc", isWrapped: false },
+      { text: "        uments/scre", isWrapped: false },
+      { text: "        enshots/x", isWrapped: false },
+      { text: "        .png", isWrapped: false },
+    ];
     let inFlight = 0;
     let peak = 0;
     invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) => {
@@ -569,14 +577,15 @@ describe("attachFilePathLinks link precedence and lookup cost", () => {
       peak = Math.max(peak, inFlight);
       await Promise.resolve();
       inFlight--;
-      return args.raw === JOINED ? JOINED : null;
+      return args.raw === "/tmp/aaa/Documents/screenshots/x.png" ? args.raw : null;
     });
-    const { term, getProvider } = fakeWrappedTerm(ROWS, 40);
+    const { term, getProvider } = fakeWrappedTerm(deep, 40);
     attachFilePathLinks(term as never, () => null);
 
-    await provideAt(getProvider, 1);
+    const links = await provideAt(getProvider, 1);
 
     expect(peak).toBeGreaterThan(1);
+    expect(links![0].text).toBe("/tmp/aaa/Documents/screenshots/x.png");
   });
 
   it("stops looking once a chain has produced a link", async () => {
@@ -594,5 +603,33 @@ describe("attachFilePathLinks link precedence and lookup cost", () => {
     // The tag variant "image]/tmp/aaa/Doc" and the real one, each with its one
     // continuation, plus the plain pass over the row itself.
     expect(asked.length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("attachFilePathLinks lookup waste", () => {
+  it("asks nothing about a chain whose first fragment is already a real path", async () => {
+    // A path printed whole, with ordinary indented prose under it, is the
+    // common shape. Dispatching every prefix before checking that first
+    // answer spent three guaranteed-useless lookups and put three pieces of
+    // garbage in the resolution cache.
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      args.raw === "/tmp/shot.png" ? "/tmp/shot.png" : null,
+    );
+    const { term, getProvider } = fakeWrappedTerm(
+      [
+        { text: "saved to /tmp/shot.png", isWrapped: false },
+        { text: "    some/indented", isWrapped: false },
+        { text: "    more/indented", isWrapped: false },
+        { text: "    yet/another", isWrapped: false },
+      ],
+      40,
+    );
+    attachFilePathLinks(term as never, () => null);
+
+    await provideAt(getProvider, 1);
+    const asked = invokeMock.mock.calls.map((c) => (c[1] as { raw: string }).raw);
+
+    expect(asked.filter((r) => r.startsWith("/tmp/shot.pngsome"))).toEqual([]);
+    expect(asked).toContain("/tmp/shot.png");
   });
 });
