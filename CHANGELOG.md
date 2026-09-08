@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The file paths Claude Code prints are clickable again.** Claude Code shows an attachment as `[image]` followed by an absolute path, and lays its transcript out itself: a long path is broken at the pane width with each remainder indented underneath. No part of it could be clicked. The tag was glued to the front of the path, so the first row resolved to nothing, and the indented remainder had no slash in it, so it did not look like a path at all. Kimbo now joins the pieces back up, across as many as three continuation rows, and underlines a join only when the whole path exists on disk. Paths broken by the terminal's own wrapping are joined too.
 
+- **Updating no longer leaves your shells running in the background.** The sweep that hangs up every shell on quit had exactly one caller, the Cmd-Q path, so the updater's restart went around it. Tauri does not run `Drop` on managed state, which meant an in-app update reparented every shell in the window to launchd, along with whatever was running in it. They stayed there: one machine had seven orphaned shells up to 18 hours old, holding 2.2 GB of compressed memory between them, from two earlier updates. Both relaunch paths now sweep first.
+
 - **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.
 
 ### Notes

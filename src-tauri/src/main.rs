@@ -23,6 +23,17 @@ fn quit_app(app: tauri::AppHandle, manager: State<'_, PtyManager>) {
     app.exit(0);
 }
 
+/// Hang up every shell without exiting the app.
+///
+/// `quit_app` is not the only way the process ends: the updater restarts it,
+/// and the frontend can call `relaunch()`. Neither runs `quit_app`, and
+/// `app.exit`/`app.restart` do not run `Drop` on managed State, so without an
+/// explicit sweep every shell reparents to launchd and survives the update.
+#[tauri::command]
+fn sweep_ptys(manager: State<'_, PtyManager>) {
+    manager.kill_all();
+}
+
 /// Pin the NSWindow's appearance to the active Kimbo theme so the
 /// NSVisualEffectView (mounted in setup) picks up a matching light/dark
 /// vibrancy material regardless of the system-wide appearance.
@@ -368,6 +379,7 @@ fn main() {
             commands::claude_notifications::claude_notifications_uninstall,
             commands::claude_notifications::claude_notifications_status,
             quit_app,
+            sweep_ptys,
             set_window_theme,
         ])
         .run(tauri::generate_context!())

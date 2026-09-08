@@ -4,6 +4,7 @@
 
 use serde::Serialize;
 use std::sync::Mutex;
+use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
 const STABLE_MANIFEST: &str =
@@ -160,6 +161,11 @@ async fn run_install(
         .await
         .map_err(|e| format!("install failed: {e}"))?;
 
+    // A restart is an exit. `app.restart()` does not run `Drop` on managed
+    // State any more than `app.exit` does, so the PTYs need the same explicit
+    // sweep `quit_app` performs -- otherwise every shell in the window, and
+    // whatever it was running, orphans to launchd and survives the update.
+    app.state::<crate::pty_manager::PtyManager>().kill_all();
     app.restart();
 }
 
