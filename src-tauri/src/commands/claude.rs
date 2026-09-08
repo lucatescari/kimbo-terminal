@@ -1,7 +1,7 @@
 use crate::pty_manager::PtyManager;
 use kimbo_terminal::{
     probe_claude_session_for_pid, probe_claude_status_for_pid, probe_claude_tab_states,
-    ClaudeStatus, PtyClaudeState,
+    run_shell_with_deadline, ClaudeStatus, PtyClaudeState, AGENTS_PROBE_BUDGET,
 };
 use serde::Serialize;
 use std::io::Read;
@@ -272,17 +272,17 @@ pub fn claude_agents() -> Result<Vec<ClaudeAgent>, String> {
     // launchd hands the bundle only a minimal PATH. Same reasoning as
     // claude_account_info above.
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = match Command::new(&shell)
-        .args(["-ilc", "claude agents --json"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return Ok(Vec::new()),
-    };
-    if !output.status.success() {
+    // Bounded: an unbounded `.output()` here blocked its thread and held the
+    // login shell plus a ~150 MB Node process for as long as the probe hung.
+    let Some(stdout) = run_shell_with_deadline(
+        &shell,
+        &["-ilc"],
+        "claude agents --json",
+        AGENTS_PROBE_BUDGET,
+    ) else {
         return Ok(Vec::new());
-    }
-    Ok(serde_json::from_slice(&output.stdout).unwrap_or_default())
+    };
+    Ok(serde_json::from_str(&stdout).unwrap_or_default())
 }
 
 /// Pull `forkedFrom.sessionId` out of a transcript's first JSONL record.

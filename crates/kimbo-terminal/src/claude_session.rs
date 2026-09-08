@@ -633,6 +633,79 @@ fn run_with_deadline(prog: &str, args: &[&str], deadline: Instant) -> Option<Str
     }
 }
 
+/// Hard cap on the `claude agents --json` probe.
+///
+/// That probe pays for a login shell (which sources the user's rc files)
+/// plus Node's startup before it prints anything, so it is inherently slow;
+/// five seconds is generous for a cold start on a loaded machine. What the
+/// cap is really for is the other end: without one, a probe that never
+/// answers holds a login shell and a ~150 MB Node process for the rest of
+/// the day. Observed 2026-09-08, still resident 47 seconds in.
+pub const AGENTS_PROBE_BUDGET: Duration = Duration::from_secs(5);
+
+/// Run `script` through `shell` and capture stdout, abandoning it — and
+/// anything it spawned — once `budget` elapses. Errors, non-zero exits and
+/// timeouts all return None: the probe is best-effort.
+///
+/// Unlike `run_with_deadline`, which runs a leaf process, a shell script has
+/// children of its own. The child is therefore given a fresh process group
+/// and the whole group is signalled on timeout — killing just the shell
+/// would leave the real work (a Node process, for the caller here) running
+/// and reparented to launchd, which is the orphaning the app's quit path
+/// exists to prevent.
+pub fn run_shell_with_deadline(
+    shell: &str,
+    flags: &[&str],
+    script: &str,
+    budget: Duration,
+) -> Option<String> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let deadline = Instant::now() + budget;
+    let mut child = Command::new(shell)
+        .args(flags)
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .ok()?;
+    // process_group(0) makes the child its own group leader, so its pid is
+    // the pgid we signal.
+    let pgid = child.id() as libc::pid_t;
+
+    // Drain stdout on a thread so a full pipe buffer cannot stall the child
+    // into looking like a timeout. Same reasoning as run_with_deadline.
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = stdout.read_to_string(&mut buf);
+        let _ = tx.send(buf);
+    });
+
+    loop {
+        match child.try_wait().ok()? {
+            Some(status) => {
+                let out = rx.recv_timeout(Duration::from_millis(50)).ok()?;
+                return status.success().then_some(out);
+            }
+            None => {
+                if Instant::now() >= deadline {
+                    unsafe { libc::killpg(pgid, libc::SIGKILL) };
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1300,5 +1373,63 @@ not-json-at-all\n\
     fn attach_background_returns_empty_for_no_sessions() {
         let out = attach_background(Vec::new(), &[job("job-1", "parent-a", "active")]);
         assert!(out.is_empty());
+    }
+
+    // -----------------------------------------------------------------
+    // Shell probe deadline
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn shell_probe_returns_output_when_the_command_is_quick() {
+        let out = run_shell_with_deadline("/bin/sh", &["-c"], "echo hello", Duration::from_secs(5));
+        assert_eq!(out.as_deref().map(str::trim), Some("hello"));
+    }
+
+    #[test]
+    fn shell_probe_gives_up_at_the_budget() {
+        let started = Instant::now();
+        let out =
+            run_shell_with_deadline("/bin/sh", &["-c"], "sleep 5", Duration::from_millis(200));
+        assert!(
+            out.is_none(),
+            "a command past its budget must not return output"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "gave up after {:?}, which is not a deadline",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn shell_probe_kills_what_the_script_spawned_too() {
+        // The caller runs `claude agents --json` through a login shell, so
+        // the real work is a grandchild. Killing only the shell would leave
+        // it running, reparented to launchd -- exactly the orphaning the
+        // app's quit path exists to prevent.
+        let pidfile = std::env::temp_dir().join(format!("kimbo-probe-{}", std::process::id()));
+        let _ = std::fs::remove_file(&pidfile);
+        let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
+
+        let out = run_shell_with_deadline("/bin/sh", &["-c"], &script, Duration::from_millis(300));
+        assert!(out.is_none());
+
+        let pid: i32 = std::fs::read_to_string(&pidfile)
+            .expect("script should have recorded the grandchild pid")
+            .trim()
+            .parse()
+            .expect("pidfile should hold a pid");
+
+        // The signal is asynchronous; give it a moment before judging.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && unsafe { libc::kill(pid, 0) } == 0 {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        let _ = std::fs::remove_file(&pidfile);
+        assert!(
+            !alive,
+            "grandchild {pid} outlived the probe that spawned it"
+        );
     }
 }

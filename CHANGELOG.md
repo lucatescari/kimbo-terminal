@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The file paths Claude Code prints are clickable again.** Claude Code shows an attachment as `[image]` followed by an absolute path, and lays its transcript out itself: a long path is broken at the pane width with each remainder indented underneath. No part of it could be clicked. The tag was glued to the front of the path, so the first row resolved to nothing, and the indented remainder had no slash in it, so it did not look like a path at all. Kimbo now joins the pieces back up, across as many as three continuation rows, and underlines a join only when the whole path exists on disk. Paths broken by the terminal's own wrapping are joined too.
 
+- **A hung `claude agents` probe no longer runs forever.** Branch and fork detection asks the CLI what sessions exist by running `claude agents --json` through a login shell, and it waited for the answer with no deadline. A probe that never returned held its thread, a login shell and a ~150 MB Node process for the rest of the session; one was found still resident 47 seconds in, on a machine that was already out of memory. The probe now gives up after five seconds and kills the whole process group, not just the shell — killing only the shell would have left the Node process running and reparented to launchd.
+
 - **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.
 
 ### Notes
