@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
+- **The tab dot now lights up for codex, not just Claude Code.** A tab whose pane is working has shown a breathing dot for a while, but only ever for Claude Code, because that dot reads Claude's own session state. codex kept animating its spinner inside the tab label instead, so the same idea looked different depending on which tool you ran. codex now gets the same dot, read from the spinner it puts in the terminal title, and the spinner comes out of the label. A tab running both shows whichever state matters more: Claude waiting on you outranks codex merely working. As a side effect the codex tab label stops changing width ten times a second while it thinks.
+
 - **Hovering an image path shows the picture.** Point at a `.png`, `.jpg`, `.gif` or `.webp` path anywhere in the terminal and a thumbnail appears centred just above the link, captioned with the file name. It holds still while you move along the link. Cmd+click still opens it in Preview, Cmd+Shift+click still reveals it in Finder, and any keystroke dismisses it. Nothing about it is anchored to the character grid, so it also works inside full-screen programs like Claude Code, which own every cell and leave no room for a real inline image.
 
 - **Branching or forking a Claude conversation opens the other side in its own pane.** Run `/branch` and Kimbo splits the pane, resuming the original conversation beside the branch. Run `/fork` and it opens the background session that was created. Settings → Claude Code chooses where it opens: a split beside the pane, a split above and below, or a new tab, and the whole thing can be switched off.
