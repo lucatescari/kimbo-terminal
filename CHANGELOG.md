@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 
+- **Opening a pane and moving the mouse straight over it no longer throws.** For the few milliseconds between the terminal appearing on screen and its shell process being ready, the pane was hoverable but did not yet know its working directory. A hover in that window failed silently in the background instead of underlining anything, and was reported as a crash. It now reads the directory from somewhere that exists for the pane's whole life.
+
 - **The file paths Claude Code prints are clickable again.** Claude Code shows an attachment as `[image]` followed by an absolute path, and lays its transcript out itself: a long path is broken at the pane width with each remainder indented underneath. No part of it could be clicked. The tag was glued to the front of the path, so the first row resolved to nothing, and the indented remainder had no slash in it, so it did not look like a path at all. Kimbo now joins the pieces back up, across as many as three continuation rows, and underlines a join only when the whole path exists on disk. Paths broken by the terminal's own wrapping are joined too.
 
 - **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.
