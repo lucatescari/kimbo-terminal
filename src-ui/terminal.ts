@@ -89,9 +89,19 @@ export async function createTerminalSession(
 ): Promise<TerminalSession> {
   const id = nextTermId++;
 
-  // Declare session here so the OSC 7 handler below can close over it and
-  // write session.cwd before the object is returned to the caller.
+  // Declare session here so the handlers below can close over it before the
+  // object is returned to the caller.
   let session: TerminalSession;
+
+  // The shell's latest OSC 7 cwd, held in a local rather than on `session`.
+  // Everything up to `await createPty(...)` runs synchronously, so the
+  // terminal is in the DOM and hoverable, the OSC 7 handler is registered and
+  // the file-path link provider is live well before `session` is assigned —
+  // that only happens after createPty and two more awaited PTY listener
+  // registrations resolve. Reading or writing `session.cwd` in that window
+  // threw "undefined is not an object"; a local exists from the first line.
+  // `session.cwd` below is an accessor over this.
+  let currentCwd: string | null = null;
 
   const opts = getTerminalOptions();
   const term = new Terminal({
@@ -332,7 +342,7 @@ export async function createTerminalSession(
   // can know the current working directory without polling /proc.
   term.parser.registerOscHandler(7, (data) => {
     const cwd = parseOsc7Cwd(data);
-    if (cwd) session.cwd = cwd;
+    if (cwd) currentCwd = cwd;
     return true;
   });
 
@@ -350,7 +360,7 @@ export async function createTerminalSession(
   // popover is a sibling of the terminal rather than a cell decoration, so it
   // works inside full-screen TUIs too (see image-preview.ts).
   const imagePreview = createImagePreview();
-  attachFilePathLinks(term, () => session.cwd, imagePreview);
+  attachFilePathLinks(term, () => currentCwd, imagePreview);
 
   // OSC 1337 iTerm inline images. Rendering, lifecycle, and cleanup are
   // delegated to a dedicated module so terminal.ts stays focused on wiring.
@@ -451,7 +461,12 @@ export async function createTerminalSession(
     fit,
     search,
     container,
-    cwd: null,
+    get cwd() {
+      return currentCwd;
+    },
+    set cwd(value: string | null) {
+      currentCwd = value;
+    },
     promptMarkers,
     serialize() {
       return serialize.serialize();
