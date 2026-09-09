@@ -1032,8 +1032,10 @@ describe("high-frequency title updates (codex title spinner)", () => {
     const after = h.tabBar.querySelector<HTMLElement>('[data-tab-id="1"]');
 
     expect(after).toBe(before);
-    expect(after!.querySelector(".tab-label")!.textContent).toBe("⠋ codex");
-    expect(after!.title).toBe("⠋ codex");
+    // The spinner frame itself is stripped (see title-activity.ts); what this
+    // test cares about is that the node survived the update.
+    expect(after!.querySelector(".tab-label")!.textContent).toBe("codex");
+    expect(after!.title).toBe("codex");
   });
 
   it("a repeated identical title is a no-op (label text node untouched)", async () => {
@@ -1244,8 +1246,9 @@ describe("stripActivityGlyph", () => {
     expect(h.tabs.stripActivityGlyph("◐my-project")).toBe("◐my-project");
     // Mid-string: not at position zero.
     expect(h.tabs.stripActivityGlyph("build ◐ running")).toBe("build ◐ running");
-    // A different glyph entirely, e.g. another TUI's spinner.
-    expect(h.tabs.stripActivityGlyph("⠋ my-project")).toBe("⠋ my-project");
+    // A spinner vocabulary belonging to no program we recognise.
+    expect(h.tabs.stripActivityGlyph("◴ my-project")).toBe("◴ my-project");
+    expect(h.tabs.stripActivityGlyph("| my-project")).toBe("| my-project");
     expect(h.tabs.stripActivityGlyph("")).toBe("");
     expect(h.tabs.stripActivityGlyph("◐ ")).toBe("");
   });
@@ -1297,5 +1300,120 @@ describe("stripActivityGlyph", () => {
 
     h.tabs.setTabTitle(sessionId, "✳ ");
     expect(h.tabs.getActiveTab()!.titleOverride).toBeUndefined();
+  });
+});
+
+describe("codex's title spinner drives the activity dot", () => {
+  // codex writes no live state to disk, so the spinner it animates in the
+  // terminal title is the only signal Kimbo gets that it is working. The dot
+  // it lights is the same one the Claude poll uses, so the two sources have
+  // to coexist: the poll paints `none` for every tab without Claude, every
+  // 2 seconds, and must not wipe out a codex dot on the way past.
+
+  it("lights the busy dot while the title carries a spinner frame", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBe("busy");
+  });
+
+  it("shows the label without the spinner, so it stops changing width", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+
+    const label = h.tabBar.querySelector<HTMLElement>(
+      `[data-tab-id="${tabId}"] .tab-label`,
+    )!;
+    expect(label.textContent).toBe("codex");
+  });
+
+  it("clears the dot when the title comes back without a frame", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+    h.tabs.setTabTitle(sessionId, "codex");
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBeUndefined();
+  });
+
+  it("clears the dot when the title is cleared entirely", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+    h.tabs.setTabTitle(sessionId, null);
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBeUndefined();
+  });
+
+  it("survives the Claude poll painting none over the same tab", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+    h.tabs.setTabActivity(tabId, { activity: "none", reason: null });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBe("busy");
+  });
+
+  it("loses to Claude waiting on you in the same tab", async () => {
+    // Severity fold, same as panes within a tab: the state that needs the
+    // user outranks the one that is merely working.
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+    h.tabs.setTabActivity(tabId, { activity: "waiting", reason: "needs permission" });
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBe("waiting");
+  });
+
+  it("keeps the dot when Claude's own poll has nothing to say about the tab", async () => {
+    // The other half of the fold: an idle Claude pane must not downgrade a
+    // codex pane that is working in the same tab.
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabActivity(tabId, { activity: "idle", reason: null });
+    h.tabs.setTabTitle(sessionId, "⠋ codex");
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBe("busy");
+  });
+
+  it("does not light the dot for Claude's own glyph, which the poll owns", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const sessionId = h.panes.getActiveSession()!.id;
+    const tabId = h.tabs.getActiveTab()!.id;
+
+    h.tabs.setTabTitle(sessionId, "◐ my-project");
+
+    const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
+    expect(el.dataset.activity).toBeUndefined();
   });
 });

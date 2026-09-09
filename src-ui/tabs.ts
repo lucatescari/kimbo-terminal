@@ -1,5 +1,6 @@
 import { getCwd } from "./pty";
-import type { PaneActivity } from "./claude-activity";
+import { tabActivity, type PaneActivity } from "./claude-activity";
+import { classifyTitle } from "./title-activity";
 import { isActivatingClick } from "./window-activation";
 import {
   initPanes,
@@ -78,6 +79,24 @@ const tabBadge: Map<number, BadgeKind> = new Map();
 const tabActivityState = new Map<number, PaneActivity>();
 const NO_ACTIVITY: PaneActivity = { activity: "none", reason: null };
 
+/** Tabs whose terminal title currently carries a working spinner (codex; see
+ *  title-activity.ts). Deliberately a separate slot from tabActivityState
+ *  rather than a value written into it: the two have different owners and
+ *  different cadences, and the Claude poll paints `none` over every tab
+ *  without Claude every 2 seconds, which would wipe this out within a tick. */
+const titleBusyTabs = new Set<number>();
+const TITLE_BUSY: PaneActivity = { activity: "busy", reason: null };
+
+/** What a tab should actually show: the higher-ranked of what the Claude poll
+ *  last reported and what the title says. The same severity fold the panes
+ *  within a tab already go through, so Claude waiting on you still outranks
+ *  codex merely working. */
+function resolvedActivity(tabId: number): PaneActivity {
+  const polled = tabActivityState.get(tabId) ?? NO_ACTIVITY;
+  if (!titleBusyTabs.has(tabId)) return polled;
+  return tabActivity([polled, TITLE_BUSY]);
+}
+
 /** A tab id paired with one of its PTY ids. */
 export interface TabPtyRef {
   tabId: number;
@@ -120,6 +139,24 @@ export function setTabActivity(tabId: number, activity: PaneActivity): void {
   const prev = tabActivityState.get(tabId) ?? NO_ACTIVITY;
   if (prev.activity === activity.activity && prev.reason === activity.reason) return;
   tabActivityState.set(tabId, activity);
+  paintActivity(tabId);
+}
+
+/** Record whether this tab's title says its program is working, and repaint
+ *  if that changed. Called on every title write, which for a busy codex is
+ *  ~10 times a second, so the unchanged case must cost nothing. */
+function setTitleBusy(tabId: number, busy: boolean): void {
+  if (titleBusyTabs.has(tabId) === busy) return;
+  if (busy) titleBusyTabs.add(tabId);
+  else titleBusyTabs.delete(tabId);
+  paintActivity(tabId);
+}
+
+/** Patch one tab's dot in place rather than calling renderTabBar(): this runs
+ *  every 2s per tab from the poll, and a full innerHTML reconcile would
+ *  restart hover transitions and swallow clicks whose mousedown/mouseup
+ *  straddle a rebuild. Same reasoning as setTabTitle. */
+function paintActivity(tabId: number): void {
   const tab = findTabById(tabId);
   if (!tab) return;
   const el = tabBarEl?.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
@@ -127,7 +164,7 @@ export function setTabActivity(tabId: number, activity: PaneActivity): void {
     renderTabBar();
     return;
   }
-  applyActivity(el, tab, activity);
+  applyActivity(el, tab, resolvedActivity(tabId));
 }
 
 /** `activity.reason` is `waiting_for` or a background job's `detail`, both
@@ -367,6 +404,7 @@ export async function closeTab(id: number): Promise<void> {
   // Both maps are keyed by tab id and nothing else prunes them, so a long
   // session of opening and closing tabs would leak an entry each time.
   tabActivityState.delete(id);
+  titleBusyTabs.delete(id);
   tabBadge.delete(id);
 
   if (activeTabId === id) {
@@ -806,7 +844,7 @@ function updateTabEl(el: HTMLElement, tab: Tab, index: number) {
   el.dataset.tabIndex = String(index);
 
   const displayName = tabDisplayName(tab);
-  applyActivity(el, tab, tabActivityState.get(tab.id) ?? NO_ACTIVITY);
+  applyActivity(el, tab, resolvedActivity(tab.id));
 
   const idx = el.querySelector<HTMLElement>(".tab-index")!;
   const idxText = String(index + 1);
@@ -892,25 +930,17 @@ function scrollActiveTabIntoView() {
   }
 }
 
-/** Claude Code's terminal-title prefix. Two frames alternating at 960ms while
- *  it is working, plus a static mark when it is not:
+/** Take a recognised activity glyph off a title. Kimbo shows that state as a
+ *  styled dot instead, so the glyph is redundant. It is also actively harmful:
+ *  it changes the label's width up to ten times a second, which jitters the
+ *  whole tab bar and forces a repaint plus a scroll-arrow re-measure on every
+ *  frame.
  *
- *      var sB = ["◐", "◑"], lB = "✳", uTe = 960;
- *
- *  Kimbo now shows that state as a styled dot, so the glyph is redundant. It
- *  is also actively harmful: it changes the label's width once a second, which
- *  jitters the whole tab bar and forces a repaint plus a scroll-arrow
- *  re-measure on every frame.
- *
- *  Deliberately narrow: exactly those three characters, only at position
- *  zero, only when followed by a space. Another TUI's spinner is left alone. */
-const CLAUDE_TITLE_GLYPHS = ["◐ ", "◑ ", "✳ "];
-
+ *  Which glyphs count, and which of them also mean "working", lives in
+ *  title-activity.ts. Exported for tests and kept as its own name because
+ *  callers that only want the label should not have to know about activity. */
 export function stripActivityGlyph(title: string): string {
-  for (const g of CLAUDE_TITLE_GLYPHS) {
-    if (title.startsWith(g)) return title.slice(g.length);
-  }
-  return title;
+  return classifyTitle(title).title;
 }
 
 /** Override or clear the title for a given session's tab. Pass null to revert
@@ -928,8 +958,12 @@ export function setTabTitle(sessionId: number, title: string | null): void {
   if (!tab) return;
   // Strip before the equality check below, so a title that alternates only in
   // its glyph compares equal and costs no repaint at all.
-  const stripped = title === null ? null : stripActivityGlyph(title);
-  const next = stripped ? stripped : undefined;
+  const classified = title === null ? null : classifyTitle(title);
+  // Before the early return below: a spinner frame changing to the next frame
+  // leaves the stripped title identical, and that is exactly the update that
+  // must keep the dot alive. A cleared title carries no spinner.
+  setTitleBusy(tab.id, classified?.busy ?? false);
+  const next = classified?.title ? classified.title : undefined;
   if (tab.titleOverride === next) return;
   tab.titleOverride = next;
   updateTabButtonInPlace(tab);
@@ -945,7 +979,7 @@ function updateTabButtonInPlace(tab: Tab): void {
     return;
   }
   const displayName = tabDisplayName(tab);
-  applyActivity(el, tab, tabActivityState.get(tab.id) ?? NO_ACTIVITY);
+  applyActivity(el, tab, resolvedActivity(tab.id));
   const label = el.querySelector<HTMLElement>(".tab-label");
   // Leave the label alone while an inline rename <input> owns it; the next
   // full render repaints the display name after the rename commits.
