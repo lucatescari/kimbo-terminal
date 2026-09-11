@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixes
+
+- **Text no longer vanishes from the terminal for the rest of the session.** After the Mac ran short of memory, most letters could disappear from a pane. The text was still there (selectable, scrollable, copyable) but drew as blank space until Kimbo was quit. macOS had reclaimed the GPU process, and Kimbo rebuilt the renderer but kept its old glyph images, which by then were empty. The glyph atlas is now discarded whenever the renderer is replaced, and the text is back on the next frame.
+
 ### Security
 
 - **Certificate checks for update downloads are patched.** rustls-webpki 0.103.15 could accept a certificate chain through an intermediate that should have been distrusted (RUSTSEC-2026-0382). It sits under the updater's HTTPS client, the one network path that runs what it fetches. Now on 0.103.16.

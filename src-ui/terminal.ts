@@ -212,6 +212,10 @@ export async function createTerminalSession(
   // stays on the DOM renderer. See WEBGL_STALL_BUDGET_MS below.
   let webglRetired = false;
 
+  // Set once a context has actually been lost, so only a *replacement* addon
+  // pays for the atlas rebuild below. The first load has nothing to discard.
+  let webglContextWasLost = false;
+
   const tryLoadWebglAddon = (): void => {
     if (webglAddon || webglRetired) return;
     const startedAt = performance.now();
@@ -219,6 +223,7 @@ export async function createTerminalSession(
       const w = new WebglAddon();
       w.onContextLoss(() => {
         webglAddon = null;
+        webglContextWasLost = true;
         try {
           w.dispose();
         } catch {
@@ -227,6 +232,34 @@ export async function createTerminalSession(
       });
       term.loadAddon(w);
       webglAddon = w;
+      if (webglContextWasLost) {
+        // The glyph atlas does NOT belong to the addon. xterm caches it in a
+        // module-global keyed by font/cell config (addon-webgl's
+        // CharAtlasCache.ts), so the replacement addon re-acquires the SAME
+        // TextureAtlas, including `_cacheMap`, which marks every glyph it has
+        // ever rasterized as resident and therefore never rasterizes it again.
+        //
+        // That cache outlives the pixels it points at. Atlas pages are
+        // detached <canvas> elements, and the memory pressure that makes
+        // WebKit kill its GPU process (taking the GL context with it) also
+        // lets it drop those canvases' backing stores. Every GLTexture in the
+        // new GlyphRenderer starts at version -1, so it dutifully re-uploads
+        // pages that are now blank. The affected glyphs then render as empty
+        // cells for the rest of the session: the text is in the buffer, the
+        // texture coordinates are valid, and nothing ever asks for those
+        // glyphs to be drawn again. Observed as most of the alphabet silently
+        // vanishing from the terminal while the DOM chrome stayed perfect.
+        //
+        // clearTextureAtlas() drops the cache and forces a full re-raster. It
+        // must run AFTER loadAddon: it reaches the renderer through
+        // `_renderer.value`, so clearing before the addon is attached would
+        // no-op against the fallback renderer.
+        try {
+          term.clearTextureAtlas();
+        } catch (e) {
+          console.warn("clearTextureAtlas after WebGL reload:", e);
+        }
+      }
     } catch (e) {
       // A GPU that cannot hand out a context now will not hand one out on the
       // next Cmd-Tab either, and each attempt risks the stall described below.
