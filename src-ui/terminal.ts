@@ -182,6 +182,21 @@ export async function createTerminalSession(
     }
   }
 
+  // Creating a WebGL context is a SYNCHRONOUS IPC to WebKit's GPU process
+  // (HTMLCanvasElement::createContextWebGL -> RemoteGraphicsContextGLProxy::
+  // waitUntilInitialized -> IPC waitForAndDispatchImmediately). When that
+  // process is up but not answering -- what memory pressure produces, since
+  // macOS kills it and the replacement cannot get resources to start -- the
+  // reply never comes and the renderer's main thread parks in the kernel.
+  // The window paints nothing and answers no input, at 0% CPU, until someone
+  // kills the GPU process by hand. Observed 2026-09-08 on 1.2.2-unstable.5.
+  //
+  // Nothing in the platform lets us time-box that call, so the first stall is
+  // unavoidable. What we can refuse is doing it again: a creation slower than
+  // this budget (a healthy one is single-digit ms) means the GPU path is
+  // unhealthy, and every later Cmd-Tab would re-enter the same wait.
+  const WEBGL_STALL_BUDGET_MS = 250;
+
   // GPU renderer for smoother fast output. Falls back to canvas/DOM
   // automatically if WebGL isn't available (e.g., headless test env, GPU
   // context lost on display sleep).
@@ -192,9 +207,13 @@ export async function createTerminalSession(
   // Canvas renderer permanently and translucent/DIM compositing no longer
   // matches the stream filter in ansi-bg-transparent.ts.
   let webglAddon: WebglAddon | null = null;
+  // Set once the GPU path has proved unhealthy; from then on this session
+  // stays on the DOM renderer. See WEBGL_STALL_BUDGET_MS below.
+  let webglRetired = false;
 
   const tryLoadWebglAddon = (): void => {
-    if (webglAddon) return;
+    if (webglAddon || webglRetired) return;
+    const startedAt = performance.now();
     try {
       const w = new WebglAddon();
       w.onContextLoss(() => {
@@ -208,7 +227,19 @@ export async function createTerminalSession(
       term.loadAddon(w);
       webglAddon = w;
     } catch (e) {
-      console.warn("WebGL renderer unavailable, falling back to default:", e);
+      // A GPU that cannot hand out a context now will not hand one out on the
+      // next Cmd-Tab either, and each attempt risks the stall described below.
+      webglRetired = true;
+      console.warn("WebGL renderer unavailable, staying on the DOM renderer:", e);
+      return;
+    }
+    const elapsed = performance.now() - startedAt;
+    if (elapsed > WEBGL_STALL_BUDGET_MS) {
+      webglRetired = true;
+      console.warn(
+        `WebGL context creation blocked the main thread for ${Math.round(elapsed)}ms; ` +
+          "staying on the DOM renderer for this session.",
+      );
     }
   };
 
