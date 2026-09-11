@@ -96,6 +96,23 @@ function progressChannel(onProgress?: (p: DownloadProgress) => void): Channel<Do
 }
 
 /**
+ * Hang up every shell before the process goes away.
+ *
+ * A relaunch is an exit, but it does not run `quit_app`, and Tauri does not
+ * run `Drop` on managed state — so without this sweep every shell in the
+ * window, and whatever it was running, reparents to launchd and outlives the
+ * update. Best-effort: a failure here must not block the relaunch, since the
+ * update is already installed by this point.
+ */
+async function sweepPtys(): Promise<void> {
+  try {
+    await invoke("sweep_ptys");
+  } catch (e) {
+    console.warn("[kimbo.update] sweep_ptys failed, shells may orphan:", e);
+  }
+}
+
+/**
  * Install the newest build on `channel`.
  *
  * Progress is streamed from the backend via a Tauri `Channel` and forwarded
@@ -106,6 +123,7 @@ export async function installUpdate(
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
   await invoke("install_update", { channel, onProgress: progressChannel(onProgress) });
+  await sweepPtys();
   await relaunch();
 }
 
@@ -114,6 +132,7 @@ export async function reinstallStable(
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
   await invoke("reinstall_stable", { onProgress: progressChannel(onProgress) });
+  await sweepPtys();
   await relaunch();
 }
 

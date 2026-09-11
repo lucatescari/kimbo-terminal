@@ -225,7 +225,10 @@ describe("updates: install flow", () => {
 
     await installUpdate("unstable", onProgress);
 
-    expect(invoke).toHaveBeenCalledTimes(1);
+    // Two invokes now: the install, then the PTY sweep that keeps the
+    // window's shells from orphaning across the relaunch.
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(invoke).mock.calls[1][0]).toBe("sweep_ptys");
     const [cmd, args] = vi.mocked(invoke).mock.calls[0];
     expect(cmd).toBe("install_update");
     expect((args as any).channel).toBe("unstable");
@@ -260,7 +263,8 @@ describe("updates: install flow", () => {
 
     await reinstallStable(onProgress);
 
-    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(invoke).mock.calls[1][0]).toBe("sweep_ptys");
     const [cmd, args] = vi.mocked(invoke).mock.calls[0];
     expect(cmd).toBe("reinstall_stable");
     const channelArg = (args as any).onProgress;
@@ -312,5 +316,56 @@ describe("formatBuildLabel", () => {
 
   it("trims incidental whitespace around the id", () => {
     expect(formatBuildLabel("1.2.0", "  a2fnd4f  ")).toBe("1.2.0 (a2fnd4f)");
+  });
+});
+
+// Regression: an in-app update orphans every shell in the window.
+//
+// PtyManager::kill_all() is the only thing that hangs up the shells, and its
+// sole caller is the `quit_app` command on the Cmd-Q path. `app.restart()`
+// (update.rs) and `relaunch()` here both end the process without it, and
+// Tauri does not run Drop on managed state, so every shell -- and whatever it
+// was running -- reparents to launchd and stays there.
+//
+// Observed 2026-09-08: the 11:25 auto-update to 1.2.2-unstable.5 left 7
+// zsh/claude pairs parented to launchd, ages up to 18h, holding 2.24 GB of
+// compressed memory on a machine that was already swapping 10 GB.
+describe("updates: shells are hung up before a relaunch", () => {
+  beforeEach(() => {
+    __resetUpdateCacheForTests();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(relaunch).mockReset();
+  });
+
+  it("installUpdate sweeps the PTYs before relaunching", async () => {
+    const order: string[] = [];
+    vi.mocked(invoke).mockImplementation(((cmd: string) => {
+      order.push(cmd);
+      return Promise.resolve(undefined);
+    }) as unknown as typeof invoke);
+    vi.mocked(relaunch).mockImplementation(() => {
+      order.push("relaunch");
+      return Promise.resolve();
+    });
+
+    await installUpdate("stable");
+
+    expect(order).toEqual(["install_update", "sweep_ptys", "relaunch"]);
+  });
+
+  it("reinstallStable sweeps the PTYs before relaunching", async () => {
+    const order: string[] = [];
+    vi.mocked(invoke).mockImplementation(((cmd: string) => {
+      order.push(cmd);
+      return Promise.resolve(undefined);
+    }) as unknown as typeof invoke);
+    vi.mocked(relaunch).mockImplementation(() => {
+      order.push("relaunch");
+      return Promise.resolve();
+    });
+
+    await reinstallStable();
+
+    expect(order).toEqual(["reinstall_stable", "sweep_ptys", "relaunch"]);
   });
 });
