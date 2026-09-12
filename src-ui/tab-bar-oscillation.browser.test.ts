@@ -65,15 +65,61 @@ async function buildOverflowingBar(tabCount: number) {
 
   initTabs(tabBar, area);
   for (let i = 0; i < tabCount; i++) await createTab(`/Users/x/project-number-${i}`);
-  // Web fonts load async; tab text (and thus tab/scroll widths) keeps shifting
-  // until they're ready. Wait so width-dependent measurements are stable —
-  // otherwise a font settling mid-test moves scrollLeft under us.
-  await document.fonts.ready;
-  await NEXT_FRAME();
+  await settleWidths(tabBar);
   return { tabBar };
 }
 
 const region = (bar: HTMLElement) => bar.querySelector<HTMLElement>(".tab-scroll-region")!;
+
+/** The first family in `--font-mono`, which is what `.tab` renders in. Its
+ *  metrics decide every tab's width, and therefore the strip's scrollWidth. */
+const TAB_FONT = '500 12px "JetBrains Mono"';
+
+/** Make the strip's width final before anything measures it.
+ *
+ *  Two separate traps make the obvious `await document.fonts.ready` useless
+ *  here, both confirmed by instrumenting this file:
+ *
+ *  1. The stylesheet declaring Inter and JetBrains Mono loads asynchronously,
+ *     after style.css. Until it lands, `document.fonts` holds only the Nerd
+ *     Font face and reports `status === "loaded"`, because nothing has been
+ *     requested yet. Awaiting readiness at that moment returns immediately and
+ *     guarantees nothing.
+ *  2. Whether that stylesheet lands before or during the test varied run to
+ *     run. When it landed mid-test the tabs re-laid out one frame later, the
+ *     strip lost width under an already-captured baseline, and
+ *     scrollActiveTabIntoView correctly followed the shrinking content. The
+ *     test read that as drift and failed about one run in five.
+ *
+ *  So: ask for the font explicitly, and keep asking until a face by that name
+ *  actually reports loaded, which also waits out trap 1 since `load()` matches
+ *  nothing until the @font-face rule has been parsed. Then hold until the
+ *  measured width stops moving. The assertions themselves are unchanged. */
+async function settleWidths(bar: HTMLElement): Promise<void> {
+  const strip = region(bar);
+  const deadline = performance.now() + 5_000;
+
+  const fontIsLoaded = () =>
+    [...document.fonts].some((f) => f.family === "JetBrains Mono" && f.status === "loaded");
+
+  while (performance.now() < deadline && !fontIsLoaded()) {
+    await document.fonts.load(TAB_FONT, "0123456789abcdefghijklmnopqrstuvwxyz-");
+    await NEXT_FRAME();
+  }
+
+  let lastWidth = -1;
+  let stableFrames = 0;
+  while (performance.now() < deadline) {
+    await NEXT_FRAME();
+    const width = strip.scrollWidth;
+    stableFrames = width === lastWidth ? stableFrames + 1 : 0;
+    lastWidth = width;
+    if (stableFrames >= 3) return;
+  }
+  throw new Error(
+    `tab strip width never settled (last ${lastWidth}px, font loaded=${fontIsLoaded()})`,
+  );
+}
 
 describe("tab bar far-right oscillation", () => {
   beforeEach(() => {

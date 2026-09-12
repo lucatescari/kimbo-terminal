@@ -118,6 +118,37 @@ fn run_and_drain(session: &mut PtySession, cmd: &[u8], phase: u8) -> String {
     String::from_utf8_lossy(&collected).to_string()
 }
 
+/// Keep reading from `session` into `collected` until `cond` holds, or the
+/// budget runs out.
+///
+/// `run_and_drain` stops at a fixed deadline and hands back whatever happened
+/// to arrive. A caller that then parses a pid out of that buffer is really
+/// asserting "the shell answered within five seconds", not "the shell
+/// answered", and on a loaded machine it does not: the test dies while parsing
+/// an incomplete buffer, before reaching the assertion it exists to make.
+///
+/// Polling for the thing the caller actually needs keeps the guarantee and
+/// drops the race, the same way cwd_tracks_cd_without_shell_integration was
+/// changed in 8e77dbd. Re-issuing the command is not an option here, unlike
+/// there: these commands spawn processes, so running them twice would leak a
+/// second set.
+fn drain_until(
+    session: &mut PtySession,
+    collected: &mut String,
+    budget: Duration,
+    cond: impl Fn(&str) -> bool,
+) {
+    let deadline = Instant::now() + budget;
+    let mut buf = [0u8; 4096];
+    while !cond(collected) && Instant::now() < deadline {
+        match session.try_read(&mut buf) {
+            Ok(0) => std::thread::sleep(Duration::from_millis(20)),
+            Ok(n) => collected.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+}
+
 #[test]
 #[serial(pty)]
 fn test_pty_spawn_and_write() {
@@ -443,11 +474,16 @@ fn drop_kills_concurrently_style_multi_child_tree() {
     // via setsid), which is the normal behaviour for
     // `child_process.spawn` default options in node — the runtime
     // concurrently actually uses.
-    let out = run_and_drain(
+    let mut out = run_and_drain(
         &mut session,
         b"sh -c 'sleep 300 & echo KIMBO_A_$!; sleep 301 & echo KIMBO_B_$!; wait' &",
         1,
     );
+    // Both echoes can still be in flight when run_and_drain's own deadline
+    // expires. Wait for what this test actually needs before parsing.
+    drain_until(&mut session, &mut out, Duration::from_secs(10), |s| {
+        extract_pid_after("KIMBO_A_", s).is_some() && extract_pid_after("KIMBO_B_", s).is_some()
+    });
     let pid_a = extract_pid_after("KIMBO_A_", &out)
         .unwrap_or_else(|| panic!("couldn't parse sibling A pid from:\n{}", out));
     let pid_b = extract_pid_after("KIMBO_B_", &out)
