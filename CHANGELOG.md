@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A Claude session id is checked before it becomes a file name.** The HUD reads per pane statistics from `~/.claude/projects/<cwd>/<session id>.jsonl`, taking the session id straight out of `~/.claude/sessions/<pid>.json` without looking at its shape. An id carrying `..` segments walked back out of that directory, so the numbers shown for a pane could have come from any file your account can read. Only a bare UUID reaches the path now. This needed write access to your own `~/.claude` directory, so it crossed no privilege boundary, but the check belongs there regardless.
 
+- **The TLS library used to download updates is patched.** rustls 0.23.43 accepted TLS 1.3 handshake messages across encryption level boundaries (RUSTSEC-2026-0285, medium). It reaches Kimbo through the updater's HTTP client, which is the one part of the app that fetches something over the network and then runs it, so it is worth naming rather than filing under routine dependency noise. Now on 0.23.45.
+
 - **Shells are started without doing anything unsafe between fork and exec.** A forked child inherits one thread and all of the parent's locks, so the window between `fork()` and `exec()` is limited to a short list of operations the system guarantees are safe there. Kimbo was setting environment variables, formatting strings and allocating in that window, any of which can deadlock the new process against a lock another thread happened to hold at the moment of the fork. The result would have been a pane that opens and then hangs with no shell and no error. Everything the child needs is now prepared in advance, leaving it to change directory and exec.
 
 ### Notes
