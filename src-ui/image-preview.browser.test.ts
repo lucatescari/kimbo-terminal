@@ -45,13 +45,65 @@ afterEach(() => {
 });
 
 /** Resolve once the thumbnail has decoded and the browser has laid it out. */
+/** The popover's caption inherits `--font-ui`, whose first family is Inter. Its
+ *  metrics set the caption's line box, and therefore the popover's height. */
+const CAPTION_FONT = '11px "Inter"';
+
+/** Wait until the caption font is really loaded and the box has stopped
+ *  resizing.
+ *
+ *  `await document.fonts.ready` does not do this: the stylesheet declaring
+ *  Inter loads after style.css, and until it lands `document.fonts` reports
+ *  `status === "loaded"` because nothing has been requested yet, so awaiting
+ *  readiness returns immediately and guarantees nothing. The same trap is
+ *  documented at length in tab-bar-oscillation.browser.test.ts.
+ *
+ *  What that cost here: the popover is placed ABOVE the link, so its `top` is
+ *  derived from its own height. When Inter landed between two measurements the
+ *  caption's line box grew a pixel, the box grew with it, and `top` moved by 1
+ *  while `left` and `width` stayed put. That read as the thumbnail chasing the
+ *  pointer, which is the exact bug these tests exist to catch, and it failed
+ *  a release build.
+ *
+ *  So: ask for the font explicitly and keep asking until a face by that name
+ *  reports loaded, which also waits out the late stylesheet since `load()`
+ *  matches nothing until the @font-face rule is parsed. Then hold until the
+ *  measured height stops moving. */
+async function settleBox(el: HTMLElement): Promise<void> {
+  const fontIsLoaded = () =>
+    [...document.fonts].some((f) => f.family === "Inter" && f.status === "loaded");
+
+  // Separate budgets: a font that never arrives (offline, blocked CDN) must
+  // still leave the settle loop its full window, or this reports "never
+  // settled" for what is really "never loaded".
+  const fontDeadline = performance.now() + 5_000;
+  while (performance.now() < fontDeadline && !fontIsLoaded()) {
+    await document.fonts.load(CAPTION_FONT, "abcdefghijklmnopqrstuvwxyz.0123456789");
+    await new Promise(requestAnimationFrame);
+  }
+
+  const settleDeadline = performance.now() + 5_000;
+  let lastHeight = -1;
+  let stableFrames = 0;
+  while (performance.now() < settleDeadline) {
+    await new Promise(requestAnimationFrame);
+    const height = el.getBoundingClientRect().height;
+    stableFrames = height === lastHeight ? stableFrames + 1 : 0;
+    lastHeight = height;
+    if (stableFrames >= 3) return;
+  }
+  throw new Error(
+    `image preview never settled (last ${lastHeight}px, font loaded=${fontIsLoaded()})`,
+  );
+}
+
 async function settled(): Promise<HTMLElement> {
   const el = document.querySelector<HTMLElement>(".image-preview")!;
   const img = el.querySelector("img")!;
   if (!img.complete) {
     await new Promise((res) => img.addEventListener("load", res, { once: true }));
   }
-  await new Promise(requestAnimationFrame);
+  await settleBox(el);
   return el;
 }
 
