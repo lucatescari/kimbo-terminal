@@ -1,7 +1,8 @@
 use anyhow::Result;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Get the current working directory of a process by PID.
@@ -75,6 +76,71 @@ fn shell_quote(arg: &str) -> String {
     format!("'{}'", arg.replace('\'', r"'\''"))
 }
 
+/// Resolve a program name to the absolute path `execve` needs.
+///
+/// The PATH search `execvp` used to do happened in the forked child, where
+/// neither the search nor execvp itself is async-signal-safe. Doing it in the
+/// parent also turns "no such shell" into a real error on `PtySession::new`
+/// instead of a child that dies immediately and leaves an empty pane.
+fn resolve_program(program: &str) -> Result<PathBuf> {
+    if program.contains('/') {
+        return Ok(PathBuf::from(program));
+    }
+    let path = std::env::var_os("PATH")
+        .ok_or_else(|| anyhow::anyhow!("cannot resolve shell {:?}: PATH is unset", program))?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| is_executable_file(candidate))
+        .ok_or_else(|| anyhow::anyhow!("cannot find shell {:?} on PATH", program))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// The environment handed to the child: everything the parent has, with
+/// Kimbo's terminal identity forced on top.
+///
+/// TERM tells programs the terminal's capabilities. TERM_PROGRAM lets shell
+/// startup scripts apply Kimbo-specific behavior (for example fastfetch image
+/// layout). Both were previously set with `std::env::set_var` between fork and
+/// exec, which takes std's env lock in a process that inherited every lock the
+/// parent held.
+///
+/// An entry whose name or value contains an interior NUL cannot be expressed
+/// as a C string; it is dropped rather than failing the whole spawn, which is
+/// also what it would have amounted to in the old inherited `environ`.
+fn build_child_env() -> Vec<std::ffi::CString> {
+    const OVERRIDES: [(&str, &str); 2] = [("TERM", "xterm-256color"), ("TERM_PROGRAM", "kimbo")];
+
+    let mut entries: Vec<std::ffi::CString> = std::env::vars_os()
+        .filter(|(key, _)| {
+            !OVERRIDES
+                .iter()
+                .any(|(name, _)| key.as_os_str() == std::ffi::OsStr::new(name))
+        })
+        .filter_map(|(key, value)| {
+            let key = key.as_os_str().as_bytes();
+            let value = value.as_os_str().as_bytes();
+            let mut buf = Vec::with_capacity(key.len() + value.len() + 1);
+            buf.extend_from_slice(key);
+            buf.push(b'=');
+            buf.extend_from_slice(value);
+            std::ffi::CString::new(buf).ok()
+        })
+        .collect();
+
+    for (name, value) in OVERRIDES {
+        if let Ok(entry) = std::ffi::CString::new(format!("{}={}", name, value)) {
+            entries.push(entry);
+        }
+    }
+    entries
+}
+
 impl PtySession {
     /// Spawn a new PTY session using `forkpty` + `execvp`.
     ///
@@ -92,9 +158,16 @@ impl PtySession {
         let shell_program = shell
             .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
 
-        // Built here, in the parent. Everything the forked child needs must be
-        // allocated before the fork: between fork and exec only async-signal-safe
-        // work is legal, and allocating there can deadlock on the allocator lock.
+        // Everything the forked child needs is built HERE, in the parent.
+        //
+        // Between fork() and exec() only async-signal-safe work is legal. The
+        // child of a multi-threaded process inherits exactly one thread but
+        // every lock, so anything that allocates (`format!`, `CString::new`),
+        // takes std's env lock (`std::env::set_var`) or locks stderr
+        // (`eprintln!`) can deadlock against a lock some other thread happened
+        // to hold at the instant of the fork. The child below is left with
+        // chdir/execve/write/_exit, all of which POSIX lists as
+        // async-signal-safe, reading data prepared up here.
         let command_arg = command.filter(|c| !c.is_empty()).map(|argv| {
             let quoted: Vec<String> = argv.iter().map(|a| shell_quote(a)).collect();
             // Hand back to an interactive login shell afterwards, so the pane
@@ -112,6 +185,57 @@ impl PtySession {
         {
             Ok(v) => v,
             Err(_) => return Err(anyhow::anyhow!("command contains an interior NUL byte")),
+        };
+
+        // execve performs no PATH search, so the program is resolved here
+        // where allocating and touching the filesystem are free. execvp would
+        // search, but it is not async-signal-safe and gives no way to hand the
+        // child an environment without calling setenv inside it.
+        let shell_path = resolve_program(&shell_program)?;
+        let c_shell = std::ffi::CString::new(shell_path.as_os_str().as_bytes())
+            .map_err(|_| anyhow::anyhow!("shell path contains an interior NUL byte"))?;
+
+        // Use the basename preceded by '-' as argv[0] for login shell convention,
+        // and pass -l as an explicit argument as well.
+        let basename = shell_program.rsplit('/').next().unwrap_or(&shell_program);
+        let login_argv0 = std::ffi::CString::new(format!("-{}", basename))
+            .map_err(|_| anyhow::anyhow!("shell argv0 contains an interior NUL byte"))?;
+
+        // `c"..."` literals are 'static, so the flags cost no allocation.
+        let argv: Vec<*const libc::c_char> = match c_command {
+            // [shell, -l, -c, "<cmd>; exec <shell> -l", NULL]
+            Some(ref cmd) => vec![
+                login_argv0.as_ptr(),
+                c"-l".as_ptr(),
+                c"-c".as_ptr(),
+                cmd.as_ptr(),
+                std::ptr::null(),
+            ],
+            None => vec![login_argv0.as_ptr(), c"-l".as_ptr(), std::ptr::null()],
+        };
+
+        // TERM and TERM_PROGRAM used to be set with std::env::set_var in the
+        // child. Building the whole environment here instead keeps the child
+        // allocation-free and lock-free: it inherits everything the parent
+        // has, with Kimbo's identity forced on top.
+        let env_storage = build_child_env();
+        let envp: Vec<*const libc::c_char> = env_storage
+            .iter()
+            .map(|entry| entry.as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
+
+        let c_working_directory = match working_directory
+            .as_ref()
+            .map(|dir| std::ffi::CString::new(dir.as_os_str().as_bytes()))
+            .transpose()
+        {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "working directory contains an interior NUL byte"
+                ))
+            }
         };
 
         let mut master_fd: libc::c_int = -1;
@@ -134,66 +258,24 @@ impl PtySession {
 
         if pid == 0 {
             // === Child process ===
-
-            // Change working directory if requested.
-            if let Some(ref dir) = working_directory {
-                let _ = std::env::set_current_dir(dir);
-            }
-
-            // Set TERM so programs know the terminal capabilities.
-            std::env::set_var("TERM", "xterm-256color");
-            // Expose a terminal identity so shell startup scripts can apply
-            // Kimbo-specific behavior (for example fastfetch image layout).
-            std::env::set_var("TERM_PROGRAM", "kimbo");
-
-            // Build argv for execvp: [shell, "-l", NULL]. We're in the forked
-            // child here, so on the (practically impossible) chance a path
-            // contains an interior NUL, `_exit` instead of panicking — a panic
-            // would unwind through a half-initialized forked process.
-            let c_shell = match std::ffi::CString::new(shell_program.as_str()) {
-                Ok(s) => s,
-                Err(_) => {
-                    eprintln!("kimbo: shell path contains an interior NUL byte");
-                    unsafe { libc::_exit(1) }
-                }
-            };
-            // Use the basename preceded by '-' as argv[0] for login shell convention,
-            // and pass -l as an explicit argument as well.
-            let basename = shell_program.rsplit('/').next().unwrap_or(&shell_program);
-            let login_argv0 = match std::ffi::CString::new(format!("-{}", basename)) {
-                Ok(s) => s,
-                Err(_) => {
-                    eprintln!("kimbo: shell argv0 contains an interior NUL byte");
-                    unsafe { libc::_exit(1) }
-                }
-            };
-            let flag_l = std::ffi::CString::new("-l").unwrap();
-            let flag_c = std::ffi::CString::new("-c").unwrap();
-
             unsafe {
-                match c_command {
-                    // [shell, -l, -c, "<cmd>; exec <shell> -l", NULL]
-                    Some(ref cmd) => {
-                        let argv: [*const libc::c_char; 5] = [
-                            login_argv0.as_ptr(),
-                            flag_l.as_ptr(),
-                            flag_c.as_ptr(),
-                            cmd.as_ptr(),
-                            std::ptr::null(),
-                        ];
-                        libc::execvp(c_shell.as_ptr(), argv.as_ptr());
-                    }
-                    None => {
-                        let argv: [*const libc::c_char; 3] =
-                            [login_argv0.as_ptr(), flag_l.as_ptr(), std::ptr::null()];
-                        libc::execvp(c_shell.as_ptr(), argv.as_ptr());
-                    }
+                if let Some(ref dir) = c_working_directory {
+                    // Best effort, as before: a directory that has since gone
+                    // away leaves the pane in the inherited cwd rather than
+                    // failing to open at all.
+                    libc::chdir(dir.as_ptr());
                 }
-            }
 
-            // execvp only returns on error
-            eprintln!("execvp failed: {}", io::Error::last_os_error());
-            unsafe {
+                libc::execve(c_shell.as_ptr(), argv.as_ptr(), envp.as_ptr());
+
+                // execve only returns on failure. A static byte string written
+                // straight to fd 2 keeps even this path allocation-free.
+                let msg = b"kimbo: failed to exec the shell\n";
+                libc::write(
+                    libc::STDERR_FILENO,
+                    msg.as_ptr() as *const libc::c_void,
+                    msg.len(),
+                );
                 libc::_exit(1);
             }
         }
