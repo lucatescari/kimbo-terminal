@@ -10,7 +10,14 @@
     "opener:allow-reveal-item-in-dir",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "/**" }]
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/Volumes/**" },
+        { "path": "/tmp/**" },
+        { "path": "/private/tmp/**" },
+        { "path": "/var/folders/**" },
+        { "path": "/private/var/folders/**" }
+      ]
     },
     "updater:default",
     "process:allow-restart",

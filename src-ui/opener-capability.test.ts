@@ -47,3 +47,42 @@ describe("opener open_path capability", () => {
     ).toBe(true);
   });
 });
+
+// The scope used to be a single "/**", which granted open_path over the whole
+// filesystem: a compromised webview could ask the system to open
+// /Applications/Utilities/Terminal.app or anything under /System. It is now
+// narrowed to the roots terminal output actually points at. Temp appears in
+// both its symlinked and canonical form because tauri::fs::Scope canonicalizes
+// the path it checks, and on macOS /tmp and /var/folders are symlinks into
+// /private.
+describe("opener open_path scope", () => {
+  const entry = cap.permissions.find(
+    (p): p is { identifier: string; allow?: Array<{ path?: string }> } =>
+      typeof p === "object" &&
+      p !== null &&
+      (p as { identifier?: string }).identifier === "opener:allow-open-path",
+  );
+  const paths = (entry?.allow ?? [])
+    .map((s) => s.path)
+    .filter((s): s is string => typeof s === "string");
+
+  it("does not grant the entire filesystem", () => {
+    expect(paths).not.toContain("/**");
+    expect(paths).not.toContain("/*");
+  });
+
+  it("covers the home directory, where screenshots and project files live", () => {
+    expect(paths).toContain("$HOME/**");
+  });
+
+  it("covers mounted volumes, so a path on an external drive still opens", () => {
+    expect(paths).toContain("/Volumes/**");
+  });
+
+  it("covers temp in both the symlinked and canonical form macOS uses", () => {
+    expect(paths).toContain("/tmp/**");
+    expect(paths).toContain("/private/tmp/**");
+    expect(paths).toContain("/var/folders/**");
+    expect(paths).toContain("/private/var/folders/**");
+  });
+});
