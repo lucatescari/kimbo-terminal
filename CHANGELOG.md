@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies updated across both ecosystems. `cargo update` clears six RustSec advisories (unsound `anyhow`, `event-listener` and `memmap2`; `rand` 0.7, `scc` and `fxhash` dropped from the tree entirely), taking cargo audit from 24 informational warnings to 18. The rest are the Linux-only GTK3 stack this macOS app never ships. Neither ecosystem reports any vulnerability.
 - Major upgrades to xterm 6, Vite 8 (now bundling with Rolldown), TypeScript 7 and `@types/node` 26. CI moves to Node 22 for Vite 8's engine floor.
 - A release now refuses to run from a dirty working tree, since the stamped commit would not describe what was built. `KIMBO_ALLOW_DIRTY=1` overrides it.
+- Dependencies refreshed across both ecosystems: 77 crates and 62 npm packages to their latest semver-compatible versions, plus vitest 5 and jsdom 30. Both test suites pass unchanged on the new majors. `cargo audit` reports no vulnerabilities and `npm audit` none at any severity. Six Rust crates (`sentry`, `tauri-plugin-sentry`, `notify`, `window-vibrancy`, `dirs`, `serial_test`) are a major version behind and still need manifest changes; they are untouched here.
 - Every GitHub Actions step in CI is pinned to a full commit SHA rather than a tag or branch, so an upgrade shows up as a diff instead of happening silently between two runs of the same workflow.
 
 ## 1.2.0 - 2026-08-13
