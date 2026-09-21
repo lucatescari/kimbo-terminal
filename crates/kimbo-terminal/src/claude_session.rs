@@ -239,6 +239,11 @@ pub(crate) fn read_status_for_pid(pid: u32) -> Option<ClaudeStatus> {
     let stats = pid_session
         .cwd
         .as_deref()
+        // The session id becomes a file name under ~/.claude/projects/<cwd>/,
+        // so only a bare UUID may reach the join. A value carrying `..`
+        // segments walks back out of that directory and the stats shown for
+        // the pane would come from a file anywhere the user can write.
+        .filter(|_| is_uuid_v4_shape(&pid_session.session_id))
         .map(|cwd| {
             let encoded = encode_claude_cwd(cwd);
             let jsonl_path = std::path::PathBuf::from(&home)
@@ -1135,13 +1140,13 @@ not-json-at-all\n\
         std::fs::write(
             sessions.join(format!("{}.json", our_pid)),
             format!(
-                r#"{{"pid":{p},"sessionId":"abc-123","cwd":"/tmp/x","startedAt":42}}"#,
+                r#"{{"pid":{p},"sessionId":"d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d","cwd":"/tmp/x","startedAt":42}}"#,
                 p = our_pid
             ),
         )
         .unwrap();
         std::fs::write(
-            projects.join("abc-123.jsonl"),
+            projects.join("d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d.jsonl"),
             "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-7\",\"usage\":{\"input_tokens\":10,\"output_tokens\":4},\"content\":[]}}\n",
         ).unwrap();
 
@@ -1152,7 +1157,7 @@ not-json-at-all\n\
 
         let status = read_status_for_pid(our_pid)
             .expect("synthetic sessions/<pid>.json should be picked up");
-        assert_eq!(status.session_id, "abc-123");
+        assert_eq!(status.session_id, "d2c1d5a4-7f3a-4b8b-9bb3-1e5c6f9a3b2d");
         assert_eq!(status.input_tokens, 10);
         assert_eq!(status.output_tokens, 4);
         assert_eq!(status.model.as_deref(), Some("claude-opus-4-7"));
@@ -1178,6 +1183,63 @@ not-json-at-all\n\
             None => unsafe { std::env::remove_var("HOME") },
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `sessionId` is read straight out of `~/.claude/sessions/<pid>.json`
+    /// and used to build a path under `~/.claude/projects/<encoded-cwd>/`. A
+    /// value carrying `..` segments walks back out of that directory, so the
+    /// stats reported for the pane would come from an arbitrary file the user
+    /// can write. Only a bare UUID may reach the path join.
+    #[test]
+    fn read_status_for_pid_ignores_a_session_id_that_escapes_the_projects_dir() {
+        let dir = unique_temp_subdir("status-traversal");
+        let sessions = dir.join(".claude/sessions");
+        let projects = dir.join(".claude/projects/-tmp-x");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::create_dir_all(&projects).unwrap();
+
+        // `-tmp-x` -> `projects` -> `.claude` -> <home>, so this lands the read
+        // on <home>/decoy.jsonl.
+        let escaping_id = "../../../decoy";
+        let our_pid = std::process::id();
+        std::fs::write(
+            sessions.join(format!("{}.json", our_pid)),
+            format!(
+                r#"{{"pid":{p},"sessionId":"{s}","cwd":"/tmp/x","startedAt":42}}"#,
+                p = our_pid,
+                s = escaping_id
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("decoy.jsonl"),
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"model\":\"leaked\",\"usage\":{\"input_tokens\":999,\"output_tokens\":999},\"content\":[]}}\n",
+        )
+        .unwrap();
+
+        let saved = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &dir);
+        }
+
+        let status = read_status_for_pid(our_pid)
+            .expect("the sessions/<pid>.json itself is still valid, so a status comes back");
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            status.input_tokens, 0,
+            "decoy file outside projects/ was read"
+        );
+        assert_eq!(
+            status.output_tokens, 0,
+            "decoy file outside projects/ was read"
+        );
+        assert_eq!(status.model, None, "decoy file outside projects/ was read");
     }
 
     // -----------------------------------------------------------------
