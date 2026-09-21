@@ -184,6 +184,50 @@ fn test_pty_resize() {
     session.resize(120, 40); // Should not panic
 }
 
+/// The child's environment is set up between `fork()` and `exec()`, which is
+/// the one place in the codebase where only async-signal-safe work is legal.
+/// Whatever mechanism is used there, these two properties must hold: Kimbo's
+/// own identity reaches the shell, and nothing the parent had is lost.
+#[test]
+#[serial(pty)]
+fn child_sees_kimbo_terminal_identity() {
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
+    let out = run_and_drain(
+        &mut session,
+        b"printf 'KIMBO_ENV_%s_%s\\n' \"$TERM\" \"$TERM_PROGRAM\"",
+        1,
+    );
+    assert!(
+        out.contains("KIMBO_ENV_xterm-256color_kimbo"),
+        "expected TERM and TERM_PROGRAM in the child, got: {}",
+        out
+    );
+}
+
+/// Guards the inherited half of the same setup. A child that is handed an
+/// explicitly built environment instead of inheriting `environ` loses PATH,
+/// HOME and everything else the moment that build is wrong, and a login shell
+/// papers over enough of it that the breakage is easy to miss.
+#[test]
+#[serial(pty)]
+fn child_inherits_the_parent_environment() {
+    unsafe { std::env::set_var("KIMBO_PTY_INHERIT_PROBE", "inherited-ok") };
+    let mut session =
+        PtySession::new(Some("/bin/sh".to_string()), None, None).expect("failed to spawn PTY");
+    let out = run_and_drain(
+        &mut session,
+        b"printf 'KIMBO_PROBE_%s\\n' \"$KIMBO_PTY_INHERIT_PROBE\"",
+        1,
+    );
+    unsafe { std::env::remove_var("KIMBO_PTY_INHERIT_PROBE") };
+    assert!(
+        out.contains("KIMBO_PROBE_inherited-ok"),
+        "expected the parent's environment to survive into the child, got: {}",
+        out
+    );
+}
+
 #[test]
 #[serial(pty)]
 fn test_pty_cwd() {

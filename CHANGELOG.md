@@ -37,11 +37,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The terminal scrollbar auto-hides again, and is back to 6px.** xterm 6 replaced the native scrollbar with its own, which silently disabled every scrollbar style and the auto-hide logic at once, leaving a permanently visible 14px bar. It also fixes a longer-standing bug the rewrite exposed: the old thumb was hardcoded white, so on light themes it had been invisible.
 
+### Security
+
+- **Terminal hyperlinks now only open http, https, mailto and file URLs.** An OSC 8 hyperlink carries its target inside the escape sequence, so the program writing to the pane chooses the URL while the text you see is separate and can say anything else. A line of output could offer you "release notes" and hand the system a custom protocol handler on Cmd+click, of the kind installed apps register for themselves. Anything outside the four schemes is now refused and logged instead of opened. `ls --hyperlink`, eza, bat and git keep working, since those emit file:// links.
+
+- **Opening a file is now limited to the places terminal output actually points at.** Cmd+click on a path was granted the whole filesystem, so a compromised web view could have asked macOS to open anything, including an application under /System or /Applications. The permission now covers your home directory, mounted volumes under /Volumes, and the temp directories, which is where screenshots, project files and build output live. A path outside those roots no longer opens.
+
+- **A Claude session id is checked before it becomes a file name.** The HUD reads per pane statistics from `~/.claude/projects/<cwd>/<session id>.jsonl`, taking the session id straight out of `~/.claude/sessions/<pid>.json` without looking at its shape. An id carrying `..` segments walked back out of that directory, so the numbers shown for a pane could have come from any file your account can read. Only a bare UUID reaches the path now. This needed write access to your own `~/.claude` directory, so it crossed no privilege boundary, but the check belongs there regardless.
+
+- **The TLS library used to download updates is patched.** rustls 0.23.43 accepted TLS 1.3 handshake messages across encryption level boundaries (RUSTSEC-2026-0285, medium). It reaches Kimbo through the updater's HTTP client, which is the one part of the app that fetches something over the network and then runs it, so it is worth naming rather than filing under routine dependency noise. Now on 0.23.45.
+
+- **Shells are started without doing anything unsafe between fork and exec.** A forked child inherits one thread and all of the parent's locks, so the window between `fork()` and `exec()` is limited to a short list of operations the system guarantees are safe there. Kimbo was setting environment variables, formatting strings and allocating in that window, any of which can deadlock the new process against a lock another thread happened to hold at the moment of the fork. The result would have been a pane that opens and then hangs with no shell and no error. Everything the child needs is now prepared in advance, leaving it to change directory and exec.
+
 ### Notes
 
 - Dependencies updated across both ecosystems. `cargo update` clears six RustSec advisories (unsound `anyhow`, `event-listener` and `memmap2`; `rand` 0.7, `scc` and `fxhash` dropped from the tree entirely), taking cargo audit from 24 informational warnings to 18. The rest are the Linux-only GTK3 stack this macOS app never ships. Neither ecosystem reports any vulnerability.
 - Major upgrades to xterm 6, Vite 8 (now bundling with Rolldown), TypeScript 7 and `@types/node` 26. CI moves to Node 22 for Vite 8's engine floor.
 - A release now refuses to run from a dirty working tree, since the stamped commit would not describe what was built. `KIMBO_ALLOW_DIRTY=1` overrides it.
+- Every GitHub Actions step in CI is pinned to a full commit SHA rather than a tag or branch, so an upgrade shows up as a diff instead of happening silently between two runs of the same workflow.
 
 ## 1.2.0 - 2026-08-13
 
