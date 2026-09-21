@@ -7,6 +7,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { openLinkIfAllowed } from "./link-schemes";
 import { restoredSeparator } from "./closed-tabs";
 import {
   createPty,
@@ -133,7 +134,7 @@ export async function createTerminalSession(
   term.loadAddon(
     new WebLinksAddon((event, uri) => {
       if (!event.metaKey) return;
-      openUrl(uri).catch((e) => console.error("openUrl failed:", e));
+      openLinkIfAllowed(uri, openUrl);
     }),
   );
 
@@ -381,7 +382,7 @@ export async function createTerminalSession(
   // semantic hyperlinks. Same Cmd-gated activation as the URL auto-detector.
   attachOsc8Links(term, (event, uri) => {
     if (!event.metaKey) return;
-    openUrl(uri).catch((e) => console.error("openUrl failed:", e));
+    openLinkIfAllowed(uri, openUrl);
   });
 
   // Plain-text file paths (incl. relative ones printed by Claude Code et al.):
