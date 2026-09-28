@@ -27,27 +27,40 @@ export function initTabDrag(tabBarEl: HTMLElement) {
 
 export function cancelDrag() {
   if (!drag) return;
-  const { tabEl, tabEls, autoScrollRaf } = drag;
-  if (autoScrollRaf !== null) cancelAnimationFrame(autoScrollRaf);
-  tabEl.classList.remove("dragging");
-  tabEl.style.transform = "";
-  for (const t of tabEls) {
-    t.classList.remove("drag-shifting");
-    t.style.transform = "";
-  }
-  tabEl.removeEventListener("pointermove", onPointerMove);
-  tabEl.removeEventListener("pointerup", onPointerUp);
-  tabEl.removeEventListener("pointercancel", onPointerUp);
+  if (drag.autoScrollRaf !== null) cancelAnimationFrame(drag.autoScrollRaf);
+  endDrag(drag);
   drag = null;
 }
 
-
+/** Undo everything a drag did to the DOM. `.dragging` sets pointer-events:none,
+ *  so a tab this misses stays unclickable until the window is reloaded. */
+function endDrag(d: DragState) {
+  d.tabEl.classList.remove("dragging");
+  d.tabEl.style.transform = "";
+  for (const t of d.tabEls) {
+    t.classList.remove("drag-shifting");
+    t.style.transform = "";
+  }
+  // On the document, not the tab: the release can land anywhere (the
+  // terminal, the context menu), and the tab must still hear about it.
+  document.removeEventListener("pointermove", onPointerMove);
+  document.removeEventListener("pointerup", onPointerUp);
+  document.removeEventListener("pointercancel", onPointerUp);
+}
 
 export function wasJustDragging(): boolean {
   return justFinishedDrag;
 }
 
 function onPointerDown(e: PointerEvent) {
+  // A leftover drag from a press whose release never arrived must not outlive
+  // this one, or its tab keeps `.dragging` for good.
+  cancelDrag();
+
+  // Only the primary button drags. A right-click opens the context menu under
+  // the cursor, which then takes the release.
+  if (e.button !== 0) return;
+
   const tabEl = (e.target as HTMLElement).closest(".tab") as HTMLElement | null;
   if (!tabEl) return;
 
@@ -82,13 +95,21 @@ function onPointerDown(e: PointerEvent) {
     autoScrollRaf: null,
   };
 
-  tabEl.addEventListener("pointermove", onPointerMove);
-  tabEl.addEventListener("pointerup", onPointerUp);
-  tabEl.addEventListener("pointercancel", onPointerUp);
+  document.addEventListener("pointermove", onPointerMove);
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
 }
 
 function onPointerMove(e: PointerEvent) {
   if (!drag) return;
+
+  // Button no longer held: the release happened somewhere we could not see
+  // (outside the window, or swallowed by a native menu). Plain hover must
+  // never start a drag.
+  if ((e.buttons & 1) === 0) {
+    cancelDrag();
+    return;
+  }
 
   const dx = e.clientX - drag.startX;
 
@@ -188,25 +209,15 @@ function recalcMidpoints() {
 function onPointerUp(e: PointerEvent) {
   if (!drag) return;
 
-  const { tabEl, tabIndex, currentIndex, tabEls, active, autoScrollRaf } = drag;
+  const { tabEl, tabIndex, currentIndex, active, autoScrollRaf } = drag;
 
   if (autoScrollRaf !== null) cancelAnimationFrame(autoScrollRaf);
-
-  tabEl.removeEventListener("pointermove", onPointerMove);
-  tabEl.removeEventListener("pointerup", onPointerUp);
-  tabEl.removeEventListener("pointercancel", onPointerUp);
 
   if (active) {
     try { tabEl.releasePointerCapture(e.pointerId); } catch (_) {}
   }
 
-  // Clear all transforms
-  tabEl.classList.remove("dragging");
-  tabEl.style.transform = "";
-  for (const t of tabEls) {
-    t.classList.remove("drag-shifting");
-    t.style.transform = "";
-  }
+  endDrag(drag);
 
   if (active && tabIndex !== currentIndex) {
     reorderTab(tabIndex, currentIndex);
