@@ -8,6 +8,18 @@ members = [
     "crates/kimbo-claude-statusline",
     "crates/kimbo-claude-notify",
 ]
+exclude = ["vendor/tao"]
+
+# tao 0.35.3 with one change: the NSApplication `sendEvent:` override is
+# `extern "C-unwind"` instead of `extern "C"`. AppKit raises Objective-C
+# exceptions from inside event dispatch (macOS 27's
+# NSCampoLightweightUIController asserts on a mouse-entered after its
+# text-input affordance is torn down), and -[NSApplication run] catches and
+# logs them. Through an `extern "C"` frame the unwind aborts the app instead
+# ("panic in a function that cannot unwind", Sentry KIMBO-3). Drop this once
+# upstream tao ships the same fix; it is still `extern "C"` in 0.37.1.
+[patch.crates-io]
+tao = { path = "vendor/tao" }
 
 [workspace.package]
 version = "1.2.3"
