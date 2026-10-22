@@ -5,6 +5,14 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Linux
+
+- **Kimbo builds and passes its tests on Linux.** `scripts/linux-build.sh` runs the whole thing inside an Ubuntu 24.04 container from a Mac (Docker Desktop, aarch64): the frontend tests, every Rust test including the PTY integration tests, and `tauri build`, which produces a `.deb` with the app and both sidecars. Nothing is published yet and the app has not been run on a real Linux desktop; this is the compile milestone.
+
+- **Two things that were quietly macOS-only are now portable.** The sidecar staging in `src-tauri/build.rs` read `<workspace>/target`, so a build with `CARGO_TARGET_DIR` set (as the container uses) shipped the Mac binaries as the Linux sidecars; it now derives the directory from cargo's `OUT_DIR`. And with `$SHELL` unset the app, the config defaults and the Claude probes all fell back to `/bin/zsh`, which does not exist on most Linux images; they now share `kimbo_terminal::login_shell()`, which tries `$SHELL`, then the account's login shell from the password database, then zsh, bash and sh in that order.
+
 ## 1.2.5 - 2026-10-20
 
 ### Fixes

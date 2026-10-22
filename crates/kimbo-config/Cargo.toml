@@ -8,6 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+kimbo-terminal = { path = "../kimbo-terminal" }
 toml.workspace = true
 serde.workspace = true
 dirs.workspace = true

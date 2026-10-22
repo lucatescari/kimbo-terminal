@@ -137,7 +137,7 @@ fn fetch_account_info() -> Option<AccountInfo> {
     // Go through login+interactive shell so PATH matches Terminal —
     // a bundled .app launched via launchd only gets the minimal
     // /usr/bin:/bin:/usr/sbin:/sbin and won't find claude otherwise.
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = kimbo_terminal::login_shell();
     let output = Command::new(&shell)
         .args(["-ilc", "claude auth status"])
         .output()
@@ -271,7 +271,7 @@ pub fn claude_agents() -> Result<Vec<ClaudeAgent>, String> {
     // Login-interactive shell so a bundled .app resolves `claude` on PATH;
     // launchd hands the bundle only a minimal PATH. Same reasoning as
     // claude_account_info above.
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = kimbo_terminal::login_shell();
     // Bounded: an unbounded `.output()` here blocked its thread and held the
     // login shell plus a ~150 MB Node process for as long as the probe hung.
     let Some(stdout) = run_shell_with_deadline(

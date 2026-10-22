@@ -106,9 +106,8 @@ pub struct TelemetryConfig {
 
 impl Default for GeneralConfig {
     fn default() -> Self {
-        let default_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         Self {
-            default_shell,
+            default_shell: kimbo_terminal::login_shell(),
             default_layout: "single".to_string(),
         }
     }

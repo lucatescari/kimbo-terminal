@@ -51,3 +51,6 @@ src-tauri/binaries/
 
 # vitest 5 moved its cache here from node_modules/.vite/vitest.
 src-ui/.vitest/
+
+# Linux build output from scripts/linux-build.sh (Docker volume mount point)
+target-linux/

@@ -2575,6 +2575,7 @@ version = "1.2.5"
 dependencies = [
  "anyhow",
  "dirs",
+ "kimbo-terminal",
  "log",
  "notify",
  "serde",

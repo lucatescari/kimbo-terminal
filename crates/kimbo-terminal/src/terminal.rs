@@ -144,7 +144,7 @@ fn build_child_env() -> Vec<std::ffi::CString> {
 impl PtySession {
     /// Spawn a new PTY session using `forkpty` + `execvp`.
     ///
-    /// Shell defaults to `$SHELL` or `/bin/zsh`. Runs as a login shell (`-l`).
+    /// Shell defaults to [`crate::login_shell`]. Runs as a login shell (`-l`).
     /// Sets `TERM=xterm-256color`.
     /// `command`, when given, is an argv the pane runs instead of dropping
     /// straight to an interactive prompt. The shell still starts afterwards,
@@ -155,8 +155,7 @@ impl PtySession {
         working_directory: Option<PathBuf>,
         command: Option<Vec<String>>,
     ) -> Result<Self> {
-        let shell_program = shell
-            .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+        let shell_program = shell.unwrap_or_else(crate::login_shell);
 
         // Everything the forked child needs is built HERE, in the parent.
         //

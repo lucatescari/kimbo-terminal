@@ -62,7 +62,6 @@ fn main() {
         println!("cargo:rerun-if-changed=../crates/{name}/Cargo.toml");
     }
 
-    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let target = std::env::var("TARGET").expect("TARGET env var set by cargo");
     let manifest_dir: PathBuf = std::env::var("CARGO_MANIFEST_DIR").unwrap().into();
     let workspace_root = manifest_dir.parent().unwrap();
@@ -76,7 +75,17 @@ fn main() {
         "cargo:rustc-env=KIMBO_BUILD_ID={}",
         build_id(workspace_root)
     );
-    let target_dir = workspace_root.join("target");
+    // The sidecars live next to this crate's own output. Derive that from
+    // OUT_DIR (<target>[/<triple>]/<profile>/build/<pkg>-<hash>/out) instead
+    // of assuming <workspace>/target: with CARGO_TARGET_DIR set, as the Linux
+    // container build does, the workspace target dir holds another
+    // platform's binaries and Tauri would ship those as the sidecars.
+    let out_dir: PathBuf = std::env::var("OUT_DIR").expect("OUT_DIR set by cargo").into();
+    let profile_dir = out_dir
+        .ancestors()
+        .nth(3)
+        .expect("OUT_DIR has a profile directory three levels up")
+        .to_path_buf();
     let dst_dir = manifest_dir.join("binaries");
     std::fs::create_dir_all(&dst_dir).expect("create binaries dir");
 
@@ -86,11 +95,8 @@ fn main() {
         } else {
             (*name).to_string()
         };
-        let candidates = [
-            target_dir.join(&target).join(&profile).join(&bin_name),
-            target_dir.join(&profile).join(&bin_name),
-        ];
-        let src = candidates.iter().find(|p| p.exists());
+        let candidate = profile_dir.join(&bin_name);
+        let src = candidate.exists().then_some(&candidate);
 
         let dst_name = if cfg!(windows) {
             format!("{name}-{target}.exe")
@@ -102,7 +108,8 @@ fn main() {
         match src {
             None => {
                 println!(
-                    "cargo:warning=sidecar binary {name} not found in target/; run `cargo build --release -p {name}` first"
+                    "cargo:warning=sidecar binary {name} not found in {}; run `cargo build --release -p {name}` first",
+                    profile_dir.display()
                 );
             }
             Some(src) => {

@@ -1,6 +1,11 @@
 mod terminal;
 pub use terminal::PtySession;
 
+#[cfg(unix)]
+mod shell;
+#[cfg(unix)]
+pub use shell::login_shell;
+
 pub mod claude_session;
 pub use claude_session::{
     probe_claude_session_for_pid, probe_claude_status_for_pid, probe_claude_tab_states,
