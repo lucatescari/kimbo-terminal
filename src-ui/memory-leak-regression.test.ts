@@ -273,6 +273,7 @@ vi.mock("./terminal", () => {
       fit: { fit() {} },
       search: {},
       serialize: vi.fn().mockReturnValue(""),
+      setVisible: vi.fn(),
       dispose() { session.disposed = true; container.remove(); },
     };
     sessions.push(session);

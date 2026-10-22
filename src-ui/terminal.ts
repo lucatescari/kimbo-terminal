@@ -70,6 +70,10 @@ export interface TerminalSession {
   /** Snapshot the scrollback + viewport as ANSI text (colors, cursor
    *  position, attributes preserved). Used by closed-tab restore. */
   serialize(): string;
+  /** Tell the session whether its tab is on screen. A hidden session drops
+   *  its GPU renderer (each WebGL context holds ~50 MB of IOSurfaces on
+   *  WKWebView) and gets it back when shown again. */
+  setVisible(visible: boolean): void;
   dispose(): void;
 }
 
@@ -217,13 +221,16 @@ export async function createTerminalSession(
   // Set once the GPU path has proved unhealthy; from then on this session
   // stays on the DOM renderer. See WEBGL_STALL_BUDGET_MS below.
   let webglRetired = false;
+  // True while the owning tab is hidden. No GPU renderer is created in that
+  // state, including by the focus/visibility restore path below.
+  let rendererHidden = false;
 
   // Set once a context has actually been lost, so only a *replacement* addon
   // pays for the atlas rebuild below. The first load has nothing to discard.
   let webglContextWasLost = false;
 
   const tryLoadWebglAddon = (): void => {
-    if (webglAddon || webglRetired) return;
+    if (webglAddon || webglRetired || rendererHidden) return;
     const startedAt = performance.now();
     try {
       const w = new WebglAddon();
@@ -286,6 +293,30 @@ export async function createTerminalSession(
   };
 
   tryLoadWebglAddon();
+
+  /** Drop the GPU renderer. xterm's addon only detaches its canvas; the GL
+   *  context (and its IOSurfaces) would otherwise live until the canvas is
+   *  garbage collected, so lose it explicitly. */
+  const releaseWebglAddon = (): void => {
+    if (!webglAddon) return;
+    const canvases = Array.from(term.element?.querySelectorAll("canvas") ?? []);
+    const addon = webglAddon;
+    webglAddon = null;
+    try {
+      addon.dispose();
+    } catch {
+      /* ignore */
+    }
+    for (const canvas of canvases) {
+      if (canvas.isConnected) continue;
+      try {
+        const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+        (gl as WebGLRenderingContext | null)?.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   const restoreWebglAfterContextLoss = (): void => {
     if (document.visibilityState !== "visible") return;
@@ -475,11 +506,13 @@ export async function createTerminalSession(
   // when the transparency preference is enabled, then decode to text and run
   // the OSC 1337 preprocessor on that text stream.
   const ptyDecoder = new TextDecoder("utf-8");
-  const unlistenOutput = await onPtyOutput(ptyId, (data) => {
+  const unlistenOutput = await onPtyOutput(ptyId, (data, ack) => {
     dumpPtyChunkIfArmed(data, ptyId);
     const filtered = getPrefs().transparentBlackBg ? stripAnsiBlackBg(data) : data;
     const text = ptyDecoder.decode(filtered, { stream: true });
-    term.write(osc1337Advancer.transform(text));
+    // Ack from xterm's write callback, i.e. once the bytes are parsed, so the
+    // Rust reader's in-flight count tracks real parser progress.
+    term.write(osc1337Advancer.transform(text), ack);
   });
 
   // Wire input: xterm.js -> PTY
@@ -543,6 +576,21 @@ export async function createTerminalSession(
     promptMarkers,
     serialize() {
       return serialize.serialize();
+    },
+    setVisible(visible: boolean) {
+      if (visible === !rendererHidden) return;
+      rendererHidden = !visible;
+      if (!visible) {
+        releaseWebglAddon();
+        return;
+      }
+      // Same one-frame deferral as the context-loss restore: the container
+      // has just been switched to display:flex and needs a layout first.
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        tryLoadWebglAddon();
+        fit.fit();
+      });
     },
     dispose() {
       // Kill the backend PTY FIRST, before any UI teardown that could throw.

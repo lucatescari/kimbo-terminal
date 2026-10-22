@@ -42,9 +42,13 @@ export async function ptyIsBusy(id: number): Promise<boolean> {
   return await invoke<boolean>("pty_is_busy", { id });
 }
 
+/** Subscribe to PTY output. `ack` must be called once xterm has parsed the
+ *  chunk: the Rust reader thread stops reading while more than its limit of
+ *  bytes is unacknowledged, which is what keeps a fast `cat` from piling up
+ *  inside the webview. */
 export function onPtyOutput(
   id: number,
-  callback: (data: Uint8Array) => void,
+  callback: (data: Uint8Array, ack: () => void) => void,
 ): Promise<UnlistenFn> {
   return listen<string>(`pty-output-${id}`, (event) => {
     // Decode base64 from Rust backend.
@@ -53,7 +57,12 @@ export function onPtyOutput(
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    callback(bytes);
+    const ack = () => {
+      invoke("ack_pty", { id, bytes: bytes.length }).catch(() => {
+        /* the session is gone; the reader was released by close_pty */
+      });
+    };
+    callback(bytes, ack);
   });
 }
 

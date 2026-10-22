@@ -358,8 +358,10 @@ export function switchTab(id: number) {
   initPanes(tab.container);
   setTree(tab.treeSnapshot);
 
-  // Re-fit after switching.
+  // Re-fit after switching. Sessions get their GPU renderer back first so
+  // the fit lands on the renderer that will actually paint.
   requestAnimationFrame(() => {
+    walkLeaves(getTree(), (leaf) => leaf.session.setVisible(true));
     fitAllPanes();
     const session = getActiveSession();
     if (session) session.term.focus();
@@ -733,9 +735,12 @@ function saveCurrentTabTree() {
   }
 }
 
+/** Hide every tab. Callers save the active tab's tree first, so each tab's
+ *  treeSnapshot is current and its sessions can drop their GPU renderers. */
 function hideAllContainers() {
   for (const tab of tabs) {
     tab.container.style.display = "none";
+    walkLeaves(tab.treeSnapshot, (leaf) => leaf.session.setVisible(false));
   }
 }
 

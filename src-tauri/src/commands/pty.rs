@@ -26,6 +26,13 @@ pub fn write_pty(id: u32, data: String, manager: State<'_, PtyManager>) -> Resul
     manager.write(id, data.as_bytes())
 }
 
+/// The webview finished parsing `bytes` of output for `id`; lets the reader
+/// thread continue past its unacknowledged-bytes limit.
+#[tauri::command]
+pub fn ack_pty(id: u32, bytes: usize, manager: State<'_, PtyManager>) {
+    manager.ack(id, bytes);
+}
+
 #[tauri::command]
 pub fn resize_pty(
     id: u32,
