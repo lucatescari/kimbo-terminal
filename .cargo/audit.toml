@@ -1,7 +1,5 @@
 [advisories]
-# zip 4.x is pulled by tauri-plugin-updater for its Windows-only install
-# path (`cfg(target_os = "windows")`), where it extracts the downloaded
-# update archive. Kimbo ships macOS only, so none of that code is compiled
-# into the app. Latest updater (2.14.0) still requires zip ^4, so there is
-# nothing to upgrade to yet. Remove these once the updater moves to zip 9.
-ignore = ["RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369"]
+# Nothing ignored. The zip 4.x ignores (RUSTSEC-2026-0367 to 0369) went away
+# once tauri-plugin-updater 2.14.1 moved to zip 9. Any id added here needs a
+# comment saying why it cannot reach a shipped build.
+ignore = []
