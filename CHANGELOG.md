@@ -5,6 +5,16 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Security
+
+- **Certificate checks for update downloads are patched.** rustls-webpki 0.103.15 could accept a certificate chain through an intermediate that should have been distrusted (RUSTSEC-2026-0382). It sits under the updater's HTTPS client, the one network path that runs what it fetches. Now on 0.103.16.
+
+- **The updater plugin moved to zip 9, so the zip advisories are fixed rather than ignored.** tauri-plugin-updater 2.14.1 replaces zip 4.6.1 with 9.3.0, which clears RUSTSEC-2026-0429 and the newer zip advisories (one rated critical) along with the three that `.cargo/audit.toml` used to ignore. zip is only compiled for the Windows install path, so the macOS app never contained it, but the audit no longer needs any exceptions.
+
+- **tokio 1.54.1.** 1.54.0 had a use-after-free race in `tokio::time::Interval` on the multi-threaded runtime (CVE-2026-115567). Kimbo does not use `Interval` itself, but its dependencies run on the same runtime.
+
 ## 1.2.5 - 2026-10-20
 
 ### Fixes
