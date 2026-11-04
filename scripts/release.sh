@@ -88,6 +88,35 @@ fi
 export KIMBO_BUILD_ID="$BUILD_ID"
 echo -e "${CYAN}Build id:${NC} ${BUILD_ID}"
 
+# ---- Dependency audit ----------------------------------------------------
+# The same two audits CI runs, here BEFORE the version bump so a failure
+# strands nothing. Without this a release went out while main CI was red on
+# an advisory: v1.2.2 shipped a vulnerable rustls in the updater's TLS path.
+# Accepted advisories belong in .cargo/audit.toml with a reason, not here.
+# KIMBO_SKIP_AUDIT=1 is the emergency override, e.g. for an advisory with
+# no fix yet that the release itself does not touch.
+if [[ "${KIMBO_SKIP_AUDIT:-}" == "1" ]]; then
+  echo -e "${YELLOW}Skipping dependency audit (KIMBO_SKIP_AUDIT=1).${NC}"
+else
+  echo -e "${CYAN}Auditing dependencies...${NC}"
+  if ! cargo audit --version >/dev/null 2>&1; then
+    echo -e "${RED}cargo-audit is not installed.${NC}"
+    echo "Install it with: cargo install cargo-audit --locked"
+    exit 1
+  fi
+  if ! (cd "$REPO_ROOT" && cargo audit); then
+    echo -e "${RED}cargo audit found advisories. Fix them before releasing.${NC}"
+    echo "Set KIMBO_SKIP_AUDIT=1 only if you are sure the release is unaffected."
+    exit 1
+  fi
+  if ! (cd "$REPO_ROOT" && npm audit --omit=dev --audit-level=high); then
+    echo -e "${RED}npm audit found high or critical advisories. Fix them before releasing.${NC}"
+    echo "Set KIMBO_SKIP_AUDIT=1 only if you are sure the release is unaffected."
+    exit 1
+  fi
+  echo -e "  ${GREEN}✓${NC} No known advisories"
+fi
+
 # Release channel: stable bumps version + commits/tags/pushes + publishes a
 # normal tagged GitHub release; unstable builds a preview (X.Y.Z-unstable.N)
 # with no git mutations and overwrites the rolling "unstable" pre-release.
