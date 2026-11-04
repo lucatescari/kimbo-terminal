@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Text no longer vanishes from the terminal for the rest of the session.** After the Mac ran short of memory, most letters could disappear from a pane. The text was still there (selectable, scrollable, copyable) but drew as blank space until Kimbo was quit. macOS had reclaimed the GPU process, and Kimbo rebuilt the renderer but kept its old glyph images, which by then were empty. The glyph atlas is now discarded whenever the renderer is replaced, and the text is back on the next frame.
 
+- **The vendored copy of tao is gone.** tao 0.37.2 ships the macOS 27 crash fix ([tauri-apps/tao#1354](https://github.com/tauri-apps/tao/pull/1354)) that Kimbo had been carrying as a patched 0.37.1 since 1.2.4, so the app now uses the released crate. The release also brings two upstream fixes for macOS aborts during window and file drags.
+
+- **Routine dependency refresh.** Tauri 2.12.5, wry 0.57.1, the dialog and notification plugins, Sentry 0.49.5 on the Rust side and 11.10 in the browser, Vite 8.3.5 and Vitest 5.1.
+
 ### Security
 
 - **Certificate checks for update downloads are patched.** rustls-webpki 0.103.15 could accept a certificate chain through an intermediate that should have been distrusted (RUSTSEC-2026-0382). It sits under the updater's HTTPS client, the one network path that runs what it fetches. Now on 0.103.16.
