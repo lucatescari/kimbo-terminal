@@ -94,6 +94,10 @@ jobs:
       - name: Clippy src-tauri
         run: cargo clippy -p kimbo-app --all-targets -- -D warnings
 
+      # The app crate's unit tests (pty_manager, commands) only build on macOS.
+      - name: Rust tests (src-tauri)
+        run: cargo test -p kimbo-app
+
   audit:
     name: cargo audit
     runs-on: ubuntu-latest

@@ -10,6 +10,9 @@
     "url": "https://github.com/lucatescari/kimbo-terminal.git"
   },
   "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "start": "cargo tauri dev",
     "build": "cargo tauri build",
@@ -19,9 +22,9 @@
     "test:watch": "vitest",
     "test:browser": "vitest run -c vitest.browser.config.ts",
     "check:tests": "node scripts/check-test-mocks.mjs",
-    "test:rust": "cargo test -p kimbo-terminal -p kimbo-config",
-    "test:all": "node scripts/check-test-mocks.mjs && vitest run && vitest run -c vitest.browser.config.ts && cargo test -p kimbo-terminal -p kimbo-config",
-    "test:release": "node scripts/check-test-mocks.mjs && vitest run --no-file-parallelism && vitest run -c vitest.browser.config.ts --no-file-parallelism && cargo test -p kimbo-terminal -p kimbo-config",
+    "test:rust": "cargo test -p kimbo-terminal -p kimbo-config -p kimbo-workspace -p kimbo-claude-statusline -p kimbo-claude-notify",
+    "test:all": "node scripts/check-test-mocks.mjs && vitest run && vitest run -c vitest.browser.config.ts && npm run test:rust",
+    "test:release": "node scripts/check-test-mocks.mjs && vitest run --no-file-parallelism && vitest run -c vitest.browser.config.ts --no-file-parallelism && npm run test:rust",
     "release": "./scripts/release.sh",
     "tauri": "tauri"
   },
