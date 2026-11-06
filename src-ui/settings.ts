@@ -1131,14 +1131,6 @@ async function renderKimbo(el: HTMLElement): Promise<void> {
       setKimboCorner(v as any);
     }),
   ));
-  const chip = document.createElement("span");
-  chip.className = "kbd-chip";
-  for (const k of ["⌃", "T"]) {
-    const s = document.createElement("span");
-    s.textContent = k;
-    chip.appendChild(s);
-  }
-  widget.appendChild(row("Hide shortcut", "Temporarily hide Kimbo for this session.", chip));
   el.appendChild(widget);
 
   const shell = section("Shell integration");
