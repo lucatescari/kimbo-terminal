@@ -1458,12 +1458,12 @@ function renderAdvanced(el: HTMLElement): void {
   const cfg = section("Config");
   cfg.appendChild(row(
     "Config file",
-    "~/.config/kimbo/config.toml",
+    "~/Library/Application Support/kimbo/config.toml",
     button("Open in editor", async () => {
       try {
         await invoke("open_config_in_editor");
       } catch (e) {
-        const path = await invoke<string>("get_config_path").catch(() => "~/.config/kimbo/config.toml");
+        const path = await invoke<string>("get_config_path").catch(() => "~/Library/Application Support/kimbo/config.toml");
         const { showToast } = await import("./toast");
         showToast({
           kind: "error",

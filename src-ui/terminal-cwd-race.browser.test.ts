@@ -40,6 +40,7 @@ vi.mock("./file-path-links", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), openPath: vi.fn(), revealItemInDir: vi.fn() }));
 
+// mock-ok(@xterm/addon-webgl): tests cwd tracking for link hovers; nothing here depends on how text is drawn.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     activate() {}

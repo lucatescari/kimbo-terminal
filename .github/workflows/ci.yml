@@ -57,6 +57,11 @@ jobs:
       - name: Type check + frontend build
         run: npm run build:frontend
 
+      # Browser tests must not stub the renderer without a stated reason.
+      # See scripts/check-test-mocks.mjs and AGENTS.md.
+      - name: Test guardrails
+        run: npm run check:tests
+
       - name: Frontend unit tests
         run: npm test
 
@@ -88,6 +93,10 @@ jobs:
 
       - name: Clippy src-tauri
         run: cargo clippy -p kimbo-app --all-targets -- -D warnings
+
+      # The app crate's unit tests (pty_manager, commands) only build on macOS.
+      - name: Rust tests (src-tauri)
+        run: cargo test -p kimbo-app
 
   audit:
     name: cargo audit

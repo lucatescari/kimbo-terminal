@@ -1,7 +1,7 @@
 use std::fs;
 use tauri::{AppHandle, Manager};
 
-/// Writes the three bundled shell-init snippets to ~/.config/kimbo/shell/
+/// Writes the three bundled shell-init snippets to ~/Library/Application Support/kimbo/shell/
 /// and returns the absolute path of the target directory. Idempotent.
 #[tauri::command]
 pub fn write_kimbo_shell_scripts(app: AppHandle) -> Result<String, String> {

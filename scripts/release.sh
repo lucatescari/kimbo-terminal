@@ -3,7 +3,11 @@ set -e
 
 # Kimbo Terminal release script
 # Usage: ./scripts/release.sh
-# Bumps version, builds, tags, creates GitHub release with .dmg attached.
+# Interactive: asks for the channel. Both channels audit dependencies, build,
+# sign, notarize and run `npm run test:release`. Stable also bumps the
+# version, commits, tags, pushes and publishes a GitHub release. Unstable
+# builds X.Y.Z-unstable.N without touching git and replaces the rolling
+# `unstable` pre-release. See docs/release-identity.md.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

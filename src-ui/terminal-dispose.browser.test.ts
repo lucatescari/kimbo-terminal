@@ -19,8 +19,7 @@ vi.mock("./pty", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), openPath: vi.fn(), revealItemInDir: vi.fn() }));
 
-// Headless Chromium doesn't give WebglAddon a real GL context; stub it out to
-// avoid unrelated null-deref noise in the dispose path.
+// mock-ok(@xterm/addon-webgl): tests that dispose releases listeners and the PTY; nothing here depends on how text is drawn.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     activate() {}

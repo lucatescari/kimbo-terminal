@@ -4,10 +4,10 @@ Kimbo ships with two built-in themes (`Kimbo Dark` and `Kimbo Light`) and can in
 
 ## Managing Themes in Settings
 
-Open **Settings** (Cmd+,) → **Appearance**. The single **Themes** section groups everything under two subheaders:
+Open **Settings** (Cmd+,) → **Appearance**. Two sections hold the themes:
 
-- **Yours** — built-in themes plus any community themes you've installed. Click a card to activate it.
-- **Available** — community themes you haven't installed yet. Click a card to install and activate it in one step.
+- **Theme**: built-in themes plus any themes you've installed or imported. Click a card to activate it.
+- **Community gallery**: community themes you haven't installed yet. Click a card to install and activate it in one step. The **Create theme…** and **Import from file** buttons are here too.
 
 Right-click any card for more options:
 
@@ -19,7 +19,7 @@ Right-click any card for more options:
 
 `Activate` is disabled if the theme is already active. `Delete` is disabled on the currently active theme with a tooltip reminding you to switch away first.
 
-Installed community themes are saved to `~/.config/kimbo/themes/` as JSON files. The built-ins live inside the Kimbo binary and can't be deleted.
+Installed community themes are saved to `~/Library/Application Support/kimbo/themes/` as JSON files. The built-ins live inside the Kimbo binary and can't be deleted.
 
 ## Theme JSON schema
 
@@ -92,14 +92,18 @@ over a light terminal**. Set them explicitly on light themes.
 
 ## Testing a theme locally
 
-Drop your JSON into the user themes directory:
+The simplest way: Settings → Appearance → **Import from file**, then pick your JSON.
+
+Or drop it into the user themes directory:
 
 ```bash
-mkdir -p ~/.config/kimbo/themes
-cp my-theme.json ~/.config/kimbo/themes/
+mkdir -p ~/Library/Application\ Support/kimbo/themes
+cp my-theme.json ~/Library/Application\ Support/kimbo/themes/
 ```
 
-Open Settings → Appearance. Your theme appears under **Yours**. Click to activate.
+Open Settings → Appearance. Your theme appears in the **Theme** section. Click to activate.
+
+The full list of keys, their defaults and which ones are required lives in [`theme-contract.json`](../theme-contract.json).
 
 ## Publishing a theme
 
