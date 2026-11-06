@@ -28,6 +28,7 @@ vi.mock("./pty", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), openPath: vi.fn(), revealItemInDir: vi.fn() }));
 
+// mock-ok(@xterm/addon-webgl): tests the focus-listener/dispose race; nothing here depends on how text is drawn.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     activate() {}

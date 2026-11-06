@@ -28,7 +28,7 @@ pub struct WorkspaceProfile {
 impl WorkspaceProfile {
     /// Return the directory where profiles are stored.
     ///
-    /// Defaults to `~/.config/kimbo/profiles/`.
+    /// Defaults to `~/Library/Application Support/kimbo/profiles/`.
     pub fn profiles_dir() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))

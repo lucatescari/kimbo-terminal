@@ -31,12 +31,7 @@ vi.mock("./pty", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), openPath: vi.fn(), revealItemInDir: vi.fn() }));
 
-// Headless Chromium doesn't give WebglAddon a real GL context, and the
-// addon's internal cleanup has a null-deref path when disposed in that
-// state. That's unrelated to what we're testing here, so stub the addon
-// with a no-op shell whose dispose() does nothing. The real createTerminal
-// Session path already wraps WebglAddon in try/catch, so swapping it out
-// doesn't change any production behavior we care about.
+// mock-ok(@xterm/addon-webgl): tests fit/resize geometry from the DOM; nothing here depends on how text is drawn.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     activate() {}

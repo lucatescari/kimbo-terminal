@@ -34,6 +34,7 @@ const webgl = vi.hoisted(() => ({
 // the screen looks like, which is how a clear that scrambled every other pane
 // passed review. Rendering behaviour is covered with the real addon in
 // webgl-shared-atlas.browser.test.ts; put new rendering tests there.
+// mock-ok(@xterm/addon-webgl): checks only the ORDER of addon load vs atlas clear; pixels are checked with the real addon in webgl-shared-atlas.browser.test.ts.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class implements FakeAddon {
     public lossHandler?: () => void;

@@ -193,14 +193,14 @@ impl Default for WelcomeConfig {
 }
 
 impl AppConfig {
-    /// Returns the default configuration directory (~/.config/kimbo/).
+    /// Returns the default configuration directory (~/Library/Application Support/kimbo/ on macOS).
     pub fn config_dir() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("~/.config"))
             .join("kimbo")
     }
 
-    /// Returns the default configuration file path (~/.config/kimbo/config.toml).
+    /// Returns the default configuration file path (~/Library/Application Support/kimbo/config.toml).
     pub fn config_path() -> PathBuf {
         Self::config_dir().join("config.toml")
     }
