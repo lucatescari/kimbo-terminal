@@ -17,7 +17,13 @@ import {
   onPtyOutput,
   onPtyExit,
 } from "./pty";
-import { registerTerminal, unregisterTerminal, getTerminalOptions, normalizeFontFamily } from "./theme";
+import {
+  registerTerminal,
+  unregisterTerminal,
+  getTerminalOptions,
+  normalizeFontFamily,
+  clearGlyphAtlasForAllTerminals,
+} from "./theme";
 import { kimboBus } from "./kimbo-bus";
 import { parseOsc133 } from "./kimbo-osc";
 import { isKimboShellIntegrationEnabled } from "./kimbo";
@@ -254,11 +260,13 @@ export async function createTerminalSession(
         // must run AFTER loadAddon: it reaches the renderer through
         // `_renderer.value`, so clearing before the addon is attached would
         // no-op against the fallback renderer.
-        try {
-          term.clearTextureAtlas();
-        } catch (e) {
-          console.warn("clearTextureAtlas after WebGL reload:", e);
-        }
+        //
+        // And it must run for EVERY terminal, not only this one. The atlas is
+        // shared, so clearing it here moves glyphs out from under every other
+        // pane's cached cell coordinates; panes that never lost their context
+        // then draw scrambled fragments of other letters. See
+        // clearGlyphAtlasForAllTerminals and webgl-shared-atlas.browser.test.ts.
+        clearGlyphAtlasForAllTerminals();
       }
     } catch (e) {
       // A GPU that cannot hand out a context now will not hand one out on the

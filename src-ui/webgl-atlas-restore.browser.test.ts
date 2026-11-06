@@ -29,9 +29,11 @@ const webgl = vi.hoisted(() => ({
   events: [] as string[],
 }));
 
-// Headless Chromium gives WebglAddon no real GL context, so stub it. The stub
-// keeps the onContextLoss callback reachable, which is what lets the test fire
-// a context loss the way WebKit does when the GPU process dies.
+// The addon is stubbed here only to check call ORDER cheaply. Headless
+// Chromium does have a working WebGL2 context, and this stub cannot see what
+// the screen looks like, which is how a clear that scrambled every other pane
+// passed review. Rendering behaviour is covered with the real addon in
+// webgl-shared-atlas.browser.test.ts; put new rendering tests there.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class implements FakeAddon {
     public lossHandler?: () => void;

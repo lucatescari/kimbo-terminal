@@ -138,6 +138,28 @@ export function unregisterTerminal(term: Terminal) {
   if (idx >= 0) terminals.splice(idx, 1);
 }
 
+/**
+ * Discard the WebGL glyph atlas for EVERY terminal, never just one.
+ *
+ * addon-webgl shares one TextureAtlas between all terminals with the same
+ * font and cell config (CharAtlasCache.ts). Each terminal's renderer caches,
+ * per cell, where its glyph sits in that atlas, and only redraws cells whose
+ * content changed. `term.clearTextureAtlas()` wipes the shared atlas but drops
+ * only the caller's cache, so every other pane keeps drawing from coordinates
+ * that now hold different glyphs: scrambled letters until the text changes.
+ * Clearing through every terminal makes each one rebuild its cache. The first
+ * call wipes the atlas; the rest find it empty and only reset their own model.
+ */
+export function clearGlyphAtlasForAllTerminals(): void {
+  for (const t of terminals) {
+    try {
+      t.clearTextureAtlas();
+    } catch (e) {
+      console.warn("clearTextureAtlas:", e);
+    }
+  }
+}
+
 export async function loadTheme(name: string): Promise<void> {
   const theme = await invoke<ResolvedTheme>("get_theme", { name });
   applyTheme(theme);
