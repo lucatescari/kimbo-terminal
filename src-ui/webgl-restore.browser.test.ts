@@ -35,6 +35,7 @@ let stallMs = 0;
 let throwOnConstruct = false;
 const contextLossHandlers: Array<() => void> = [];
 
+// mock-ok(@xterm/addon-webgl): simulates a GPU stall and a constructor that throws, which a real context cannot be made to do on demand.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     constructor() {

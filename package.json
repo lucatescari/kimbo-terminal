@@ -18,9 +18,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run -c vitest.browser.config.ts",
+    "check:tests": "node scripts/check-test-mocks.mjs",
     "test:rust": "cargo test -p kimbo-terminal -p kimbo-config",
-    "test:all": "vitest run && vitest run -c vitest.browser.config.ts && cargo test -p kimbo-terminal -p kimbo-config",
-    "test:release": "vitest run --no-file-parallelism && vitest run -c vitest.browser.config.ts --no-file-parallelism && cargo test -p kimbo-terminal -p kimbo-config",
+    "test:all": "node scripts/check-test-mocks.mjs && vitest run && vitest run -c vitest.browser.config.ts && cargo test -p kimbo-terminal -p kimbo-config",
+    "test:release": "node scripts/check-test-mocks.mjs && vitest run --no-file-parallelism && vitest run -c vitest.browser.config.ts --no-file-parallelism && cargo test -p kimbo-terminal -p kimbo-config",
     "release": "./scripts/release.sh",
     "tauri": "tauri"
   },
