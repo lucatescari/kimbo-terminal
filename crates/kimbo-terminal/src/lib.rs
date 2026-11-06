@@ -1,6 +1,11 @@
 mod terminal;
 pub use terminal::PtySession;
 
+#[cfg(unix)]
+mod coalesce;
+#[cfg(unix)]
+pub use coalesce::read_coalesced;
+
 pub mod claude_session;
 pub use claude_session::{
     probe_claude_session_for_pid, probe_claude_status_for_pid, probe_claude_tab_states,
