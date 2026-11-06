@@ -32,7 +32,11 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 - **Claude Code HUD** — per-pane detection of Claude Code showing the logged-in account email, model, and session id alongside a rate-limit status line (5h / 7d windows + reset times)
 - **True color (24-bit)** — full color support for modern CLI tools
 - **Settings UI** — built-in settings panel (Cmd+,) for theme, font, keybindings, workspaces
-- **Configurable keybindings** — all shortcuts customizable via settings or config file
+- **Configurable keybindings**: every shortcut except Cmd+1-9 can be rebound in settings or the config file
+- **Multiple windows**: open another window with Cmd+N; reopen a closed tab with Cmd+Shift+T
+- **Prompt jumping**: jump to the previous or next shell prompt with Cmd+Shift+Up / Down (needs shell integration)
+- **Claude Code notifications**: per-pane alerts when Claude Code finishes or needs input
+- **Update channels**: stable, or the rolling unstable preview, with the in-app updater
 - **Session restore** — tabs and working directories persist across app restarts
 - **Clickable URLs** — Cmd+click to open links in your browser
 - **Clickable file paths** — Cmd+click a file path in the output to open it in your default app for that type (your editor for code, Preview for images); Cmd+Shift+click reveals it in Finder
@@ -48,7 +52,7 @@ A fast, themeable terminal emulator built with Rust and Tauri. Multi-pane layout
 
 ### `imgcat`
 
-Kimbo's shell init scripts (`kimbo-init.zsh` / `.bash` / `.fish`) define an `imgcat` function that emits the OSC 1337 sequence Kimbo renders. Once you've sourced the init script in your shell rc, it just works:
+Kimbo's shell init scripts (`kimbo-init.zsh` / `.bash` / `.fish`) define an `imgcat` function that emits the OSC 1337 sequence Kimbo renders. Turn on **Settings > Kimbo > Shell integration**: Kimbo writes the scripts to `~/Library/Application Support/kimbo/shell/` and shows the `source` line to add to your shell rc. After that it just works:
 
 ```bash
 imgcat /path/to/image.png
@@ -67,13 +71,15 @@ The function is skipped if you already have an `imgcat` binary on `PATH` (e.g. i
 
 ### Build from Source
 
-Requires: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) (v20+), [Tauri CLI](https://tauri.app/)
+Requires: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) 22.22 or later, [Tauri CLI](https://tauri.app/)
 
 ```bash
 git clone https://github.com/lucatescari/kimbo-terminal.git
 cd kimbo-terminal
 npm install
 cargo install tauri-cli --version "^2"
+# The app bundles two helper binaries; build them once before the first run.
+cargo build -p kimbo-claude-statusline -p kimbo-claude-notify
 ```
 
 **Development:**
@@ -81,10 +87,12 @@ cargo install tauri-cli --version "^2"
 npm start
 ```
 
-**Production build (signed .app + .dmg on macOS):**
+**Local build (unsigned .app + .dmg):**
 ```bash
-npm run build
+npm run build -- --no-sign
 ```
+
+Without `--no-sign` the build stops at updater signing, which needs the release key. Signed and notarized builds come only from `scripts/release.sh`.
 
 The built app is at `target/release/bundle/macos/Kimbo.app`.
 
@@ -94,19 +102,21 @@ Signed macOS builds (`.dmg` and `.app.tar.gz`, Apple Silicon) are available on t
 
 ## System Requirements
 
-- macOS 13 (Ventura) or later, Apple Silicon or Intel.
+- macOS 13 (Ventura) or later, Apple Silicon. Intel Macs: build from source (untested).
 
 ### Building from source
 
-- Rust (stable) and Node.js 20+.
+- Rust (stable) and Node.js 22.22 or later.
 
 ## Configuration
 
-Config file: `~/.config/kimbo/config.toml`
+Config file: `~/Library/Application Support/kimbo/config.toml`
+
+An excerpt of the common settings (the file also has `[updates]`, `[telemetry]`, `[toast]`, `[welcome]`, `[kimbo]` and `[keybindings.bindings]` sections; the settings UI writes all of them):
 
 ```toml
 [general]
-default_shell = "/bin/zsh"
+default_shell = "/bin/zsh"   # defaults to $SHELL
 
 [font]
 family = "JetBrains Mono"
@@ -136,7 +146,10 @@ Or use the built-in settings UI (Cmd+,).
 | Shortcut | Action |
 |---|---|
 | Cmd+K | Command palette |
+| Cmd+O | Projects |
+| Cmd+N | New window |
 | Cmd+T | New tab |
+| Cmd+Shift+T | Reopen closed tab |
 | Cmd+Shift+W | Close tab |
 | Cmd+D | Split vertically |
 | Cmd+Shift+D | Split horizontally |
@@ -145,10 +158,11 @@ Or use the built-in settings UI (Cmd+,).
 | Cmd+] / Cmd+[ | Next / previous tab |
 | Cmd+1-9 | Switch to tab by number |
 | Cmd+F | Find in scrollback |
+| Cmd+Shift+Up / Down | Jump to previous / next prompt |
 | Cmd+, | Settings |
 | Cmd+Q | Quit |
 
-All keybindings are customizable in Settings > Keybindings.
+All shortcuts except Cmd+1-9 can be rebound in Settings > Keybinds.
 
 ### Mouse
 
@@ -167,17 +181,21 @@ Kimbo uses JSON themes in VS Code format. Two built-in themes ship with the app:
 
 More themes (including Catppuccin Mocha and Latte) install with one click from **Settings → Appearance**. You can also create your own — see [`docs/themes.md`](docs/themes.md) for the schema and the [kimbo-themes](https://github.com/lucatescari/kimbo-themes) repo for community submissions.
 
-Manual install: drop `.json` files in `~/.config/kimbo/themes/`.
+Manual install: drop `.json` files in `~/Library/Application Support/kimbo/themes/`, or use **Import from file** in Settings > Appearance.
 
 ## Scripts
 
 | Command | Description |
 |---|---|
 | `npm start` | Run in development mode |
-| `npm run build` | Production build (.app + .dmg) |
-| `npm test` | Run frontend tests |
-| `npm run test:rust` | Run Rust tests |
-| `npm run test:all` | Run all tests |
+| `npm run build` | App build (.app + .dmg); add `-- --no-sign` locally |
+| `npm run build:frontend` | Type-check (tsc) and build the frontend |
+| `npm test` | Frontend unit tests (vitest, jsdom) |
+| `npm run test:browser` | Browser tests in real headless Chromium with WebGL2 (run `npx playwright install chromium` once) |
+| `npm run test:rust` | Rust tests (workspace crates) |
+| `npm run check:tests` | Guardrail: browser tests may not stub the renderer without a reason |
+| `npm run test:all` | Everything above except the type-check |
+| `npm run release` | Cut a release (maintainer only, see CONTRIBUTING) |
 
 ## Project Structure
 
@@ -187,15 +205,18 @@ kimbo-terminal/
   src-ui/             # TypeScript frontend (xterm.js, tabs, settings, etc.)
   crates/
     kimbo-terminal/            # Raw PTY wrapper (spawn, read/write, resize, CWD)
-    kimbo-config/              # Config loading, JSON themes, keybinding definitions
+    kimbo-config/              # Config loading, JSON themes, keybinding overrides
     kimbo-workspace/           # Project detection and directory scanning
     kimbo-claude-statusline/   # Claude Code rate-limit status line (5h / 7d + reset time)
     kimbo-claude-notify/       # Claude Code per-pane notifications
+  scripts/            # release, DMG and icon scripts, test guardrails
+  docs/               # theme schema, release identity
+  theme-contract.json # every colour key a theme may set
 ```
 
 ## Platform Support
 
-- **macOS 13 (Ventura) or later** — fully supported (Apple Silicon and Intel)
+- **macOS 13 (Ventura) or later**: fully supported on Apple Silicon; Intel only when built from source
 - **Linux** — planned
 
 ## Contributing

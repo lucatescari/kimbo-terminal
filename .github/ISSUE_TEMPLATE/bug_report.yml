@@ -27,8 +27,18 @@ body:
     id: kimbo-version
     attributes:
       label: Kimbo version
-      description: See Kimbo → About, or the title of the latest release you installed.
-      placeholder: e.g. 1.0.0
+      description: Settings > About shows the version and the build id in brackets.
+      placeholder: e.g. 1.2.5 (a2fd4f1)
+    validations:
+      required: true
+  - type: dropdown
+    id: update-channel
+    attributes:
+      label: Update channel
+      options:
+        - Stable
+        - Unstable
+        - Built from source
     validations:
       required: true
   - type: input

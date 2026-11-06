@@ -297,7 +297,7 @@ impl Theme {
     }
 
     /// Loads a theme by name. Checks in order:
-    /// 1. User themes directory (`~/.config/kimbo/themes/<name>.toml`)
+    /// 1. User themes directory (`~/Library/Application Support/kimbo/themes/<name>.toml`)
     /// 2. Built-in themes
     /// 3. Community repo (auto-downloads and installs)
     pub fn load_by_name(name: &str) -> Option<Theme> {
@@ -326,7 +326,7 @@ impl Theme {
         }
     }
 
-    /// Loads a theme from `~/.config/kimbo/themes/<name>.toml`.
+    /// Loads a theme from `~/Library/Application Support/kimbo/themes/<name>.toml`.
     fn load_from_user_dir(name: &str) -> Option<Theme> {
         let dir = dirs::config_dir()?.join("kimbo").join("themes");
         let path = dir.join(format!("{name}.toml"));
@@ -401,7 +401,7 @@ impl Theme {
     }
 
     /// Downloads and installs a theme from the community repo.
-    /// Fetches `<name>.toml` from GitHub and saves it to `~/.config/kimbo/themes/`.
+    /// Fetches `<name>.toml` from GitHub and saves it to `~/Library/Application Support/kimbo/themes/`.
     pub fn install_from_repo(name: &str) -> anyhow::Result<Theme> {
         let url = format!("{}/{name}.toml", Self::THEMES_REPO_URL);
         let body = ureq::get(&url).call()?.body_mut().read_to_string()?;
@@ -421,7 +421,7 @@ impl Theme {
         Ok(theme)
     }
 
-    /// Lists all themes in `~/.config/kimbo/themes/`.
+    /// Lists all themes in `~/Library/Application Support/kimbo/themes/`.
     fn list_user_themes() -> Option<Vec<Theme>> {
         let dir = dirs::config_dir()?.join("kimbo").join("themes");
         let entries = std::fs::read_dir(dir).ok()?;
@@ -536,7 +536,7 @@ impl JsonTheme {
     }
 
     /// Load a theme by name. Checks user themes dir first
-    /// (`~/.config/kimbo/themes/<name>.json`), then falls back to built-ins.
+    /// (`~/Library/Application Support/kimbo/themes/<name>.json`), then falls back to built-ins.
     pub fn load_by_name(name: &str) -> Option<Self> {
         // Try user themes directory first.
         if let Some(dir) = dirs::config_dir() {
@@ -624,7 +624,7 @@ impl JsonTheme {
 pub enum ThemeSource {
     /// Shipped in the binary (see `BUILTIN_JSON_NAMES`).
     Builtin,
-    /// Present on disk at `~/.config/kimbo/themes/<slug>.json` (not builtin).
+    /// Present on disk at `~/Library/Application Support/kimbo/themes/<slug>.json` (not builtin).
     Installed,
     /// Listed in the community `index.json` but not locally installed.
     Available,

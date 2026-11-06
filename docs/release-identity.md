@@ -77,8 +77,8 @@ you just have to pick the version yourself.
 - **In `latest.json`.** A top-level `build_id` key on both channels. This is
   what the stable path reads back to detect a promotion. `tauri-plugin-updater`
   deserialises the manifest without `deny_unknown_fields`, so clients too old
-  to know about the key ignore it rather than failing to parse — verified
-  against `tauri-plugin-updater` 2.10.
+  to know about the key ignore it rather than failing to parse. Verified
+  against `tauri-plugin-updater` 2.10 and re-checked on 2.14.1.
 - **In the GitHub release.** Both the notes and, for unstable, the release
   title.
 

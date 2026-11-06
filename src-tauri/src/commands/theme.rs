@@ -174,7 +174,7 @@ pub fn install_theme(
 }
 
 /// Install a theme from a local `.json` file the user picked via the dialog.
-/// Validates the payload, writes it to `~/.config/kimbo/themes/{slug}.json`,
+/// Validates the payload, writes it to `~/Library/Application Support/kimbo/themes/{slug}.json`,
 /// and re-emits the unified list so the gallery refreshes without a manual
 /// reload. The slug is derived from the file's stem (e.g.
 /// `/Users/x/tokyo-night.json` → `tokyo-night`) with only ASCII letters,
