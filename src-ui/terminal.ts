@@ -274,6 +274,9 @@ export async function createTerminalSession(
         // then draw scrambled fragments of other letters. See
         // clearGlyphAtlasForAllTerminals and webgl-shared-atlas.browser.test.ts.
         clearGlyphAtlasForAllTerminals();
+        // The atlas is fresh now. Without this reset, every later load (a
+        // hidden tab being shown again) would wipe it for every pane again.
+        webglContextWasLost = false;
       }
     } catch (e) {
       // A GPU that cannot hand out a context now will not hand one out on the

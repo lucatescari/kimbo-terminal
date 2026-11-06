@@ -11,6 +11,7 @@ import "@xterm/xterm/css/xterm.css";
 let constructed = 0;
 let disposed = 0;
 
+// mock-ok(@xterm/addon-webgl): counts addon create/dispose across hide and show; the pixels after a re-show are checked with the real addon in webgl-shared-atlas.browser.test.ts.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     constructor() { constructed++; }

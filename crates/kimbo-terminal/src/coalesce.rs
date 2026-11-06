@@ -46,7 +46,11 @@ pub fn read_coalesced(fd: RawFd, buf: &mut [u8], settle: Duration) -> io::Result
     unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
     let timeout_ms = settle.as_millis().max(1) as libc::c_int;
     while total < buf.len() {
-        let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ready = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
         if ready <= 0 || pfd.revents & libc::POLLIN == 0 {
             break;
@@ -106,7 +110,10 @@ mod tests {
         let mut buf = [0u8; 65536];
         let n = read_coalesced(rfd, &mut buf, Duration::from_millis(5)).unwrap();
         writer.join().unwrap();
-        assert!(n > 4096, "expected several 4 KB writes in one read, got {n}");
+        assert!(
+            n > 4096,
+            "expected several 4 KB writes in one read, got {n}"
+        );
         assert_eq!(n % 4096, 0);
     }
 
@@ -138,7 +145,10 @@ mod tests {
         let (rfd, w) = pipe();
         drop(w);
         let mut buf = [0u8; 65536];
-        assert_eq!(read_coalesced(rfd, &mut buf, Duration::from_millis(5)).unwrap(), 0);
+        assert_eq!(
+            read_coalesced(rfd, &mut buf, Duration::from_millis(5)).unwrap(),
+            0
+        );
     }
 
     #[test]

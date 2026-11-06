@@ -35,6 +35,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
+// mock-ok(@xterm/addon-webgl): checks only that PTY output is acked after xterm parses it; nothing here depends on what the renderer draws.
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     activate() {}

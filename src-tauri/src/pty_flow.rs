@@ -43,7 +43,11 @@ impl FlowGate {
         Self {
             high_water,
             low_water,
-            state: Mutex::new(State { in_flight: 0, paused: false, closed: false }),
+            state: Mutex::new(State {
+                in_flight: 0,
+                paused: false,
+                closed: false,
+            }),
             cv: Condvar::new(),
         }
     }
