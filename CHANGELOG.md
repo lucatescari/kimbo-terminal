@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 
-- **Text no longer vanishes from the terminal for the rest of the session.** After the Mac ran short of memory, most letters could disappear from a pane. The text was still there (selectable, scrollable, copyable) but drew as blank space until Kimbo was quit. macOS had reclaimed the GPU process, and Kimbo rebuilt the renderer but kept its old glyph images, which by then were empty. The glyph atlas is now discarded whenever the renderer is replaced, and the text is back on the next frame.
+- **Text no longer vanishes from the terminal for the rest of the session.** After the Mac ran short of memory, most letters could disappear from a pane. The text was still there (selectable, scrollable, copyable) but drew as blank space until Kimbo was quit. macOS had reclaimed the GPU process, and Kimbo rebuilt the renderer but kept its old glyph images, which by then were empty. The glyph atlas is now discarded whenever the renderer is replaced, and the text is back on the next frame. All panes with the same font share that atlas, so every one of them redraws from scratch at that moment; otherwise the other panes would keep drawing from glyph positions that now hold different letters.
 
 - **The vendored copy of tao is gone.** tao 0.37.2 ships the macOS 27 crash fix ([tauri-apps/tao#1354](https://github.com/tauri-apps/tao/pull/1354)) that Kimbo had been carrying as a patched 0.37.1 since 1.2.4, so the app now uses the released crate. The release also brings two upstream fixes for macOS aborts during window and file drags.
 
