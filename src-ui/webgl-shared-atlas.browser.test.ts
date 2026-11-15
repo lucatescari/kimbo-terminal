@@ -174,4 +174,69 @@ describe("shared WebGL glyph atlas across panes", () => {
     // And the text is actually there, not blank cells.
     expect(inkPixels(shown)).toBeGreaterThan(200);
   });
+
+  /** What tabs.ts does when a tab goes out of view and comes back. */
+  const hideTab = (s: Session, parent: HTMLElement): void => {
+    parent.style.display = "none";
+    s.setVisible(false);
+  };
+  const showTab = async (s: Session, parent: HTMLElement): Promise<void> => {
+    parent.style.display = "";
+    s.setVisible(true);
+    await nextFrame();
+    await nextFrame();
+  };
+
+  it("hiding and showing a tab leaves every pane drawing correctly", { timeout: 20_000 }, async () => {
+    // The hidden pane releases its renderer (and with it its share of the
+    // atlas) and gets a new one on show, while the visible pane keeps using
+    // the shared atlas the whole time.
+    const a = await openPane("hello world from pane a\r\n");
+    const b = await openPane("the quick brown fox jumps over the lazy dog");
+    await nextFrame();
+    await nextFrame();
+
+    hideTab(a, parents[0]);
+    expect(webglRenderer(a.term)?._gl, "hidden pane holds no WebGL renderer").toBeFalsy();
+    // B keeps adding glyphs to the atlas while A is away.
+    await write(b.term, "\r\nZYXWVUTSRQPONM 0123456789 !@#$%^&*()");
+    await nextFrame();
+
+    await showTab(a, parents[0]);
+    expect(webglRenderer(a.term)?._gl, "shown pane is back on WebGL").toBeTruthy();
+    expect(webglRenderer(a.term)._charAtlas).toBe(webglRenderer(b.term)._charAtlas);
+    await write(a.term, "pack my box with five dozen liquor jugs");
+    await nextFrame();
+    await nextFrame();
+
+    const shownB = snapshot(b.term);
+    expect(differingPixels(shownB, fromScratch(b.term))).toBe(0);
+    const shownA = snapshot(a.term);
+    expect(differingPixels(shownA, fromScratch(a.term))).toBe(0);
+    expect(inkPixels(shownA)).toBeGreaterThan(200);
+  });
+
+  it("after a context loss, showing a tab again does not wipe the atlas for every pane", { timeout: 20_000 }, async () => {
+    // Recovering from a context loss clears the shared atlas once. A later
+    // tab switch reuses a healthy atlas; clearing it again would force every
+    // pane to re-rasterize all of its glyphs on each switch.
+    const a = await openPane("hello world from pane a\r\n");
+    const b = await openPane("the quick brown fox jumps over the lazy dog");
+    await nextFrame();
+    await nextFrame();
+    await loseContextAndRefocus(a.term);
+
+    // A wipe is invisible on the next frame (every pane just redraws), so
+    // count wipes on the real shared atlas. The spy passes through.
+    const atlas = webglRenderer(b.term)._charAtlas;
+    const wipes = vi.spyOn(atlas, "clearTexture");
+    hideTab(a, parents[0]);
+    await showTab(a, parents[0]);
+    expect(webglRenderer(a.term)._charAtlas).toBe(atlas);
+    expect(wipes).not.toHaveBeenCalled();
+    wipes.mockRestore();
+
+    const shownB = snapshot(b.term);
+    expect(differingPixels(shownB, fromScratch(b.term))).toBe(0);
+  });
 });

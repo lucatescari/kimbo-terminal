@@ -5,6 +5,14 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Performance
+
+- **Hidden tabs no longer hold a GPU renderer.** Every terminal keeps its own WebGL context, and on WKWebView each one is backed by IOSurfaces shared with the GPU process: about 50 MB of graphics memory per tab, kept alive while the tab was out of view. A session now drops its WebGL addon when its tab is hidden and gets it back on the frame the tab is shown again. Ten idle tabs measured 733 MB before and 369 MB after, with the graphics share going from 672 MB to 180 MB.
+
+- **PTY output is flow controlled.** The Rust reader thread used to forward bytes as fast as the shell produced them, while xterm.js parses at a fraction of that rate, so a long `cat` queued tens of megabytes of base64 inside the webview (780 MB peak for a 100 MB stream). The reader now stops at 1 MiB of unacknowledged bytes and resumes once the webview has parsed down to 256 KiB, which fills the PTY and blocks the writer the way a native terminal does. Since macOS hands out about 1 KB per read under that back pressure, the reader also coalesces bulk output into 64 KB chunks before emitting, so there are far fewer events and acks. A 100 MB stream now renders in 7.2 s instead of 8.8 s with a 393 MB peak, and Ctrl-C lands within a fraction of a second of what is on screen.
+
 ## 1.2.6 - 2026-11-06
 
 ### Fixes

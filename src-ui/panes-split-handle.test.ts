@@ -25,6 +25,7 @@ vi.mock("./terminal", () => {
       id, ptyId: 1000 + id, cwd: null, container, disposed: false,
       term: { focus() {}, buffer: { active: { viewportY: 0, baseY: 0 } }, scrollToBottom() {} },
       fit: { fit() {} }, search: {},
+      setVisible() {},
       dispose() { session.disposed = true; container.remove(); },
     };
     sessions.push(session);

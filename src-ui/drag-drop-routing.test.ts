@@ -52,6 +52,7 @@ vi.mock("./terminal", () => {
       },
       fit: { fit() {} },
       search: {},
+      setVisible() {},
       dispose() {
         session.disposed = true;
         container.remove();

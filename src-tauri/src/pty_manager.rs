@@ -1,19 +1,34 @@
-use kimbo_terminal::PtySession;
+use crate::pty_flow::{FlowGate, DEFAULT_HIGH_WATER, DEFAULT_LOW_WATER};
+use kimbo_terminal::{read_coalesced, PtySession};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Bytes per webview event: fewer, larger events cost less CPU on both
+/// sides. Each event is one evaluateJavaScript message to WebKit; after a
+/// long stream about 50 MB of their out-of-line buffers stay charged to this
+/// process for a while, independent of the chunk size (same at 16 KB).
+const READ_CHUNK: usize = 64 * 1024;
+
+/// How long the reader waits for the next bulk chunk before emitting what it
+/// has. Bounds the extra latency of coalescing at about one frame.
+const READ_SETTLE: std::time::Duration = std::time::Duration::from_millis(2);
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<u32, PtySession>>,
+    /// One flow gate per session, shared with its reader thread. See
+    /// `pty_flow` for why the reader must wait on the webview.
+    gates: Mutex<HashMap<u32, Arc<FlowGate>>>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            gates: Mutex::new(HashMap::new()),
         }
     }
 
@@ -31,39 +46,55 @@ impl PtyManager {
         let raw_fd = session.master_raw_fd();
         let event_name = format!("pty-output-{}", id);
         let exit_event = format!("pty-exit-{}", id);
+        let gate = Arc::new(FlowGate::with_marks(DEFAULT_HIGH_WATER, DEFAULT_LOW_WATER));
+        let reader_gate = gate.clone();
 
-        // Spawn background reader thread. A large buffer lets a single read
-        // drain big bursts (e.g. `cat`ing a file or a fast TUI repaint) in one
-        // syscall, cutting the number of base64 encodes and IPC events ~16x
-        // versus a 4 KB buffer.
+        // Spawn background reader thread. READ_CHUNK is the unit of one
+        // webview event; read_coalesced fills it from the ~1 KB reads macOS
+        // hands out under back pressure.
         std::thread::spawn(move || {
-            let mut buf = [0u8; 65536];
+            let mut buf = [0u8; READ_CHUNK];
             loop {
-                let n = unsafe {
-                    // Temporarily switch to blocking mode for this read.
-                    let flags = libc::fcntl(raw_fd, libc::F_GETFL);
-                    libc::fcntl(raw_fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-                    let result =
-                        libc::read(raw_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len());
-                    // Restore original flags.
-                    libc::fcntl(raw_fd, libc::F_SETFL, flags);
-                    result
-                };
-                if n <= 0 {
+                // Back pressure: stop reading while the webview still has
+                // DEFAULT_HIGH_WATER unparsed bytes. The PTY buffer then
+                // fills and the child blocks on write, as it would on a
+                // native terminal. `false` means the session was closed.
+                if !reader_gate.wait_for_credit() {
+                    break;
+                }
+                // Blocking read that gathers bulk output into one chunk:
+                // macOS returns ~1 KB per read under back pressure, which
+                // would mean one event and one ack per kilobyte.
+                let n = read_coalesced(raw_fd, &mut buf, READ_SETTLE).unwrap_or_default();
+                if n == 0 {
                     let _ = app.emit(&exit_event, ());
                     break;
                 }
                 use base64::Engine;
-                let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n as usize]);
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                reader_gate.add(n);
                 let _ = app.emit(&event_name, encoded);
             }
         });
 
+        self.gates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, gate);
         self.sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(id, session);
         Ok(id)
+    }
+
+    /// The webview parsed `bytes` of output for `id`. Unknown ids are
+    /// ignored: acks can trail a close.
+    pub fn ack(&self, id: u32, bytes: usize) {
+        let gates = self.gates.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(gate) = gates.get(&id) {
+            gate.ack(bytes);
+        }
     }
 
     pub fn write(&self, id: u32, data: &[u8]) -> Result<(), String> {
@@ -81,6 +112,16 @@ impl PtyManager {
     }
 
     pub fn close(&self, id: u32) -> Result<(), String> {
+        // Release the reader first: a thread parked in wait_for_credit never
+        // reaches the read() that would see the closed fd.
+        if let Some(gate) = self
+            .gates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id)
+        {
+            gate.close();
+        }
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         // Kill BEFORE removing so the kill is observable from this command
         // result and not coupled to Drop firing. Drop still runs on remove,

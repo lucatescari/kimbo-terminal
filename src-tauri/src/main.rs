@@ -2,6 +2,7 @@
 
 mod commands;
 mod notify_socket;
+mod pty_flow;
 mod pty_manager;
 
 use commands::theme::ThemeState;
@@ -348,6 +349,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::pty::create_pty,
             commands::pty::write_pty,
+            commands::pty::ack_pty,
             commands::pty::resize_pty,
             commands::pty::close_pty,
             commands::pty::get_cwd,

@@ -70,6 +70,7 @@ vi.mock("./terminal", () => {
         // Default empty serialize so existing tests don't accidentally
         // capture scrollback. Per-test overrides set this to a known value.
         serialize: vi.fn().mockReturnValue(""),
+        setVisible: vi.fn(),
         dispose() {
           session.disposed = true;
           container.remove();
@@ -1415,5 +1416,48 @@ describe("codex's title spinner drives the activity dot", () => {
 
     const el = h.tabBar.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`)!;
     expect(el.dataset.activity).toBeUndefined();
+  });
+});
+
+describe("GPU renderer follows tab visibility", () => {
+  async function frame(): Promise<void> {
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  }
+
+  it("creating a new tab hides the previous tab's sessions", async () => {
+    const h = await mount();
+    await h.tabs.createTab();
+    const [a] = h.sessions;
+    await h.tabs.createTab();
+    expect(a.setVisible).toHaveBeenCalledWith(false);
+  });
+
+  it("switching tabs hides the old tab's sessions and shows the new one's", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    await h.tabs.createTab();
+    const [a, b] = h.sessions;
+    a.setVisible.mockClear();
+    b.setVisible.mockClear();
+
+    h.tabs.switchTab(tabA.id);
+    await frame();
+    expect(b.setVisible).toHaveBeenCalledWith(false);
+    expect(a.setVisible).toHaveBeenLastCalledWith(true);
+  });
+
+  it("shows every pane of a split tab, not just the active one", async () => {
+    const h = await mount();
+    const tabA = await h.tabs.createTab();
+    await h.panes.splitActive("vertical");
+    await h.tabs.createTab();
+    const [a1, a2] = h.sessions;
+    a1.setVisible.mockClear();
+    a2.setVisible.mockClear();
+
+    h.tabs.switchTab(tabA.id);
+    await frame();
+    expect(a1.setVisible).toHaveBeenLastCalledWith(true);
+    expect(a2.setVisible).toHaveBeenLastCalledWith(true);
   });
 });
