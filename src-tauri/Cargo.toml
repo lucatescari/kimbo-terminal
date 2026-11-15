@@ -33,7 +33,7 @@ kimbo-claude-statusline = { path = "../crates/kimbo-claude-statusline" }
 kimbo-terminal = { path = "../crates/kimbo-terminal" }
 kimbo-workspace = { path = "../crates/kimbo-workspace" }
 sentry = "0.49"
-tauri-plugin-sentry = "0.8"
+tauri-plugin-sentry = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
