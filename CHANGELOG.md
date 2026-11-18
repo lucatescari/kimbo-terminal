@@ -5,6 +5,12 @@ All notable changes to Kimbo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## Unreleased
+
+### Changed
+
+- **Quieter labels in Settings.** Section headings, the sidebar heading, the theme card badge and the coming soon tag now read in sentence case without the wide letter spacing, at a slightly larger size. Titles in Settings, About and the welcome screen use a lighter weight, and the drop hint over a pane no longer starts with a paperclip emoji.
+
 ## 1.2.7 - 2026-11-18
 
 ### Performance
