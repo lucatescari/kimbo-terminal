@@ -90,8 +90,8 @@ function setTarget(paneId: number, pathCount: number) {
   currentTargetId = paneId;
 }
 
-function hintText(n: number): string {
-  return `📎 Drop to paste ${n} path${n === 1 ? "" : "s"}`;
+export function hintText(n: number): string {
+  return `Drop to paste ${n} path${n === 1 ? "" : "s"}`;
 }
 
 /**

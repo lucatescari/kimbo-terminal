@@ -1095,12 +1095,10 @@ body {
 
 .settings .side-head {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--fg-dim);
-  letter-spacing: 0.08em;
   padding: 6px 10px 10px;
-  text-transform: uppercase;
 }
 
 .settings .nav {
@@ -1173,7 +1171,7 @@ body {
 .settings h1 {
   font-family: var(--font-ui);
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--fg-strong);
   margin: 0 0 2px;
   letter-spacing: -0.01em;
@@ -1186,11 +1184,9 @@ body {
 .settings .section { margin-bottom: 28px; }
 .settings .section-head {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--fg-dim);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   margin: 0 0 10px;
   display: flex;
   align-items: center;
@@ -1879,14 +1875,12 @@ body {
   top: 8px;
   right: 8px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   padding: 2px 5px;
   border-radius: 3px;
   background: var(--tc-overlay-bg, color-mix(in oklab, var(--bg) 50%, transparent));
   color: var(--tc-overlay-fg, var(--fg-muted));
   border: 1px solid var(--tc-overlay-border, transparent);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   backdrop-filter: blur(4px);
 }
 
@@ -2026,7 +2020,7 @@ body {
   justify-content: center;
   font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .ws-row .title {
   font-weight: 600;
@@ -2071,7 +2065,7 @@ body {
 }
 .about-identity .name {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--fg-strong);
   letter-spacing: -0.01em;
 }
@@ -2091,14 +2085,12 @@ body {
 /* Coming-soon badge */
 .cs-tag {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   padding: 1px 6px;
   border-radius: 3px;
   background: color-mix(in oklab, var(--warn) 20%, transparent);
   color: var(--warn);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 600;
+  font-weight: 500;
   margin-left: 6px;
 }
 
@@ -2253,7 +2245,7 @@ body {
 .welcome h2 {
   font-family: var(--font-ui);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--fg-strong);
   letter-spacing: -0.01em;
   margin: 0;
