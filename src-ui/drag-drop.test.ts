@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { quotePath, joinPathsForPaste } from "./drag-drop";
+import { quotePath, joinPathsForPaste, hintText } from "./drag-drop";
 
 describe("quotePath", () => {
   it("wraps a simple path in single quotes", () => {
@@ -83,5 +83,13 @@ describe("resolveTargetPaneId", () => {
 
   it("returns null if there is no hit and no active pane (-1)", () => {
     expect(resolveTargetPaneId(null, -1)).toBeNull();
+  });
+});
+
+describe("hintText", () => {
+  it("reads as plain text with no emoji", () => {
+    expect(hintText(1)).toBe("Drop to paste 1 path");
+    expect(hintText(3)).toBe("Drop to paste 3 paths");
+    expect(hintText(3)).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
