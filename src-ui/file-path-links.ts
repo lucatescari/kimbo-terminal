@@ -70,7 +70,9 @@ function readLogicalLine(
  *  the OS default app for its type (your editor for code, Preview for images,
  *  Finder for folders); Cmd+Shift+click reveals it in Finder. Relative paths
  *  resolve against the shell's current working directory, supplied lazily via
- *  `getCwd` so the freshest OSC 7 value is used at hover time.
+ *  `getCwd` so the freshest OSC 7 value is used at hover time. A filename with
+ *  no folder ("shot.png") is looked for there first and then in the user's
+ *  Downloads, Desktop and Documents folders.
  *
  *  The link provider and its cache live for the Terminal's lifetime and are
  *  released by term.dispose() — no separate teardown needed (same as the OSC 8
@@ -80,17 +82,28 @@ export function attachFilePathLinks(
   getCwd: () => string | null,
   preview?: Pick<ImagePreview, "show" | "hide">,
 ): void {
-  // Map of "<cwd>\0<raw>" -> resolved absolute path, or null when the path does
-  // not exist. Caching avoids a backend round-trip on every re-hover.
+  // Map of "<cwd>\0<raw>\0<bare>" -> resolved absolute path, or null when the
+  // path does not exist. Caching avoids a backend round-trip on every re-hover.
   const cache = new Map<string, string | null>();
 
-  async function resolveCached(raw: string, cwd: string | null): Promise<string | null> {
-    const key = (cwd ?? "") + "\0" + raw;
+  /** `bare` marks a filename with no folder. Only those are also looked up in
+   *  the user's Downloads, Desktop and Documents folders, and the flag is part
+   *  of the cache key because the same text can resolve differently with it. */
+  async function resolveCached(
+    raw: string,
+    cwd: string | null,
+    bare = false,
+  ): Promise<string | null> {
+    const key = (cwd ?? "") + "\0" + raw + "\0" + (bare ? "1" : "0");
     const hit = cache.get(key);
     if (hit !== undefined) return hit;
     let resolved: string | null = null;
     try {
-      resolved = await invoke<string | null>("resolve_existing_path", { raw, cwd });
+      resolved = await invoke<string | null>("resolve_existing_path", {
+        raw,
+        cwd,
+        searchUserDirs: bare,
+      });
     } catch {
       resolved = null;
     }
@@ -294,7 +307,7 @@ export function attachFilePathLinks(
       if (logical) {
         const candidates = detectFilePaths(logical.text);
         const resolutions = await Promise.all(
-          candidates.map((c) => resolveCached(c.raw, cwd)),
+          candidates.map((c) => resolveCached(c.raw, cwd, c.bare === true)),
         );
         for (const [i, c] of candidates.entries()) {
           const resolved = resolutions[i];

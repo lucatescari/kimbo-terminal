@@ -3,8 +3,9 @@
 // critical layer. Whether a detected candidate becomes a clickable link is
 // decided downstream by an on-disk existence check (see file-path-links.ts),
 // so this layer can be permissive: any token containing a "/" is a candidate,
-// and false positives ("and/or", "v1/v2") simply fail to resolve and never get
-// underlined.
+// as is a slash-free token shaped like a filename ("shot.png"), and false
+// positives ("and/or", "v1/v2", "example.com") simply fail to resolve and
+// never get underlined.
 
 export interface PathCandidate {
   /** Path text with surrounding punctuation and a trailing :line[:col]
@@ -14,6 +15,10 @@ export interface PathCandidate {
   startCol: number;
   /** 0-based column just past the last character of `raw` (exclusive). */
   endCol: number;
+  /** Set when `raw` is a filename with no folder ("shot.png"). The resolver
+   *  looks for such a name in the working directory first and then in the
+   *  user's Downloads, Desktop and Documents folders. */
+  bare?: true;
 }
 
 // Punctuation that commonly hugs a path in prose or shell output.
@@ -29,6 +34,22 @@ const LOCATION_SUFFIX = /:\d+(:\d+)?$/; // :line or :line:col
  *  version guarded only the outer token and "arr[i]//" still produced one. */
 function isNameable(raw: string): boolean {
   return /[^/.]/.test(raw);
+}
+
+// A filename with no folder: an optional stem, then a dot and an extension
+// that starts with a letter. The letter is what keeps numbers and versions
+// out ("3.50", "v1.2.8-unstable.2"), and the empty stem is what lets dotfiles
+// in (".gitignore"). Letters are matched by Unicode class because filenames
+// carry umlauts and accents.
+const BARE_FILENAME = /^(?:[\p{L}\p{N}_@+~-][\p{L}\p{N}._@+~-]*)?\.\p{L}[\p{L}\p{N}_-]*$/u;
+
+/** Whether a slash-free token reads as a filename. Like the slash rule this
+ *  is permissive on purpose: a domain or an email address passes too, and is
+ *  dropped downstream when nothing by that name exists on disk. The length
+ *  floor only spares the lookups for "e.g" and "i.e", which every other line
+ *  of prose would otherwise ask the disk about. */
+function isBareFilename(raw: string): boolean {
+  return raw.length >= 4 && BARE_FILENAME.test(raw);
 }
 
 /** Scan a line of terminal text and return every path-like token, with the
@@ -65,7 +86,13 @@ export function detectFilePaths(line: string): PathCandidate[] {
     if (end - start < 2) continue;
     const raw = line.slice(start, end);
     if (raw.includes("://")) continue; // URL — owned by WebLinksAddon / OSC 8
-    if (!raw.includes("/")) continue; // single-segment token, not a path
+    if (!raw.includes("/")) {
+      // No folder to go by, so only something shaped like a filename counts.
+      if (isBareFilename(raw)) {
+        out.push({ raw, startCol: start, endCol: end, bare: true });
+      }
+      continue;
+    }
     if (!isNameable(raw)) continue;
 
     out.push({ raw, startCol: start, endCol: end });
