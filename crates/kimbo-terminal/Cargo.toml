@@ -19,4 +19,4 @@ libc = "0.2"
 [dev-dependencies]
 dirs = "7"
 libc = "0.2"
-serial_test = "3"
+serial_test = "4"
