@@ -61,6 +61,42 @@ describe("detectFilePaths", () => {
     expect(detectFilePaths("just a plain word e.g. v1.2.3")).toEqual([]);
   });
 
+  it("detects a bare filename with an extension and marks it as bare", () => {
+    // Claude Code names a file it just wrote without saying where it is.
+    const line = "1. streifen-1-widerruf.png: the cancellation policy.";
+    const got = detectFilePaths(line);
+    expect(got).toHaveLength(1);
+    expect(got[0].raw).toBe("streifen-1-widerruf.png");
+    expect(got[0].bare).toBe(true);
+    expect(line.slice(got[0].startCol, got[0].endCol)).toBe("streifen-1-widerruf.png");
+  });
+
+  it("does not mark a path with a slash as bare", () => {
+    const [c] = detectFilePaths("see src-ui/theme.ts here");
+    expect(c.raw).toBe("src-ui/theme.ts");
+    expect(c.bare).toBeUndefined();
+  });
+
+  it("strips a :line suffix from a bare filename", () => {
+    const [c] = detectFilePaths("error in watcher.rs:20:9");
+    expect(c.raw).toBe("watcher.rs");
+    expect(c.bare).toBe(true);
+  });
+
+  it("detects bare filenames with umlauts and with several dots", () => {
+    const got = detectFilePaths("Übersicht-März.pdf and archive.tar.gz");
+    expect(got.map((c) => c.raw)).toEqual(["Übersicht-März.pdf", "archive.tar.gz"]);
+  });
+
+  it("detects a bare dotfile", () => {
+    expect(detectFilePaths("edit .gitignore now").map((c) => c.raw)).toEqual([".gitignore"]);
+  });
+
+  it("ignores prose, numbers and versions that only look dotted", () => {
+    const line = "Costs 3.50 in v1.2.8-unstable.2, i.e. nothing. Done... ok.";
+    expect(detectFilePaths(line)).toEqual([]);
+  });
+
   it("detects multiple paths on one line with correct columns", () => {
     const line = "cp /a/one.txt /b/two.txt";
     const got = detectFilePaths(line);
