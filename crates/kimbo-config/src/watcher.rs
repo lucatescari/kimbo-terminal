@@ -58,3 +58,58 @@ impl ConfigWatcher {
         changed
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Polls the watcher until it reports a change or the timeout runs out.
+    fn changed_within(watcher: &ConfigWatcher, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if watcher.check_changed() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    fn reports_a_write_to_the_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "a = 1\n").unwrap();
+
+        let watcher = ConfigWatcher::new(config_path.clone()).unwrap();
+        // Let the backend settle so the initial write is not what we observe.
+        std::thread::sleep(Duration::from_millis(300));
+        watcher.check_changed();
+
+        std::fs::write(&config_path, "a = 2\n").unwrap();
+
+        assert!(
+            changed_within(&watcher, Duration::from_secs(5)),
+            "a write to the watched config file was not reported"
+        );
+    }
+
+    #[test]
+    fn ignores_other_files_in_the_same_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "a = 1\n").unwrap();
+
+        let watcher = ConfigWatcher::new(config_path).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        watcher.check_changed();
+
+        std::fs::write(dir.path().join("other.toml"), "b = 1\n").unwrap();
+
+        assert!(
+            !changed_within(&watcher, Duration::from_secs(1)),
+            "a write to a sibling file was reported as a config change"
+        );
+    }
+}
