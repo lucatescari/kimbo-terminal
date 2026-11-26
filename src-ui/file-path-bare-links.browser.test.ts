@@ -31,6 +31,10 @@ function cellPoint(term: Terminal, col: number): { x: number; y: number } {
   };
 }
 
+function rowHeight(term: Terminal): number {
+  return term.element!.querySelector(".xterm-screen")!.getBoundingClientRect().height / term.rows;
+}
+
 /** xterm marks its screen element while the pointer is over a link. */
 function showsHandPointer(term: Terminal): boolean {
   return term.element!.querySelector(".xterm-screen")!.classList.contains("xterm-cursor-pointer");
@@ -92,5 +96,57 @@ describe("bare filename links in a real terminal", () => {
 
     await expect.poll(() => openMock.mock.calls.length).toBe(1);
     expect(openMock).toHaveBeenCalledWith(RESOLVED);
+  });
+});
+
+describe("a path created after its first hover, in a real terminal", () => {
+  const TEXT = "screenshots land in /out/journey/.";
+  let host: HTMLElement;
+  let term: Terminal;
+  let exists: boolean;
+
+  beforeEach(async () => {
+    invokeMock.mockReset();
+    exists = false;
+    invokeMock.mockImplementation(async (_cmd: string, args: { raw: string }) =>
+      exists && args.raw === "/out/journey/" ? "/out/journey" : null,
+    );
+    host = document.createElement("div");
+    host.style.width = "800px";
+    host.style.height = "300px";
+    document.body.appendChild(host);
+    term = new Terminal({ cols: 80, rows: 10 });
+    term.open(host);
+    attachFilePathLinks(term, () => "/cwd");
+    await new Promise<void>((done) => term.write(TEXT + "\r\nsecond row", done));
+  });
+
+  afterEach(() => {
+    term.dispose();
+    host.remove();
+  });
+
+  it("becomes clickable once the folder exists", async () => {
+    const col = TEXT.indexOf("/out/journey") + 3;
+
+    // First hover: the folder is not there yet, so no link.
+    mouse(term, "mousemove", col);
+    await expect.poll(() => invokeMock.mock.calls.length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(showsHandPointer(term)).toBe(false);
+
+    // The tool creates the folder. Keep moving the pointer off the row and
+    // back, as a person would, until the link shows up.
+    exists = true;
+    await expect
+      .poll(
+        () => {
+          mouse(term, "mousemove", 2, { clientY: cellPoint(term, 2).y + rowHeight(term) });
+          mouse(term, "mousemove", col);
+          return new Promise<boolean>((r) => setTimeout(() => r(showsHandPointer(term)), 150));
+        },
+        { timeout: 8_000, interval: 400 },
+      )
+      .toBe(true);
   });
 });

@@ -13,6 +13,14 @@ import { cellRunToRect, type Rect } from "./cell-rect";
 // entries fall off via FIFO eviction.
 const MAX_CACHE = 5_000;
 
+/** How long a "does not exist" answer is trusted. A tool often names a file
+ *  or folder just before creating it, so a miss kept for the terminal's
+ *  lifetime left such a path unlinked for good once it had been hovered too
+ *  early. Hits are kept: a path that existed stays worth a click attempt, and
+ *  a few seconds is still long enough to spare the lookups while the pointer
+ *  moves around one block of output. */
+const MISS_TTL_MS = 2_000;
+
 /** How many rows of a single wrapped logical line we are willing to stitch.
  *  A path long enough to wrap needs the rows joined before it can be matched
  *  at all, but a pathological line (minified JSON, a base64 blob) can wrap
@@ -83,8 +91,9 @@ export function attachFilePathLinks(
   preview?: Pick<ImagePreview, "show" | "hide">,
 ): void {
   // Map of "<cwd>\0<raw>\0<bare>" -> resolved absolute path, or null when the
-  // path does not exist. Caching avoids a backend round-trip on every re-hover.
-  const cache = new Map<string, string | null>();
+  // path does not exist, with the time a miss was recorded. Caching avoids a
+  // backend round-trip on every re-hover.
+  const cache = new Map<string, { resolved: string | null; at: number }>();
 
   /** `bare` marks a filename with no folder. Only those are also looked up in
    *  the user's Downloads, Desktop and Documents folders, and the flag is part
@@ -96,7 +105,11 @@ export function attachFilePathLinks(
   ): Promise<string | null> {
     const key = (cwd ?? "") + "\0" + raw + "\0" + (bare ? "1" : "0");
     const hit = cache.get(key);
-    if (hit !== undefined) return hit;
+    if (hit && (hit.resolved !== null || Date.now() - hit.at < MISS_TTL_MS)) {
+      return hit.resolved;
+    }
+    // Re-inserting below moves the entry to the back of the FIFO order.
+    if (hit) cache.delete(key);
     let resolved: string | null = null;
     try {
       resolved = await invoke<string | null>("resolve_existing_path", {
@@ -111,7 +124,7 @@ export function attachFilePathLinks(
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
     }
-    cache.set(key, resolved);
+    cache.set(key, { resolved, at: Date.now() });
     return resolved;
   }
 

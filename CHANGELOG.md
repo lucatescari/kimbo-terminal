@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **File names without a folder are clickable.** A name like `shot.png` or `watcher.rs` in terminal output now becomes a link when a file by that name exists. Kimbo looks in the pane's working directory first and then in your Downloads, Desktop and Documents folders, so a file Claude Code saved "to your Downloads folder" opens with Cmd+click even though the text never says where it is. If the same name exists in more than one of those places, the working directory wins.
 
+### Fixes
+
+- **A path created after you hovered it becomes clickable.** Kimbo remembered a "not found" answer for as long as the tab lived, so a file or folder that a tool named first and created a moment later stayed unlinked if the pointer had already passed over it. A miss is now forgotten after two seconds.
+
 ### Changed
 
 - **Quieter labels in Settings.** Section headings, the sidebar heading, the theme card badge and the coming soon tag now read in sentence case without the wide letter spacing, at a slightly larger size. Titles in Settings, About and the welcome screen use a lighter weight, and the drop hint over a pane no longer starts with a paperclip emoji.

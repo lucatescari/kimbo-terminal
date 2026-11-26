@@ -178,6 +178,45 @@ describe("attachFilePathLinks", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  it("links a path that is created after it was first hovered", async () => {
+    // A tool names a folder and creates it a moment later. A hover in between
+    // must not leave the path unlinked for the rest of the tab's life.
+    vi.useFakeTimers();
+    try {
+      let exists = false;
+      invokeMock.mockImplementation(async () => (exists ? "/abs/out/dir" : null));
+      const { term, getProvider } = fakeTerm("saved to /out/dir");
+      attachFilePathLinks(term as never, () => "/cwd");
+
+      expect(await provide(getProvider)).toBeUndefined();
+
+      exists = true;
+      vi.advanceTimersByTime(5_000);
+
+      const links = await provide(getProvider);
+      expect(links?.map((l) => l.text)).toEqual(["/out/dir"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not ask the backend again for a missing path hovered twice in a row", async () => {
+    vi.useFakeTimers();
+    try {
+      invokeMock.mockResolvedValue(null);
+      const { term, getProvider } = fakeTerm("see nope/x.ts");
+      attachFilePathLinks(term as never, () => "/cwd");
+
+      await provide(getProvider);
+      vi.advanceTimersByTime(200);
+      await provide(getProvider);
+
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("caches resolution so a repeated path is only resolved once", async () => {
     invokeMock.mockResolvedValue("/abs/a/b.ts");
     const { term, getProvider } = fakeTerm("/a/b.ts");
